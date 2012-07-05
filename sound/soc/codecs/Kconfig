@@ -227,6 +227,9 @@ config SND_SOC_MAX98095
 config SND_SOC_MAX9850
 	tristate
 
+config SND_SOC_AIC3110
+	tristate
+
 config SND_SOC_OMAP_HDMI_CODEC
        tristate
 

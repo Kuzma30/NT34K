@@ -1073,7 +1073,7 @@ static int wl12xx_fetch_firmware(struct wl1271 *wl, bool plt)
 	if (wl->fw_type == fw_type)
 		return 0;
 
-	wl1271_debug(DEBUG_BOOT, "booting firmware %s", fw_name);
+	wl1271_info("booting firmware %s", fw_name);
 
 	ret = request_firmware(&fw, fw_name, wl->dev);
 
