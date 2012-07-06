@@ -396,13 +396,17 @@ enum rproc_state {
 
 /**
  * enum rproc_err - remote processor errors
- * @RPROC_ERR_MMUFAULT:	iommmu fault error
+ * @RPROC_ERR_MMUFAULT:		iommu fault error
+ * @RPROC_ERR_EXCEPTION:	generic device exception
+ * @RPROC_ERR_WATCHDOG:		rproc watchdog error
  *
- * Each element of the enum is used as an array index. So that, the value of
+ * Each element of the enum is used as an array index. So, the value of
  * the elements should be always something sane.
  */
 enum rproc_err {
 	RPROC_ERR_MMUFAULT	= 0,
+	RPROC_ERR_EXCEPTION	= 1,
+	RPROC_ERR_WATCHDOG	= 2,
 };
 
 /**
@@ -421,6 +425,8 @@ enum rproc_err {
  * @dbg_dir: debugfs directory of this rproc device
  * @traces: list of trace buffers
  * @num_traces: number of trace buffers
+ * @last_traces: list of last trace buffers
+ * @num_last_traces: number of last trace buffers
  * @carveouts: list of physically contiguous memory allocations
  * @mappings: list of iommu mappings we initiated, needed on shutdown
  * @firmware_loading_complete: marks e/o asynchronous firmware loading
@@ -450,6 +456,8 @@ struct rproc {
 	struct dentry *dbg_dir;
 	struct list_head traces;
 	int num_traces;
+	struct list_head last_traces;
+	int num_last_traces;
 	struct list_head carveouts;
 	struct list_head mappings;
 	struct completion firmware_loading_complete;
@@ -520,6 +528,7 @@ int rproc_unregister(struct rproc *rproc);
 
 int rproc_boot(struct rproc *rproc);
 void rproc_shutdown(struct rproc *rproc);
+void rproc_error_reporter(struct rproc *rproc, enum rproc_err type);
 int rproc_set_constraints(struct device *dev, struct rproc *rproc,
 			  enum rproc_constraint type, long v);
 int rproc_pa_to_da(struct rproc *rproc, phys_addr_t pa, u64 *da);

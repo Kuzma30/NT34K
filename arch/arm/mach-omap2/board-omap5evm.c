@@ -22,6 +22,7 @@
 #include <linux/input.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
+#include <linux/leds.h>
 #include <linux/memblock.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
@@ -40,6 +41,7 @@
 
 #include <plat/common.h>
 #include <plat/i2c.h>
+#include <plat/gpio.h>
 #include <plat/omap_hsi.h>
 #include <plat/omap4-keypad.h>
 #include <plat/mmc.h>
@@ -92,6 +94,38 @@ static struct omap_board_data keypad_data = {
 	.id                     = 1,
 };
 
+static struct gpio_led sevm_gpio_leds[] = {
+	{
+		.name	= "blue",
+		.default_trigger = "timer",
+		.gpio	= OMAP_MPUIO(19),
+	},
+	{
+		.name	= "red",
+		.default_trigger = "timer",
+		.gpio	= OMAP_MPUIO(17),
+	},
+	{
+		.name	= "green",
+		.default_trigger = "timer",
+		.gpio	= OMAP_MPUIO(18),
+	},
+
+};
+
+static struct gpio_led_platform_data sevm_led_data = {
+	.leds	= sevm_gpio_leds,
+	.num_leds = ARRAY_SIZE(sevm_gpio_leds),
+};
+
+static struct platform_device sevm_leds_gpio = {
+	.name	= "leds-gpio",
+	.id	= -1,
+	.dev	= {
+		.platform_data = &sevm_led_data,
+	},
+};
+
 #ifdef CONFIG_OMAP_MUX
 static struct omap_board_mux board_mux[] __initdata = {
 	{ .reg_offset = OMAP_MUX_TERMINATOR },
@@ -122,7 +156,8 @@ static struct omap2_hsmmc_info mmc[] = {
 	},
 	{
 		.mmc		= 1,
-		.caps		= MMC_CAP_4_BIT_DATA,
+		.caps		= MMC_CAP_4_BIT_DATA | MMC_CAP_UHS_SDR12 |
+					MMC_CAP_UHS_SDR25 | MMC_CAP_UHS_DDR50,
 		.gpio_cd	= 67,
 		.gpio_wp	= -EINVAL,
 		.ocr_mask	= MMC_VDD_29_30,
@@ -239,6 +274,7 @@ static struct palmas_reg_init omap5_ldo8_init = {
 static struct palmas_reg_init omap5_ldo9_init = {
 	.warm_reset = 0,
 	.mode_sleep = 0,
+	.no_bypass = 1,
 };
 
 static struct palmas_reg_init omap5_ldoln_init = {
@@ -638,7 +674,6 @@ static struct twl6040_platform_data twl6040_data = {
 	.codec		= &twl6040_codec,
 	.vibra		= &twl6040_vibra,
 	.audpwron_gpio	= 145,
-	.irq_base	= TWL6040_CODEC_IRQ_BASE,
 };
 
 #ifdef CONFIG_OMAP5_SEVM_PALMAS
@@ -708,6 +743,7 @@ static struct platform_device *omap5evm_devices[] __initdata = {
 	&omap5evm_spdif_dit_codec,
 	&omap5evm_hdmi_audio_codec,
 	&omap5evm_abe_audio,
+	&sevm_leds_gpio,
 };
 
 static struct regulator_consumer_supply omap5_evm_vmmc1_supply[] = {
@@ -819,6 +855,14 @@ static int __init omap_5430evm_i2c_init(void)
 	omap_register_i2c_bus_board_data(4, &omap5_i2c_4_bus_pdata);
 	omap_register_i2c_bus_board_data(5, &omap5_i2c_5_bus_pdata);
 
+	/* Enable internal pull-ups for SCL, SDA lines. OMAP5 sEVM platform
+	 * does not have external pull-ups for any of the I2C buses hence
+	 * internal pull-ups are enabled
+	 */
+	omap5_i2c_pullup(1, OMAP5_I2C_PULLUP_EN, OMAP5_I2C_GLITCH_FREE_DIS);
+	omap5_i2c_pullup(2, OMAP5_I2C_PULLUP_EN, OMAP5_I2C_GLITCH_FREE_DIS);
+	omap5_i2c_pullup(3, OMAP5_I2C_PULLUP_EN, OMAP5_I2C_GLITCH_FREE_DIS);
+	omap5_i2c_pullup(4, OMAP5_I2C_PULLUP_EN, OMAP5_I2C_GLITCH_FREE_DIS);
 	omap5_i2c_pullup(5, OMAP5_I2C_PULLUP_EN, OMAP5_I2C_GLITCH_FREE_DIS);
 
 	omap_register_i2c_bus(1, 400, omap5evm_i2c_1_boardinfo,

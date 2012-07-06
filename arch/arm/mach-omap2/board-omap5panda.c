@@ -10,7 +10,7 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
-
+#include <linux/clk.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
@@ -49,12 +49,21 @@
 #include "omap5_ion.h"
 
 #include <video/omapdss.h>
-#include <video/omap-panel-lg4591.h>
+#include <video/omap-panel-generic-dpi.h>
 
 #define OMAP5_SEVM_FB_RAM_SIZE       SZ_8M /* 1280×800*4 * 2 */
 
+/* USBB3 to SMSC LAN9730 */
+#define GPIO_ETH_NRESET 15
+/* USBB2 to SMSC 3530 HUB */
+#define GPIO_HUB_NRESET 80
+
+
 #ifdef CONFIG_OMAP_MUX
 static struct omap_board_mux board_mux[] __initdata = {
+	OMAP5_MUX(FREF_CLK1_OUT, OMAP_PIN_INPUT_PULLUP),
+	OMAP5_MUX(USBB2_HSIC_STROBE, OMAP_PIN_INPUT | OMAP_MUX_MODE0),
+	OMAP5_MUX(USBB2_HSIC_DATA, OMAP_PIN_INPUT | OMAP_MUX_MODE0),
 	{ .reg_offset = OMAP_MUX_TERMINATOR },
 };
 #else
@@ -69,6 +78,7 @@ static struct __devinitdata emif_custom_configs custom_configs = {
 };
 #endif
 #endif
+
 
 static struct omap2_hsmmc_info mmc[] = {
 	{
@@ -569,7 +579,6 @@ static struct twl6040_platform_data twl6040_data = {
 	.codec		= &twl6040_codec,
 	.vibra		= &twl6040_vibra,
 	.audpwron_gpio	= 145,
-	.irq_base	= TWL6040_CODEC_IRQ_BASE,
 };
 
 static struct platform_device omap5evm_dmic_codec = {
@@ -618,6 +627,7 @@ static struct platform_device *omap5evm_devices[] __initdata = {
 
 static struct pca953x_platform_data omap5evm_gpio_expander_info = {
 	.gpio_base	= OMAP_MAX_GPIO_LINES,
+	.irq_base	= OMAP_TCA6424_IRQ_BASE,
 };
 
 static struct i2c_board_info __initdata omap5evm_i2c_5_boardinfo[] = {
@@ -639,6 +649,51 @@ static int __init omap5pandai2c_init(void)
 
 	return 0;
 }
+
+/* Display DVI */
+#define PANDA_DVI_TFP410_POWER_DOWN_GPIO	0
+
+static int omap5_panda_enable_dvi(struct omap_dss_device *dssdev)
+{
+	gpio_set_value(dssdev->reset_gpio, 1);
+	return 0;
+}
+
+static void omap5_panda_disable_dvi(struct omap_dss_device *dssdev)
+{
+	gpio_set_value(dssdev->reset_gpio, 0);
+}
+
+/* Using generic display panel */
+static struct panel_generic_dpi_data omap5_dvi_panel = {
+	.name			= "generic_720p",
+	.platform_enable	= omap5_panda_enable_dvi,
+	.platform_disable	= omap5_panda_disable_dvi,
+};
+
+struct omap_dss_device omap5_panda_dvi_device = {
+	.type			= OMAP_DISPLAY_TYPE_DPI,
+	.name			= "dvi",
+	.driver_name		= "generic_dpi_panel",
+	.data			= &omap5_dvi_panel,
+	.phy.dpi.data_lines	= 24,
+	.reset_gpio		= PANDA_DVI_TFP410_POWER_DOWN_GPIO,
+	.channel		= OMAP_DSS_CHANNEL_LCD2,
+};
+
+int __init omap5_panda_dvi_init(void)
+{
+	int r = 0;
+
+	/* Requesting TFP410 DVI GPIO and disabling it, at bootup */
+	r = gpio_request_one(omap5_panda_dvi_device.reset_gpio,
+				GPIOF_OUT_INIT_LOW, "DVI PD");
+	if (r)
+		pr_err("Failed to get DVI powerdown GPIO\n");
+
+	return r;
+}
+
 
 static struct omap_dss_hdmi_data omap5panda_hdmi_data = {
         .hpd_gpio = HDMI_GPIO_HPD,
@@ -667,13 +722,14 @@ static struct omap_dss_device omap5panda_hdmi_device = {
 };
 
 static struct omap_dss_device *omap5panda_dss_devices[] = {
+	&omap5_panda_dvi_device,
 	&omap5panda_hdmi_device,
 };
 
 static struct omap_dss_board_info omap5evm_dss_data = {
 	.num_devices	= ARRAY_SIZE(omap5panda_dss_devices),
 	.devices	= omap5panda_dss_devices,
-	.default_device	= &omap5panda_hdmi_device,
+	.default_device	= &omap5_panda_dvi_device,
 };
 
 static void omap5panda_hdmi_init(void)
@@ -688,6 +744,38 @@ static void __init omap5panda_display_init(void)
 
 	omap5panda_hdmi_init();
 	omap_display_init(&omap5evm_dss_data);
+}
+
+static const struct usbhs_omap_board_data usbhs_bdata __initconst = {
+	.port_mode[0] = OMAP_USBHS_PORT_MODE_UNUSED,
+	.port_mode[1] = OMAP_EHCI_PORT_MODE_HSIC,
+	.port_mode[2] = OMAP_EHCI_PORT_MODE_HSIC,
+	.phy_reset  = true,
+	.reset_gpio_port[0]  = -EINVAL,
+	.reset_gpio_port[1]  = GPIO_HUB_NRESET,
+	.reset_gpio_port[2]  = GPIO_ETH_NRESET
+};
+
+static void __init omap_ehci_ohci_init(void)
+{
+	struct clk *phy_ref_clk;
+
+       /* FREF_CLK1 provides the 19.2 MHz reference clock to the PHY */
+	phy_ref_clk = clk_get(NULL, "auxclk1_ck");
+	if (IS_ERR(phy_ref_clk)) {
+		pr_err("Cannot request auxclk1\n");
+	} else {
+		clk_set_rate(phy_ref_clk, 19200000);
+		clk_enable(phy_ref_clk);
+	}
+
+	omap_mux_init_gpio(GPIO_HUB_NRESET,
+			OMAP_PIN_OUTPUT | OMAP_PIN_OFF_NONE | OMAP_MUX_MODE6);
+	omap_mux_init_gpio(GPIO_ETH_NRESET,
+			OMAP_PIN_OUTPUT | OMAP_PIN_OFF_NONE | OMAP_MUX_MODE6);
+
+	usbhs_init(&usbhs_bdata);
+	return;
 }
 
 static void __init omap_5_panda_init(void)
@@ -716,6 +804,7 @@ static void __init omap_5_panda_init(void)
 			"twl6040", OMAP44XX_IRQ_SYS_2N, &twl6040_data);
 
 	omap_serial_init();
+	omap_ehci_ohci_init();
 
 	omap_hsmmc_init(mmc);
 	usb_dwc3_init();
