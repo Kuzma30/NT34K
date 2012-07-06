@@ -86,7 +86,7 @@ void __init omap4_pmic_init(const char *pmic_type,
 	omap_register_i2c_bus(1, 400, omap4_i2c1_board_info, 2);
 
 }
-
+#ifdef CONFIG_OMAP5_SEVM_PALMAS
 /**
  * omap5_pmic_init() - PMIC init for i2c
  * @bus_id:	which bus
@@ -120,7 +120,7 @@ void __init omap5_pmic_init(int bus_id, const char *pmic_type, int pmic_irq,
 	i2c_register_board_info(bus_id, omap5_i2c1_generic_info,
 				ARRAY_SIZE(omap5_i2c1_generic_info));
 }
-
+#endif
 void __init omap_pmic_late_init(void)
 {
 	/* Init the OMAP TWL parameters (if PMIC has been registerd) */
