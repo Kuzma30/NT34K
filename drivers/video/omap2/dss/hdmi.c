@@ -52,6 +52,7 @@
 #define EDID_TIMING_DESCRIPTOR_SIZE		0x12
 #define EDID_DESCRIPTOR_BLOCK0_ADDRESS		0x36
 #define EDID_DESCRIPTOR_BLOCK1_ADDRESS		0x80
+#define EDID_HDMI_VENDOR_SPECIFIC_DATA_BLOCK	128
 #define EDID_SIZE_BLOCK0_TIMING_DESCRIPTOR	4
 #define EDID_SIZE_BLOCK1_TIMING_DESCRIPTOR	4
 
@@ -71,15 +72,20 @@ static struct {
 	int hdmi_irq;
 
 	struct clk *sys_clk;
+	struct clk *dss_32k_clk;
 
 	struct regulator *vdds_hdmi;
 	bool enabled;
 	bool force_timings;
+	int source_physical_address;
+	void (*hdmi_cec_enable_cb)(int status);
+	void (*hdmi_cec_irq_cb)(void);
+	void (*hdmi_cec_hpd)(int phy_addr, int status);
 } hdmi;
 
 static const u8 edid_header[8] = {0x0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x0};
 
-static int hdmi_runtime_get(void)
+int hdmi_runtime_get(void)
 {
 	int r;
 
@@ -93,7 +99,7 @@ static int hdmi_runtime_get(void)
 	return 0;
 }
 
-static void hdmi_runtime_put(void)
+void hdmi_runtime_put(void)
 {
 	int r;
 
@@ -223,6 +229,39 @@ void hdmi_get_monspecs(struct omap_dss_device *dssdev)
 		specs->modedb[j++] = specs->modedb[i];
 	}
 	specs->modedb_len = j;
+
+	/* Find out the Source Physical address for the CEC
+	CEC physical address will be part of VSD block from
+	TV Physical address is 2 bytes after 24 bit IEEE
+	registration identifier (0x000C03)
+	*/
+	i = EDID_HDMI_VENDOR_SPECIFIC_DATA_BLOCK;
+	while (i < (HDMI_EDID_MAX_LENGTH - 5)) {
+		if ((edid[i] == 0x03) && (edid[i+1] == 0x0c) &&
+			(edid[i+2] == 0x00)) {
+			hdmi.source_physical_address = (edid[i+3] << 8) |
+				edid[i+4];
+			break;
+		}
+		i++;
+
+	}
+}
+
+void hdmi_inform_hpd_to_cec(int status)
+{
+	if (!status)
+		hdmi.source_physical_address = 0;
+
+	if (hdmi.hdmi_cec_hpd)
+		(*hdmi.hdmi_cec_hpd)(hdmi.source_physical_address,
+			status);
+}
+
+void hdmi_inform_power_on_to_cec(int status)
+{
+	if (hdmi.hdmi_cec_enable_cb)
+		(*hdmi.hdmi_cec_enable_cb)(status);
 }
 
 u8 *hdmi_read_valid_edid(void)
@@ -535,6 +574,33 @@ int omapdss_hdmi_set_range(int range)
 int omapdss_hdmi_get_range(void)
 {
 	return hdmi.ip_data.cfg.range;
+}
+
+int omapdss_hdmi_register_cec_callbacks(void (*hdmi_cec_enable_cb)(int status),
+					void (*hdmi_cec_irq_cb)(void),
+					void (*hdmi_cec_hpd)(int phy_addr,
+					int status))
+{
+	hdmi.hdmi_cec_enable_cb = hdmi_cec_enable_cb;
+	hdmi.hdmi_cec_irq_cb = hdmi_cec_irq_cb;
+	hdmi.hdmi_cec_hpd = hdmi_cec_hpd;
+	return 0;
+}
+EXPORT_SYMBOL(omapdss_hdmi_register_cec_callbacks);
+
+int hdmi_get_ipdata(struct hdmi_ip_data *ip_data)
+{
+	*ip_data = hdmi.ip_data;
+	return 0;
+}
+EXPORT_SYMBOL(hdmi_get_ipdata);
+
+int omapdss_hdmi_unregister_cec_callbacks(void)
+{
+	hdmi.hdmi_cec_enable_cb = NULL;
+	hdmi.hdmi_cec_irq_cb = NULL;
+	hdmi.hdmi_cec_hpd = NULL;
+	return 0;
 }
 
 int omapdss_hdmi_display_check_timing(struct omap_dss_device *dssdev,
@@ -978,6 +1044,10 @@ static irqreturn_t hdmi_irq_handler(int irq, void *arg)
 
 	r = hdmi.ip_data.ops->irq_handler(&hdmi.ip_data);
 	DSSDBG("Received HDMI IRQ = %08x\n", r);
+
+	if (hdmi.hdmi_cec_irq_cb && (r & HDMI_CEC_INT))
+		hdmi.hdmi_cec_irq_cb();
+
 	r = hdmi.ip_data.ops->irq_process(&hdmi.ip_data);
 	return IRQ_HANDLED;
 }
@@ -994,6 +1064,13 @@ static int hdmi_get_clocks(struct platform_device *pdev)
 
 	hdmi.sys_clk = clk;
 
+	clk = clk_get(&pdev->dev, "dss_32khz_clk");
+	if (IS_ERR(clk)) {
+		DSSERR("can't get dss_32khz_clk\n");
+		return PTR_ERR(clk);
+	}
+	hdmi.dss_32k_clk = clk;
+
 	return 0;
 }
 
@@ -1001,6 +1078,8 @@ static void hdmi_put_clocks(void)
 {
 	if (hdmi.sys_clk)
 		clk_put(hdmi.sys_clk);
+	if (hdmi.dss_32k_clk)
+		clk_put(hdmi.dss_32k_clk);
 }
 
 #if defined(CONFIG_OMAP4_DSS_HDMI_AUDIO)
@@ -1223,6 +1302,8 @@ static int hdmi_runtime_suspend(struct device *dev)
 {
 	clk_disable(hdmi.sys_clk);
 
+	clk_disable(hdmi.dss_32k_clk);
+
 	dispc_runtime_put();
 
 	return 0;
@@ -1237,6 +1318,7 @@ static int hdmi_runtime_resume(struct device *dev)
 		return r;
 
 	clk_enable(hdmi.sys_clk);
+	clk_enable(hdmi.dss_32k_clk);
 
 	return 0;
 }
