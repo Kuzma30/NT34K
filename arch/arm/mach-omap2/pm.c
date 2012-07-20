@@ -505,6 +505,7 @@ static int __init omap2_common_pm_init(void)
 	omap_pm_if_init();
 
 	/* Register to the throughput class of PM QoS */
+	if (!of_have_populated_dt())
 	omap2_pm_qos_tput_init();
 
 	return 0;
