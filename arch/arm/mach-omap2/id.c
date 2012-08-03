@@ -72,6 +72,32 @@ out:
 }
 EXPORT_SYMBOL(omap_type);
 
+u8 omap_get_sysboot_value(void)
+{
+	u32 val = 0;
+	u8 mask = OMAP2_SYSBOOT_5_MASK | OMAP2_SYSBOOT_4_MASK |
+		OMAP2_SYSBOOT_3_MASK | OMAP2_SYSBOOT_2_MASK |
+		OMAP2_SYSBOOT_1_MASK | OMAP2_SYSBOOT_0_MASK;
+
+	if (cpu_is_omap24xx()) {
+		val = omap_ctrl_readl(OMAP24XX_CONTROL_STATUS);
+	} else if (cpu_is_am33xx()) {
+		val = omap_ctrl_readl(AM33XX_CONTROL_STATUS);
+	} else if (cpu_is_omap34xx()) {
+		val = omap_ctrl_readl(OMAP343X_CONTROL_STATUS);
+	} else if (cpu_is_omap44xx()) {
+		val = omap_ctrl_readl(OMAP4_CTRL_MODULE_CORE_STATUS);
+		/* OMAP4 has more bits! */
+		mask |= OMAP2_SYSBOOT_6_MASK | OMAP2_SYSBOOT_7_MASK;
+	} else if (cpu_is_omap54xx()) {
+		val = omap_ctrl_readl(OMAP5XXX_CONTROL_STATUS);
+	} else {
+		pr_err("Cannot detect omap type!\n");
+	}
+
+	return val & mask;
+}
+EXPORT_SYMBOL(omap_get_sysboot_value);
 
 /*----------------------------------------------------------------------------*/
 
@@ -116,7 +142,7 @@ static u16 tap_prod_id;
 
 void omap_get_die_id(struct omap_die_id *odi)
 {
-	if (cpu_is_omap44xx()) {
+	if (cpu_is_omap44xx() || cpu_is_omap54xx()) {
 		odi->id_0 = read_tap_reg(OMAP_TAP_DIE_ID_44XX_0);
 		odi->id_1 = read_tap_reg(OMAP_TAP_DIE_ID_44XX_1);
 		odi->id_2 = read_tap_reg(OMAP_TAP_DIE_ID_44XX_2);

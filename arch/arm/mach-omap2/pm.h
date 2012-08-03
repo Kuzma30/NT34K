@@ -18,12 +18,35 @@
 extern void *omap3_secure_ram_storage;
 extern void omap3_pm_off_mode_enable(int);
 extern void omap_sram_idle(void);
-extern int omap_set_pwrdm_state(struct powerdomain *pwrdm, u32 state);
 extern int omap3_idle_init(void);
 extern int omap4_idle_init(void);
 extern int omap_pm_clkdms_setup(struct clockdomain *clkdm, void *unused);
 extern int (*omap_pm_suspend)(void);
 extern int omap5_idle_init(void);
+
+#ifdef CONFIG_PM
+extern void omap4_device_set_state_off(u8 enable);
+extern bool omap4_device_prev_state_off(void);
+extern bool omap4_device_next_state_off(void);
+extern void omap4_device_clear_prev_off_state(void);
+#else
+static inline void omap4_device_set_state_off(u8 enable)
+{
+}
+static inline bool omap4_device_prev_state_off(void)
+{
+	return false;
+}
+static inline bool omap4_device_next_state_off(void)
+{
+	return false;
+}
+static inline void omap4_device_clear_prev_off_state(void)
+{
+	return;
+}
+#endif
+extern u32 omap4_device_off_counter;
 
 #if defined(CONFIG_PM_OPP)
 extern int omap3_opp_init(void);
@@ -110,6 +133,18 @@ extern void enable_omap3630_toggle_l2_on_restore(void);
 static inline void enable_omap3630_toggle_l2_on_restore(void) { }
 #endif		/* defined(CONFIG_PM) && defined(CONFIG_ARCH_OMAP3) */
 
+#define PM_OMAP4_ROM_SMP_BOOT_ERRATUM_xxx	(1 << 0)
+#define PM_OMAP4_ROM_IVAHD_TESLA_ERRATUM_xxx	(1 << 1)
+#define PM_OMAP4_ROM_L3INSTR_ERRATUM_xxx	(1 << 2)
+#define PM_OMAP4_ROM_CPU1_BACKUP_ERRATUM_xxx	(1 << 3)
+
+#if defined(CONFIG_ARCH_OMAP4)
+extern u16 pm44xx_errata;
+#define IS_PM44XX_ERRATUM(id)		(pm44xx_errata & (id))
+#else
+#define IS_PM44XX_ERRATUM(id)		0
+#endif
+
 #ifdef CONFIG_OMAP_SMARTREFLEX
 extern int omap_devinit_smartreflex(void);
 extern void omap_enable_smartreflex_on_init(void);
@@ -135,9 +170,15 @@ static inline int omap_twl_init(void)
 #ifdef CONFIG_PM
 extern void omap_pm_setup_oscillator(u32 tstart, u32 tshut);
 extern void omap_pm_get_oscillator(u32 *tstart, u32 *tshut);
+extern void omap_pm_setup_oscillator_voltage_ramp_time(u32 tstart, u32 tshut);
+extern void omap_pm_get_oscillator_voltage_ramp_time(u32 *tstart, u32 *tshut);
 #else
 static inline void omap_pm_setup_oscillator(u32 tstart, u32 tshut) { }
 static inline void omap_pm_get_oscillator(u32 *tstart, u32 *tshut) { }
+static inline void omap_pm_setup_oscillator_voltage_ramp_time(
+	u32 tstart, u32 tshut) { }
+static inline void omap_pm_get_oscillator_voltage_ramp_time(
+	u32 *tstart, u32 *tshut) { }
 #endif
 
 #ifdef CONFIG_PM
@@ -158,4 +199,13 @@ static inline bool omap_pm_is_ready(void)
 	return false;
 }
 #endif
+
+#ifdef CONFIG_PM
+extern int omap_sar_save(void);
+#else
+static inline void omap_sar_save(void)
+{
+}
+#endif
+
 #endif

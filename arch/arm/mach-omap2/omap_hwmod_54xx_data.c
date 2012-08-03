@@ -628,6 +628,7 @@ static struct omap_hwmod omap54xx_l4_abe_hwmod = {
 	.prcm = {
 		.omap4 = {
 			.clkctrl_offs = OMAP54XX_CM_ABE_L4_ABE_CLKCTRL_OFFSET,
+			.context_offs = USHRT_MAX,
 		},
 	},
 	.slaves		= omap54xx_l4_abe_slaves,
@@ -1331,6 +1332,13 @@ static struct omap_mmu_dev_attr omap54xx_dsp_mmu_dev_attr = {
 	.da_end = 0xfffff000,
 	.nr_tlb_entries = 32,
 	.has_bus_err_back = 0,
+	/*
+	 * A value of 10 keeps the corresponding power domain in
+	 * ON/INACTIVE state as long as iommu is being used, to
+	 * prevent loss of IOMMU register context during CPU-idle path.
+	 * TODO: Modify value to allow a lower CSWR state.
+	 */
+	.pm_constraint = 10,
 };
 
 static struct omap_hwmod_class omap54xx_dsp_hwmod_class = {
@@ -1415,6 +1423,9 @@ static struct omap_hwmod omap54xx_dsp_c0_hwmod = {
 static struct omap_hwmod omap54xx_dsp_hwmod = {
 	.name		= "dsp",
 	.class		= &omap54xx_mmu_hwmod_class,
+#ifndef CONFIG_OMAP_PM_STANDALONE
+	.flags		= HWMOD_INIT_NO_RESET,
+#endif
 	.clkdm_name	= "dsp_clkdm",
 	.mpu_irqs	= omap54xx_dsp_irqs,
 	.rst_lines	= omap54xx_dsp_resets,
@@ -1496,7 +1507,7 @@ static struct omap_hwmod omap54xx_dss_hwmod = {
 	.prcm = {
 		.omap4 = {
 			.clkctrl_offs = OMAP54XX_CM_DSS_DSS_CLKCTRL_OFFSET,
-			.context_offs = OMAP54XX_RM_DSS_DSS_CONTEXT_OFFSET,
+			.context_offs = USHRT_MAX,
 			.modulemode   = MODULEMODE_SWCTRL,
 		},
 	},
@@ -1586,7 +1597,7 @@ static struct omap_hwmod omap54xx_dss_dispc_hwmod = {
 	.prcm = {
 		.omap4 = {
 			.clkctrl_offs = OMAP54XX_CM_DSS_DSS_CLKCTRL_OFFSET,
-			.context_offs = OMAP54XX_RM_DSS_DSS_CONTEXT_OFFSET,
+			.context_offs = USHRT_MAX,
 		},
 	},
 	.opt_clks	= dss_dispc_opt_clks,
@@ -1666,7 +1677,7 @@ static struct omap_hwmod omap54xx_dss_dsi1_a_hwmod = {
 	.prcm = {
 		.omap4 = {
 			.clkctrl_offs = OMAP54XX_CM_DSS_DSS_CLKCTRL_OFFSET,
-			.context_offs = OMAP54XX_RM_DSS_DSS_CONTEXT_OFFSET,
+			.context_offs = USHRT_MAX,
 		},
 	},
 	.opt_clks	= dss_dsi1_a_opt_clks,
@@ -1724,7 +1735,7 @@ static struct omap_hwmod omap54xx_dss_dsi1_c_hwmod = {
 	.prcm = {
 		.omap4 = {
 			.clkctrl_offs = OMAP54XX_CM_DSS_DSS_CLKCTRL_OFFSET,
-			.context_offs = OMAP54XX_RM_DSS_DSS_CONTEXT_OFFSET,
+			.context_offs = USHRT_MAX,
 		},
 	},
 	.opt_clks	= dss_dsi1_c_opt_clks,
@@ -1802,7 +1813,7 @@ static struct omap_hwmod omap54xx_dss_hdmi_hwmod = {
 	.prcm = {
 		.omap4 = {
 			.clkctrl_offs = OMAP54XX_CM_DSS_DSS_CLKCTRL_OFFSET,
-			.context_offs = OMAP54XX_RM_DSS_DSS_CONTEXT_OFFSET,
+			.context_offs = USHRT_MAX,
 		},
 	},
 	.opt_clks	= dss_hdmi_opt_clks,
@@ -1873,7 +1884,7 @@ static struct omap_hwmod omap54xx_dss_rfbi_hwmod = {
 	.prcm = {
 		.omap4 = {
 			.clkctrl_offs = OMAP54XX_CM_DSS_DSS_CLKCTRL_OFFSET,
-			.context_offs = OMAP54XX_RM_DSS_DSS_CONTEXT_OFFSET,
+			.context_offs = USHRT_MAX,
 		},
 	},
 	.opt_clks	= dss_rfbi_opt_clks,
@@ -3041,6 +3052,13 @@ static struct omap_mmu_dev_attr omap54xx_ipu_mmu_dev_attr = {
 	.da_end = 0xfffff000,
 	.nr_tlb_entries = 32,
 	.has_bus_err_back = 1,
+	/*
+	 * A value of 10 keeps the corresponding power domain in
+	 * ON/INACTIVE state as long as iommu is being used, to
+	 * prevent loss of IOMMU register context during CPU-idle path.
+	 * TODO: Modify value to allow a lower CSWR state.
+	 */
+	.pm_constraint = 10,
 };
 
 static struct omap_hwmod_class omap54xx_ipu_hwmod_class = {
@@ -3338,7 +3356,9 @@ static struct omap_hwmod omap54xx_iva_seq0_hwmod = {
 	.name		= "iva_seq0",
 	.class		= &omap54xx_iva_seq_hwmod_class,
 	.clkdm_name	= "iva_clkdm",
+#ifndef CONFIG_OMAP_PM_STANDALONE
 	.flags		= HWMOD_INIT_NO_RESET,
+#endif
 	.rst_lines	= omap54xx_iva_seq0_resets,
 	.rst_lines_cnt	= ARRAY_SIZE(omap54xx_iva_seq0_resets),
 	.main_clk	= "iva_fck",
@@ -3354,7 +3374,9 @@ static struct omap_hwmod omap54xx_iva_seq1_hwmod = {
 	.name		= "iva_seq1",
 	.class		= &omap54xx_iva_seq_hwmod_class,
 	.clkdm_name	= "iva_clkdm",
+#ifndef CONFIG_OMAP_PM_STANDALONE
 	.flags		= HWMOD_INIT_NO_RESET,
+#endif
 	.rst_lines	= omap54xx_iva_seq1_resets,
 	.rst_lines_cnt	= ARRAY_SIZE(omap54xx_iva_seq1_resets),
 	.main_clk	= "iva_fck",
@@ -6528,7 +6550,8 @@ static struct omap_hwmod omap54xx_wd_timer3_hwmod = {
 	.slaves_cnt	= ARRAY_SIZE(omap54xx_wd_timer3_slaves),
 };
 
-static __initdata struct omap_hwmod *omap54xx_hwmods[] = {
+/* OMAP54XX hwmods common to all ES revisions */
+static __initdata struct omap_hwmod *omap54xx_hwmods_common[] = {
 
 	/* dmm class */
 	&omap54xx_dmm_hwmod,
@@ -6543,7 +6566,9 @@ static __initdata struct omap_hwmod *omap54xx_hwmods[] = {
 	&omap54xx_l3_main_3_hwmod,
 
 	/* l4 class */
+#ifndef CONFIG_OMAP_PM_STANDALONE
 	&omap54xx_l4_abe_hwmod,
+#endif
 	&omap54xx_l4_cfg_hwmod,
 	&omap54xx_l4_per_hwmod,
 	&omap54xx_l4_wkup_hwmod,
@@ -6551,11 +6576,10 @@ static __initdata struct omap_hwmod *omap54xx_hwmods[] = {
 	/* mpu_bus class */
 	&omap54xx_mpu_private_hwmod,
 
+#ifndef CONFIG_OMAP_PM_STANDALONE
 	/* aess class */
 	&omap54xx_aess_hwmod,
-
-	/* bb2d class */
-	&omap54xx_bb2d_hwmod,
+#endif
 
 	/* counter class */
 	&omap54xx_counter_32k_hwmod,
@@ -6566,12 +6590,16 @@ static __initdata struct omap_hwmod *omap54xx_hwmods[] = {
 	/* dma class */
 	&omap54xx_dma_system_hwmod,
 
+#ifndef CONFIG_OMAP_PM_STANDALONE
 	/* dmic class */
 	&omap54xx_dmic_hwmod,
+#endif
 
+#ifndef CONFIG_OMAP_PM_STANDALONE
 	/* dsp class */
 	&omap54xx_dsp_hwmod,
 	&omap54xx_dsp_c0_hwmod,
+#endif
 
 	/* dss class */
 	&omap54xx_dss_hwmod,
@@ -6601,8 +6629,10 @@ static __initdata struct omap_hwmod *omap54xx_hwmods[] = {
 	/* gpu class */
 	&omap54xx_gpu_hwmod,
 
+#ifndef CONFIG_OMAP_PM_STANDALONE
 	/* hsi class */
 	&omap54xx_hsi_hwmod,
+#endif
 
 	/* i2c class */
 	&omap54xx_i2c1_hwmod,
@@ -6611,10 +6641,12 @@ static __initdata struct omap_hwmod *omap54xx_hwmods[] = {
 	&omap54xx_i2c4_hwmod,
 	&omap54xx_i2c5_hwmod,
 
+#ifndef CONFIG_OMAP_PM_STANDALONE
 	/* ipu class */
 	&omap54xx_ipu_hwmod,
 	&omap54xx_ipu_c0_hwmod,
 	&omap54xx_ipu_c1_hwmod,
+#endif
 
 	/* iss class */
 	&omap54xx_iss_hwmod,
@@ -6638,8 +6670,10 @@ static __initdata struct omap_hwmod *omap54xx_hwmods[] = {
 	&omap54xx_mcbsp2_hwmod,
 	&omap54xx_mcbsp3_hwmod,
 
+#ifndef CONFIG_OMAP_PM_STANDALONE
 	/* mcpdm class */
 	&omap54xx_mcpdm_hwmod,
+#endif
 
 	/* mcspi class */
 	&omap54xx_mcspi1_hwmod,
@@ -6660,8 +6694,10 @@ static __initdata struct omap_hwmod *omap54xx_hwmods[] = {
 	/* ocp2scp class */
 	&omap54xx_ocp2scp1_hwmod,
 
+#ifndef CONFIG_OMAP_PM_STANDALONE
 	/* sata class */
 	&omap54xx_sata_hwmod,
+#endif
 
 	&omap54xx_sl2if_hwmod,
 
@@ -6710,7 +6746,28 @@ static __initdata struct omap_hwmod *omap54xx_hwmods[] = {
 	NULL,
 };
 
+/* OMAP54XX ES2.0+ specific delta h/wmods */
+static __initdata struct omap_hwmod *omap54xx_hwmods_delta_es2plus[] = {
+
+	/* bb2d class */
+	&omap54xx_bb2d_hwmod,
+
+	/* Terminator */
+	NULL,
+};
+
 int __init omap54xx_hwmod_init(void)
 {
-	return omap_hwmod_register(omap54xx_hwmods);
+	int r;
+	/* if we are ES1.0, just program common ones */
+	if (omap_rev() == OMAP5430_REV_ES1_0 ||
+	    omap_rev() == OMAP5432_REV_ES1_0)
+		goto reg_common_hwmods;
+
+	r = omap_hwmod_register(omap54xx_hwmods_delta_es2plus);
+	WARN(r, "Failed to register ES2+ hwmods with %d\n", r);
+	/* Fall through to attempt and register common hwmods */
+
+reg_common_hwmods:
+	return omap_hwmod_register(omap54xx_hwmods_common);
 }

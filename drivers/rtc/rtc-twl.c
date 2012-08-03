@@ -523,7 +523,7 @@ static int __devinit twl_rtc_probe(struct platform_device *pdev)
 		twl_rtc->rtc_reg_map = twl6030_rtc_reg_map;
 
 	platform_set_drvdata(pdev, twl_rtc);
-
+	printk("Platform set driver data\n");
 	ret = twl_rtc_read_u8(twl_rtc, &rd_reg, REG_RTC_STATUS_REG);
 	if (ret < 0)
 		goto out3;

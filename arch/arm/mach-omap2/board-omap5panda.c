@@ -53,10 +53,11 @@
 
 #define OMAP5_SEVM_FB_RAM_SIZE       SZ_8M /* 1280×800*4 * 2 */
 
-/* USBB3 to SMSC LAN9730 */
-#define GPIO_ETH_NRESET 15
-/* USBB2 to SMSC 3530 HUB */
-#define GPIO_HUB_NRESET 80
+#define GPIO_ETH_NRESET		15	/* USBB3 to SMSC LAN9730 */
+#define GPIO_HUB_NRESET		80	/* USBB2 to SMSC 3530 HUB */
+#define GPIO_EXT_INT_PIN	99
+#define GPIO_SDCARD_DETECT	152
+#define HDMI_GPIO_HPD		193
 
 
 #ifdef CONFIG_OMAP_MUX
@@ -64,21 +65,13 @@ static struct omap_board_mux board_mux[] __initdata = {
 	OMAP5_MUX(FREF_CLK1_OUT, OMAP_PIN_INPUT_PULLUP),
 	OMAP5_MUX(USBB2_HSIC_STROBE, OMAP_PIN_INPUT | OMAP_MUX_MODE0),
 	OMAP5_MUX(USBB2_HSIC_DATA, OMAP_PIN_INPUT | OMAP_MUX_MODE0),
+	OMAP5_MUX(ABEDMIC_DIN3,
+		OMAP_PIN_INPUT_PULLUP | OMAP_PIN_OFF_NONE | OMAP_MUX_MODE6),
 	{ .reg_offset = OMAP_MUX_TERMINATOR },
 };
 #else
 #define board_mux NULL
 #endif
-
-#if defined(CONFIG_TI_EMIF) || defined(CONFIG_TI_EMIF_MODULE)
-#ifndef CONFIG_MACH_OMAP_5430ZEBU
-static struct __devinitdata emif_custom_configs custom_configs = {
-	.mask	= EMIF_CUSTOM_CONFIG_LPMODE,
-	.lpmode	= EMIF_LP_MODE_DISABLE
-};
-#endif
-#endif
-
 
 static struct omap2_hsmmc_info mmc[] = {
 	{
@@ -93,17 +86,14 @@ static struct omap2_hsmmc_info mmc[] = {
 	},
 	{
 		.mmc		= 1,
-		.caps		= MMC_CAP_4_BIT_DATA,
-		.gpio_cd	= 67,
+		.caps		= MMC_CAP_4_BIT_DATA | MMC_CAP_UHS_SDR12 |
+					MMC_CAP_UHS_SDR25 | MMC_CAP_UHS_DDR50,
+		.gpio_cd	= GPIO_SDCARD_DETECT,
 		.gpio_wp	= -EINVAL,
 		.ocr_mask	= MMC_VDD_29_30,
 	},
 	{}	/* Terminator */
 };
-
-#define HDMI_GPIO_HPD 193
-#define HDMI_GPIO_CT_CP_HPD	256
-#define HDMI_GPIO_LS_OE		257
 
 #ifdef CONFIG_OMAP5_SEVM_PALMAS
 #define OMAP5_GPIO_END	0
@@ -205,6 +195,7 @@ static struct palmas_reg_init omap5_ldo8_init = {
 static struct palmas_reg_init omap5_ldo9_init = {
 	.warm_reset = 0,
 	.mode_sleep = 0,
+	.no_bypass = 1,
 };
 
 static struct palmas_reg_init omap5_ldoln_init = {
@@ -447,15 +438,21 @@ static struct regulator_init_data omap5_ldo8 = {
 	},
 };
 
+static struct regulator_consumer_supply omap5_mmc1_io_supply[] = {
+	REGULATOR_SUPPLY("vmmc_aux", "omap_hsmmc.0"),
+};
 static struct regulator_init_data omap5_ldo9 = {
 	.constraints = {
 		.min_uV			= 1800000,
-		.max_uV			= 1800000,
+		.max_uV			= 3300000,
 		.valid_modes_mask	= REGULATOR_MODE_NORMAL
 					| REGULATOR_MODE_STANDBY,
-		.valid_ops_mask		= REGULATOR_CHANGE_MODE
+		.valid_ops_mask		= REGULATOR_CHANGE_VOLTAGE
+					| REGULATOR_CHANGE_MODE
 					| REGULATOR_CHANGE_STATUS,
 	},
+	.num_consumer_supplies	= ARRAY_SIZE(omap5_mmc1_io_supply),
+	.consumer_supplies	= omap5_mmc1_io_supply,
 };
 
 static struct regulator_init_data omap5_ldoln = {
@@ -625,6 +622,36 @@ static struct platform_device *omap5evm_devices[] __initdata = {
 	&omap5evm_abe_audio,
 };
 
+
+static struct regulator_consumer_supply omap5_evm_vmmc1_supply[] = {
+	REGULATOR_SUPPLY("vmmc", "omap_hsmmc.0"),
+	REGULATOR_SUPPLY("vmmc", "omap_hsmmc.1"),
+};
+
+static struct regulator_init_data omap5_evm_vmmc1 = {
+	.constraints = {
+		.valid_ops_mask = REGULATOR_CHANGE_STATUS,
+		.always_on	= true,
+	},
+	.num_consumer_supplies = ARRAY_SIZE(omap5_evm_vmmc1_supply),
+	.consumer_supplies = omap5_evm_vmmc1_supply,
+};
+
+static struct fixed_voltage_config omap5_evm_sd_dummy = {
+	.supply_name = "vmmc_supply",
+	.microvolts = 3000000, /* 3.0V */
+	.gpio = -EINVAL,
+	.init_data = &omap5_evm_vmmc1,
+};
+
+static struct platform_device dummy_sd_regulator_device = {
+	.name		= "reg-fixed-voltage",
+	.id		= 1,
+	.dev = {
+		.platform_data = &omap5_evm_sd_dummy,
+	}
+};
+
 static struct pca953x_platform_data omap5evm_gpio_expander_info = {
 	.gpio_base	= OMAP_MAX_GPIO_LINES,
 	.irq_base	= OMAP_TCA6424_IRQ_BASE,
@@ -634,6 +661,7 @@ static struct i2c_board_info __initdata omap5evm_i2c_5_boardinfo[] = {
 	{
 		I2C_BOARD_INFO("tca6424", 0x22),
 		.platform_data = &omap5evm_gpio_expander_info,
+		.irq = GPIO_EXT_INT_PIN,
 	},
 };
 
@@ -671,7 +699,7 @@ static struct panel_generic_dpi_data omap5_dvi_panel = {
 	.platform_disable	= omap5_panda_disable_dvi,
 };
 
-struct omap_dss_device omap5_panda_dvi_device = {
+static struct omap_dss_device omap5_panda_dvi_device = {
 	.type			= OMAP_DISPLAY_TYPE_DPI,
 	.name			= "dvi",
 	.driver_name		= "generic_dpi_panel",
@@ -680,20 +708,6 @@ struct omap_dss_device omap5_panda_dvi_device = {
 	.reset_gpio		= PANDA_DVI_TFP410_POWER_DOWN_GPIO,
 	.channel		= OMAP_DSS_CHANNEL_LCD2,
 };
-
-int __init omap5_panda_dvi_init(void)
-{
-	int r = 0;
-
-	/* Requesting TFP410 DVI GPIO and disabling it, at bootup */
-	r = gpio_request_one(omap5_panda_dvi_device.reset_gpio,
-				GPIOF_OUT_INIT_LOW, "DVI PD");
-	if (r)
-		pr_err("Failed to get DVI powerdown GPIO\n");
-
-	return r;
-}
-
 
 static struct omap_dss_hdmi_data omap5panda_hdmi_data = {
         .hpd_gpio = HDMI_GPIO_HPD,
@@ -780,22 +794,6 @@ static void __init omap_ehci_ohci_init(void)
 
 static void __init omap_5_panda_init(void)
 {
-
-#if defined(CONFIG_TI_EMIF) || defined(CONFIG_TI_EMIF_MODULE)
-#ifndef CONFIG_MACH_OMAP_5430ZEBU
-	omap_emif_set_device_details(1, &lpddr2_elpida_4G_S4_x2_info,
-			lpddr2_elpida_4G_S4_timings,
-			ARRAY_SIZE(lpddr2_elpida_4G_S4_timings),
-			&lpddr2_elpida_S4_min_tck,
-			&custom_configs);
-
-	omap_emif_set_device_details(2, &lpddr2_elpida_4G_S4_x2_info,
-			lpddr2_elpida_4G_S4_timings,
-			ARRAY_SIZE(lpddr2_elpida_4G_S4_timings),
-			&lpddr2_elpida_S4_min_tck,
-			&custom_configs);
-#endif
-#endif
 	omap5_mux_init(board_mux, NULL, OMAP_PACKAGE_CBL);
 	omap_sdrc_init(NULL, NULL);
 	omap_create_board_props();
@@ -804,6 +802,7 @@ static void __init omap_5_panda_init(void)
 			"twl6040", OMAP44XX_IRQ_SYS_2N, &twl6040_data);
 
 	omap_serial_init();
+	platform_device_register(&dummy_sd_regulator_device);
 	omap_ehci_ohci_init();
 
 	omap_hsmmc_init(mmc);

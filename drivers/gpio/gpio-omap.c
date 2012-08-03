@@ -25,11 +25,10 @@
 #include <linux/of.h>
 #include <linux/of_device.h>
 #include <linux/irqdomain.h>
-
+#include <linux/gpio.h>
 #include <mach/hardware.h>
 #include <asm/irq.h>
 #include <mach/irqs.h>
-#include <asm/gpio.h>
 #include <asm/mach/irq.h>
 
 #define OFF_MODE	1
@@ -62,6 +61,7 @@ struct gpio_bank {
 	struct gpio_regs context;
 	u32 saved_datain;
 	u32 level_mask;
+	u32 edge_mask;
 	u32 toggle_mask;
 	spinlock_t lock;
 	struct gpio_chip chip;
@@ -298,6 +298,10 @@ exit:
 	bank->level_mask =
 		__raw_readl(bank->base + bank->regs->leveldetect0) |
 		__raw_readl(bank->base + bank->regs->leveldetect1);
+
+	bank->edge_mask =
+		__raw_readl(bank->base + bank->regs->risingdetect) |
+		__raw_readl(bank->base + bank->regs->fallingdetect);
 }
 
 #ifdef CONFIG_ARCH_OMAP1
@@ -649,8 +653,8 @@ static void gpio_irq_handler(unsigned int irq, struct irq_desc *desc)
 	if (WARN_ON(!isr_reg))
 		goto exit;
 
-	while(1) {
-		u32 isr_saved, level_mask = 0;
+	while (1) {
+		u32 isr_saved, level_mask = 0, edge_mask = 0;
 		u32 enabled;
 
 		enabled = _get_gpio_irqbank_mask(bank);
@@ -658,6 +662,17 @@ static void gpio_irq_handler(unsigned int irq, struct irq_desc *desc)
 
 		if (bank->level_mask)
 			level_mask = bank->level_mask & enabled;
+
+		if (bank->edge_mask)
+			edge_mask = bank->edge_mask & enabled;
+		/*
+		 * For level+edge GPIOs, if module is IDLE, a sWakeup event
+		 * is triggered in which case if irq status is not cleared
+		 * immediately the line is not de-asserted preventing the
+		 * module to IDLE further and resulting it in getting stuck
+		 * in transition when disabled
+		 */
+		_clear_gpio_irqbank(bank, isr_saved & edge_mask);
 
 		/* clear edge sensitive interrupts before handler(s) are
 		called so that we don't miss any interrupt occurred while
@@ -1148,40 +1163,6 @@ static int __devinit omap_gpio_probe(struct platform_device *pdev)
 
 #ifdef CONFIG_ARCH_OMAP2PLUS
 
-static int omap_gpio_suspend(struct device *dev)
-{
-	struct platform_device *pdev = to_platform_device(dev);
-	struct gpio_bank *bank = platform_get_drvdata(pdev);
-
-	/* WA for GPIO pins 140 (BT) & 142 (WLAN) used as output pins
-	 * due to h/w bug in GPIO module (Bug ID: OMAP5430-1.0BUG01667)
-	 * On OMAP5 ES1.0 the pins do not maintain their level in OFF.
-	 * This WA changes the direction to input while in OFF and back
-	 * to input in resume. This is fixed in ES2.0
-	 */
-	if ((cpu_is_omap54xx() && (omap_rev() <= OMAP5430_REV_ES1_0)) \
-		&& (bank->id == 4)) {
-		_set_gpio_direction(bank, GPIO_INDEX(bank, 142), 1);
-		_set_gpio_direction(bank, GPIO_INDEX(bank, 140), 1);
-	}
-
-	return 0;
-}
-
-static int omap_gpio_resume(struct device *dev)
-{
-	struct platform_device *pdev = to_platform_device(dev);
-	struct gpio_bank *bank = platform_get_drvdata(pdev);
-
-	if ((cpu_is_omap54xx() && (omap_rev() <= OMAP5430_REV_ES1_0)) \
-		&& (bank->id == 4)) {
-		_set_gpio_direction(bank, GPIO_INDEX(bank, 142), 0);
-		_set_gpio_direction(bank, GPIO_INDEX(bank, 140), 0);
-	}
-
-	return 0;
-}
-
 #if defined(CONFIG_PM_RUNTIME)
 static void omap_gpio_restore_context(struct gpio_bank *bank);
 
@@ -1245,6 +1226,21 @@ update_gpio_context_count:
 		bank->context_loss_count =
 				bank->get_context_loss_count(bank->dev);
 
+	/*
+	 * WA for GPIO pins 140 (BT) & 142 (WLAN) used as output pins
+	 * due to h/w bug in GPIO module (Bug ID: OMAP5430-1.0BUG01667)
+	 * On OMAP5 ES1.0 the pins do not maintain their level in OFF.
+	 * This WA changes the direction to input while in OFF and back
+	 * to input in resume. This is fixed in ES2.0
+	 */
+	if (cpu_is_omap54xx() &&
+	    (omap_rev() == OMAP5430_REV_ES1_0 ||
+	     omap_rev() == OMAP5432_REV_ES1_0) &&
+	    bank->id == 4) {
+		_set_gpio_direction(bank, GPIO_INDEX(bank, 142), 1);
+		_set_gpio_direction(bank, GPIO_INDEX(bank, 140), 1);
+	}
+
 	_gpio_dbck_disable(bank);
 	spin_unlock_irqrestore(&bank->lock, flags);
 
@@ -1283,6 +1279,20 @@ static int omap_gpio_runtime_resume(struct device *dev)
 			spin_unlock_irqrestore(&bank->lock, flags);
 			return 0;
 		}
+	}
+
+	/*
+	 * WA for GPIO pins 140 (BT) & 142 (WLAN) used as output pins
+	 * due to h/w bug in GPIO module (Bug ID: OMAP5430-1.0BUG01667)
+	 * On OMAP5 ES1.0 the pins do not maintain their level in OFF.
+	 * Change the direct back to o/p in resume.
+	 */
+	if (cpu_is_omap54xx() &&
+			(omap_rev() == OMAP5430_REV_ES1_0 ||
+			 omap_rev() == OMAP5432_REV_ES1_0) &&
+			bank->id == 4) {
+		_set_gpio_direction(bank, GPIO_INDEX(bank, 142), 0);
+		_set_gpio_direction(bank, GPIO_INDEX(bank, 140), 0);
 	}
 
 	if (!bank->workaround_enabled) {
@@ -1345,6 +1355,7 @@ static int omap_gpio_runtime_resume(struct device *dev)
 	}
 
 	bank->workaround_enabled = false;
+
 	spin_unlock_irqrestore(&bank->lock, flags);
 
 	return 0;
@@ -1413,14 +1424,11 @@ static void omap_gpio_restore_context(struct gpio_bank *bank)
 }
 #endif /* CONFIG_PM_RUNTIME */
 #else
-#define omap_gpio_suspend NULL
-#define omap_gpio_resume NULL
 #define omap_gpio_runtime_suspend NULL
 #define omap_gpio_runtime_resume NULL
 #endif
 
 static const struct dev_pm_ops gpio_pm_ops = {
-	SET_SYSTEM_SLEEP_PM_OPS(omap_gpio_suspend, omap_gpio_resume)
 	SET_RUNTIME_PM_OPS(omap_gpio_runtime_suspend, omap_gpio_runtime_resume,
 									NULL)
 };

@@ -20,6 +20,7 @@
 #include <linux/init.h>
 #include <linux/io.h>
 #include <linux/irq.h>
+#include <linux/interrupt.h>
 #include <linux/platform_device.h>
 #include <linux/cpu.h>
 #include <linux/notifier.h>
@@ -29,9 +30,12 @@
 
 #include <mach/omap-wakeupgen.h>
 #include <mach/omap-secure.h>
+#include <plat/omap_hwmod.h>
 
 #include "omap4-sar-layout.h"
 #include "common.h"
+#include "pm.h"
+#include "clockdomain.h"
 
 #define MAX_NR_REG_BANKS	5
 #define MAX_IRQS		160
@@ -42,14 +46,21 @@
 #define CPU1_ID			0x1
 #define OMAP4_NR_BANKS		4
 #define OMAP4_NR_IRQS		128
+#define GIC_ISR_NON_SECURE	0xffffffff
 
 static void __iomem *wakeupgen_base;
 static void __iomem *sar_base;
 static DEFINE_SPINLOCK(wakeupgen_lock);
 static unsigned int irq_target_cpu[NR_IRQS];
 static unsigned int irq_banks = MAX_NR_REG_BANKS;
+static unsigned int spi_irq_banks = MAX_NR_REG_BANKS;
 static unsigned int max_irqs = MAX_IRQS;
 static unsigned int secure_api_index;
+static unsigned int secure_hw_api_index;
+static unsigned int secure_hal_save_all_api_index;
+static unsigned int secure_ram_api_index;
+
+static struct omap_hwmod *l3_main_3_oh;
 
 /*
  * Static helper functions.
@@ -297,7 +308,7 @@ static void irq_save_context(void)
 /*
  * Clear WakeupGen SAR backup status.
  */
-void irq_sar_clear(void)
+static void irq_sar_clear(void)
 {
 	u32 val;
 	u32 offset = SAR_BACKUP_STATUS_OFFSET;
@@ -314,7 +325,7 @@ void irq_sar_clear(void)
  * Save GIC and Wakeupgen interrupt context using secure API
  * for HS/EMU devices.
  */
-static void irq_save_secure_context(void)
+static void irq_save_secure_gic(void)
 {
 	u32 ret;
 	ret = omap_secure_dispatcher(secure_api_index,
@@ -324,6 +335,31 @@ static void irq_save_secure_context(void)
 		pr_err("GIC and Wakeupgen context save failed\n");
 }
 #endif
+
+static void save_secure_all(void)
+{
+	u32 ret;
+
+	omap_hwmod_enable(l3_main_3_oh);
+
+	ret = omap_secure_dispatcher(secure_hal_save_all_api_index,
+				FLAG_START_CRITICAL,
+				1, omap_secure_ram_mempool_base(),
+				0, 0, 0);
+
+	omap_hwmod_idle(l3_main_3_oh);
+
+	if (ret != API_HAL_RET_VALUE_OK)
+		pr_err("Secure all context save failed\n");
+}
+
+static void irq_save_secure_context(void)
+{
+	if (pwrdm_read_device_off_state())
+		save_secure_all();
+	else
+		irq_save_secure_gic();
+}
 
 #ifdef CONFIG_HOTPLUG_CPU
 static int __cpuinit irq_cpu_hotplug_notify(struct notifier_block *self,
@@ -391,6 +427,87 @@ void __iomem *omap_get_wakeupgen_base(void)
 	return wakeupgen_base;
 }
 
+/**
+ * omap_wakeupgen_check_interrupts() - sanity check for pending interrupts
+ * @report_string:	what is used to report
+ *
+ * Return false if there are no pending interrupts, else, if there
+ * are pending interrupts, return true.
+ *
+ * NOTE: if report_string is not NULL, then logic will search beyond
+ * the first occurance and report all such pending events. if report_string
+ * is NULL, search returns true at the very first occurance of event.
+ */
+bool omap_wakeupgen_check_interrupts(char *report_string)
+{
+	int i, k;
+	u32 gica, wakea_c0, wakea_c1;
+	int ret = false;
+
+	for (i = 0; i < spi_irq_banks - 1; i++) {
+		gica = gic_readl(GIC_DIST_PENDING_SET, i + 1);
+		wakea_c0 = wakeupgen_readl(i, 0);
+		wakea_c1 = wakeupgen_readl(i, 1);
+
+		/* If there is nothing pending, nothing to report */
+		if (!gica)
+			continue;
+
+		/* report register dump for debug */
+		pr_debug("%s: %s: IRQ Bank = %d GIC Pending status=0x%08x "
+		       "GIC Enable = 0x%08x Wakeupgen Config ="
+		       "cpu0=0x%08x cpu1=0x%08x\n",
+		       __func__, report_string, i, gica,
+		       gic_readl(GIC_DIST_ENABLE_SET, i + 1),
+		       wakea_c0, wakea_c1);
+
+		k = 0;
+		while (gica) {
+			if (gica & 0x1) {
+				struct irq_desc *desc;
+				const char *name, *wc0, *wc1;
+				int irq;
+
+				/* Return true if pending interrupts */
+				ret = true;
+
+				/*
+				 * we need to search for more ONLY if
+				 * there is something to report
+				 */
+				if (!report_string)
+					goto quit_search;
+
+				/* Grab the current wakeup state for CPU0,1 */
+				wc0 = (wakea_c0 & 0x1) ? "yes" : "no";
+				wc1 = (wakea_c1 & 0x1) ? "yes" : "no";
+				/* Since we skip GIC PPI and SGI, base 32 */
+				irq = 32 + i * 32 + k;
+				desc = irq_to_desc(irq);
+
+				if (desc && desc->action &&
+				    desc->action->name)
+					name = desc->action->name;
+				else
+					name = "unknown?";
+
+				pr_info("%s: IRQ %d(%s)(OMAP-IRQ=%d) Pending! "
+					"Wakeup Enable: CPU0=%s, CPU1=%s\n",
+					report_string, irq, name,
+					(irq - 32), wc0, wc1);
+
+			}
+			k++;
+			gica >>= 1;
+			wakea_c0 >>= 1;
+			wakea_c1 >>= 1;
+		}
+	}
+
+quit_search:
+	return ret;
+}
+
 /*
  * Initialise the wakeupgen module.
  */
@@ -398,6 +515,7 @@ int __init omap_wakeupgen_init(void)
 {
 	int i;
 	unsigned int boot_cpu = smp_processor_id();
+	unsigned int max_spi_reg;
 
 	/* Not supported on OMAP4 ES1.0 silicon */
 	if (omap_rev() == OMAP4430_REV_ES1_0) {
@@ -414,8 +532,14 @@ int __init omap_wakeupgen_init(void)
 		irq_banks = OMAP4_NR_BANKS;
 		max_irqs = OMAP4_NR_IRQS;
 		secure_api_index = OMAP4_HAL_SAVEGIC_INDEX;
+		secure_hw_api_index = OMAP4_HAL_SAVEHW_INDEX;
+		secure_hal_save_all_api_index = OMAP4_HAL_SAVEALL_INDEX;
+		secure_ram_api_index  = OMAP4_HAL_SAVESECURERAM_INDEX;
 	} else if (cpu_is_omap54xx()) {
 		secure_api_index = OMAP5_HAL_SAVEGIC_INDEX;
+		secure_hw_api_index = OMAP5_HAL_SAVEHW_INDEX;
+		secure_hal_save_all_api_index = OMAP5_HAL_SAVEALL_INDEX;
+		secure_ram_api_index  = OMAP5_HAL_SAVESECURERAM_INDEX;
 	}
 
 	/* Clear all IRQ bitmasks at wakeupGen level */
@@ -440,6 +564,53 @@ int __init omap_wakeupgen_init(void)
 	/* Associate all the IRQs to boot CPU like GIC init does. */
 	for (i = 0; i < max_irqs; i++)
 		irq_target_cpu[i] = boot_cpu;
+
+	/*
+	 * Find out how many interrupts are supported.
+	 * OMAP4 supports max of 128 SPIs where as GIC can support
+	 * up to 1020 interrupt sources. On OMAP4, maximum SPIs are
+	 * fused in DIST_CTR bit-fields as 128. Hence the code is safe
+	 * from reserved register writes since its well within 1020.
+	 */
+	max_spi_reg = gic_readl(GIC_DIST_CTR, 0) & 0x1f;
+
+	spi_irq_banks = min(max_spi_reg, irq_banks);
+
+	/*
+	 * Set CPU0 GIC backup flag permanently for omap4460 GP,
+	 * this is needed because of the ROM code bug that breaks
+	 * GIC during wakeup from device off. This errata fix also
+	 * clears the GIC save area during init to prevent restoring
+	 * garbage to the GIC.
+	 */
+	if (cpu_is_omap446x() && omap_type() == OMAP2_DEVICE_TYPE_GP)
+		pm44xx_errata |= PM_OMAP4_ROM_CPU1_BACKUP_ERRATUM_xxx;
+
+	if (omap_type() == OMAP2_DEVICE_TYPE_GP) {
+		sar_base = ioremap(OMAP44XX_SAR_RAM_BASE, SZ_16K);
+
+		if (IS_PM44XX_ERRATUM(PM_OMAP4_ROM_CPU1_BACKUP_ERRATUM_xxx))
+			for (i = SAR_BACKUP_STATUS_OFFSET;
+			     i < WAKEUPGENENB_OFFSET_CPU0; i += 4)
+				sar_writel(0, i, 0);
+
+		sar_writel(GIC_ISR_NON_SECURE, SAR_ICDISR_CPU0_OFFSET, 0);
+		sar_writel(GIC_ISR_NON_SECURE, SAR_ICDISR_CPU1_OFFSET, 0);
+		for (i = 0; i < max_spi_reg; i++)
+			sar_writel(GIC_ISR_NON_SECURE, SAR_ICDISR_SPI_OFFSET,
+				   i);
+
+		if (IS_PM44XX_ERRATUM(PM_OMAP4_ROM_CPU1_BACKUP_ERRATUM_xxx))
+			__raw_writel(SAR_BACKUP_STATUS_GIC_CPU0,
+				     sar_base + SAR_BACKUP_STATUS_OFFSET);
+
+		iounmap(sar_base);
+		sar_base = NULL;
+	} else {
+		l3_main_3_oh = omap_hwmod_lookup("l3_main_3");
+		if (!l3_main_3_oh)
+			pr_err("%s: failed to get l3_main_3_oh\n", __func__);
+	}
 
 	irq_hotplug_init();
 	irq_pm_init();

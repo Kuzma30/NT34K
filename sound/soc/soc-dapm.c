@@ -1438,7 +1438,7 @@ static void dapm_post_sequence_async(void *data, async_cookie_t cookie)
 			dev_err(d->dev, "Failed to turn off bias: %d\n", ret);
 
 		if (d->dev)
-			pm_runtime_put(d->dev);
+			pm_runtime_put_sync(d->dev);
 	}
 
 	/* If we just powered up then move to active bias */
@@ -3363,6 +3363,27 @@ int snd_soc_dapm_get_pin_status(struct snd_soc_dapm_context *dapm,
 	return 0;
 }
 EXPORT_SYMBOL_GPL(snd_soc_dapm_get_pin_status);
+
+/**
+ * snd_soc_dapm_get_pin_power - get audio pin powered status
+ * @dapm: DAPM context
+ * @pin: audio signal pin endpoint (or start point)
+ *
+ * Get audio pin powered status - powered or unpowered.
+ *
+ * Returns 1 for powered otherwise 0.
+ */
+int snd_soc_dapm_get_pin_power(struct snd_soc_dapm_context *dapm,
+				const char *pin)
+{
+	struct snd_soc_dapm_widget *w = dapm_find_widget(dapm, pin, true);
+
+	if (w)
+		return w->power;
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(snd_soc_dapm_get_pin_power);
 
 /**
  * snd_soc_dapm_ignore_suspend - ignore suspend status for DAPM endpoint

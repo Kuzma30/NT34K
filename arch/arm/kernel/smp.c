@@ -211,7 +211,7 @@ void __ref cpu_die(void)
 	mb();
 
 	/* Tell __cpu_die() that this CPU is now safe to dispose of */
-	complete(&cpu_died);
+	RCU_NONIDLE(complete(&cpu_died));
 
 	/*
 	 * actual CPU shutdown procedure is at least platform (if not
@@ -255,6 +255,7 @@ asmlinkage void __cpuinit secondary_start_kernel(void)
 {
 	struct mm_struct *mm = &init_mm;
 	unsigned int cpu = smp_processor_id();
+	static bool booted;
 
 	/*
 	 * All kernel threads share the same mm context; grab a
@@ -280,7 +281,9 @@ asmlinkage void __cpuinit secondary_start_kernel(void)
 
 	notify_cpu_starting(cpu);
 
-	calibrate_delay();
+	if (!booted)
+		calibrate_delay();
+	booted = true;
 
 	smp_store_cpu_info(cpu);
 

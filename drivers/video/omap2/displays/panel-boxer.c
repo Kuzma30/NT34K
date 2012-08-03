@@ -28,7 +28,7 @@
 #include <video/omapdss.h>
 #include <linux/gpio.h>
 #include <linux/regulator/consumer.h>
-
+#include <plat/usb.h>
 #define	OMAP_LCD_PWM_PIN	121
 #define	OMAP_LCD_ENABLE_PIN	38
 //#define DEBUG
