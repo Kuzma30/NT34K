@@ -65,11 +65,14 @@ static struct omap_device_pad uart3_pads[] __initdata = {
 static struct omap_device_pad uart5_pads[] __initdata = {
 	{
 		.name   = "uart5_cts.uart5_cts",
+		.flags  = OMAP_DEVICE_PAD_REMUX | OMAP_DEVICE_PAD_WAKEUP,
 		.enable = OMAP_PIN_INPUT_PULLUP | OMAP_MUX_MODE0,
+		.idle   = OMAP_PIN_INPUT_PULLUP | OMAP_MUX_MODE0,
 	},
 	{
 		.name   = "uart5_rts.uart5_rts",
 		.enable = OMAP_PIN_OUTPUT | OMAP_MUX_MODE0,
+		.idle   = OMAP_PIN_OFF_OUTPUT_HIGH | OMAP_MUX_MODE0,
 	},
 	{
 		.name   = "uart5_tx.uart5_tx",
@@ -77,9 +80,7 @@ static struct omap_device_pad uart5_pads[] __initdata = {
 	},
 	{
 		.name   = "uart5_rx.uart5_rx",
-		.flags  = OMAP_DEVICE_PAD_REMUX | OMAP_DEVICE_PAD_WAKEUP,
 		.enable = OMAP_PIN_INPUT_PULLUP | OMAP_MUX_MODE0,
-		.idle   = OMAP_PIN_INPUT_PULLUP | OMAP_MUX_MODE0,
 	},
 };
 
@@ -106,7 +107,7 @@ static struct omap_uart_port_info uart1_info __initdata = {
 	.dma_rx_buf_size = 4096,
 	.dma_rx_poll_rate = 1,
 	.dma_rx_timeout = (3 * HZ),
-	.autosuspend_timeout = -1,
+	.autosuspend_timeout = 3000,
 };
 
 static struct omap_uart_port_info uart3_info __initdata = {
@@ -114,7 +115,7 @@ static struct omap_uart_port_info uart3_info __initdata = {
 	.dma_rx_buf_size = 4096,
 	.dma_rx_poll_rate = 1,
 	.dma_rx_timeout = (3 * HZ),
-	.autosuspend_timeout = -1,
+	.autosuspend_timeout = 3000,
 };
 
 static struct omap_uart_port_info uart5_info __initdata = {
@@ -122,7 +123,8 @@ static struct omap_uart_port_info uart5_info __initdata = {
 	.dma_rx_buf_size = 4096,
 	.dma_rx_poll_rate = 1,
 	.dma_rx_timeout = (3 * HZ),
-	.autosuspend_timeout = -1,
+	.rts_mux_driver_control = 1,
+	.autosuspend_timeout = 3000,
 };
 
 void __init omap5_board_serial_init(void)

@@ -12,11 +12,13 @@
  */
 #include <linux/clk.h>
 #include <linux/kernel.h>
+#include <linux/leds.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/io.h>
 #include <linux/gpio.h>
 #include <linux/input.h>
+#include <linux/i2c-gpio.h>
 
 #include <linux/regulator/machine.h>
 #include <linux/regulator/fixed.h>
@@ -47,9 +49,12 @@
 #include "common-board-devices.h"
 #include "mux.h"
 #include "omap5_ion.h"
+#include "board-54xx-sevm.h"
 
 #include <video/omapdss.h>
 #include <video/omap-panel-generic-dpi.h>
+
+#include <drm/drm_edid.h>
 
 #define OMAP5_SEVM_FB_RAM_SIZE       SZ_8M /* 1280×800*4 * 2 */
 
@@ -58,7 +63,40 @@
 #define GPIO_EXT_INT_PIN	99
 #define GPIO_SDCARD_DETECT	152
 #define HDMI_GPIO_HPD		193
+#define HDMI_GPIO_CT_CP_HPD	256
+#define HDMI_GPIO_LS_OE		257
 
+static struct gpio_led panda5_gpio_leds[] = {
+	{
+		.name	= "blue",
+		.default_trigger = "timer",
+		.gpio	= OMAP_MPUIO(19),
+	},
+	{
+		.name	= "red",
+		.default_trigger = "timer",
+		.gpio	= OMAP_MPUIO(17),
+	},
+	{
+		.name	= "green",
+		.default_trigger = "timer",
+		.gpio	= OMAP_MPUIO(18),
+	},
+
+};
+
+static struct gpio_led_platform_data panda5_led_data = {
+	.leds	= panda5_gpio_leds,
+	.num_leds = ARRAY_SIZE(panda5_gpio_leds),
+};
+
+static struct platform_device panda5_leds_gpio = {
+	.name	= "leds-gpio",
+	.id	= -1,
+	.dev	= {
+		.platform_data = &panda5_led_data,
+	},
+};
 
 #ifdef CONFIG_OMAP_MUX
 static struct omap_board_mux board_mux[] __initdata = {
@@ -91,6 +129,15 @@ static struct omap2_hsmmc_info mmc[] = {
 		.gpio_cd	= GPIO_SDCARD_DETECT,
 		.gpio_wp	= -EINVAL,
 		.ocr_mask	= MMC_VDD_29_30,
+	},
+	{
+		.mmc            = 3,
+		.caps           = MMC_CAP_4_BIT_DATA | MMC_CAP_POWER_OFF_CARD,
+		.pm_caps	= MMC_PM_KEEP_POWER,
+		.gpio_cd        = -EINVAL,
+		.gpio_wp        = -EINVAL,
+		.ocr_mask       = MMC_VDD_165_195,
+		.nonremovable   = true,
 	},
 	{}	/* Terminator */
 };
@@ -620,8 +667,32 @@ static struct platform_device *omap5evm_devices[] __initdata = {
 	&omap5evm_dmic_codec,
 	&omap5evm_hdmi_audio_codec,
 	&omap5evm_abe_audio,
+	&panda5_leds_gpio,
 };
 
+/*
+ * Display monitor features are burnt in their EEPROM as EDID data. The EEPROM
+ * is connected as I2C slave device, and can be accessed at address 0x50
+ */
+static struct i2c_board_info __initdata hdmi_i2c_eeprom[] = {
+	{
+		I2C_BOARD_INFO("eeprom", DDC_ADDR),
+	},
+};
+
+static struct i2c_gpio_platform_data i2c_gpio_pdata = {
+	.sda_pin                = 195,
+	.sda_is_open_drain      = 0,
+	.scl_pin                = 194,
+	.scl_is_open_drain      = 0,
+	.udelay                 = 2,            /* ~100 kHz */
+};
+
+static struct platform_device hdmi_edid_device = {
+	.name                   = "i2c-gpio",
+	.id                     = -1,
+	.dev.platform_data      = &i2c_gpio_pdata,
+};
 
 static struct regulator_consumer_supply omap5_evm_vmmc1_supply[] = {
 	REGULATOR_SUPPLY("vmmc", "omap_hsmmc.0"),
@@ -756,6 +827,10 @@ static void __init omap5panda_display_init(void)
 {
 	omap_vram_set_sdram_vram(OMAP5_SEVM_FB_RAM_SIZE, 0);
 
+	i2c_register_board_info(0, hdmi_i2c_eeprom,
+			ARRAY_SIZE(hdmi_i2c_eeprom));
+	platform_device_register(&hdmi_edid_device);
+
 	omap5panda_hdmi_init();
 	omap_display_init(&omap5evm_dss_data);
 }
@@ -804,6 +879,11 @@ static void __init omap_5_panda_init(void)
 	omap_serial_init();
 	platform_device_register(&dummy_sd_regulator_device);
 	omap_ehci_ohci_init();
+
+	/* TODO: Once the board identification is passed in from the
+	 * bootloader pass in the HACK board ID to the conn board file
+	*/
+	omap5_connectivity_init(OMAP5_PANDA5_BOARD_ID);
 
 	omap_hsmmc_init(mmc);
 	usb_dwc3_init();

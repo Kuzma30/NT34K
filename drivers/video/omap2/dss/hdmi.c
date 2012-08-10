@@ -48,7 +48,7 @@
 #define HDMI_CORE_AV		0x900
 
 /* HDMI EDID Length move this */
-#define HDMI_EDID_MAX_LENGTH			256
+#define HDMI_EDID_MAX_LENGTH			512
 #define EDID_TIMING_DESCRIPTOR_SIZE		0x12
 #define EDID_DESCRIPTOR_BLOCK0_ADDRESS		0x36
 #define EDID_DESCRIPTOR_BLOCK1_ADDRESS		0x80
@@ -70,6 +70,8 @@ static struct {
 	bool edid_set;
 	bool custom_set;
 	int hdmi_irq;
+	bool hdcp;
+	bool can_do_hdmi;
 
 	struct clk *sys_clk;
 	struct clk *dss_32k_clk;
@@ -81,6 +83,8 @@ static struct {
 	void (*hdmi_cec_enable_cb)(int status);
 	void (*hdmi_cec_irq_cb)(void);
 	void (*hdmi_cec_hpd)(int phy_addr, int status);
+	void (*hdmi_start_frame_cb)(void);
+	bool (*hdmi_power_on_cb)(void);
 } hdmi;
 
 static const u8 edid_header[8] = {0x0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x0};
@@ -218,6 +222,8 @@ void hdmi_get_monspecs(struct omap_dss_device *dssdev)
 		return;
 	}
 
+	hdmi.can_do_hdmi = specs->misc & FB_MISC_HDMI;
+
 	/* filter out resolutions we don't support */
 	for (i = j = 0; i < specs->modedb_len; i++) {
 		if (!hdmi_set_timings(&specs->modedb[i], true))
@@ -275,45 +281,6 @@ u8 *hdmi_read_valid_edid(void)
 
 	ret = hdmi.ip_data.ops->read_edid(&hdmi.ip_data, hdmi.edid,
 						  HDMI_EDID_MAX_LENGTH);
-
-	if ((omap_rev() == OMAP5430_REV_ES1_0) ||
-		(omap_rev() == OMAP5432_REV_ES1_0)) {
-		unsigned char edid_980[] = {
-			0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x44,
-			0x89, 0xd4, 0x03, 0x15, 0xcd, 0x5b, 0x07, 0x1d, 0x14,
-			0x01, 0x03, 0x80, 0x50, 0x2d, 0x78, 0x0a, 0x0d, 0xc9,
-			0xa0, 0x57, 0x47, 0x98, 0x27, 0x12, 0x48, 0x4c, 0x20,
-			0x00, 0x00, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
-			0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
-			0x02, 0x3a, 0x80, 0x18, 0x71, 0x38, 0x2d, 0x40, 0x58,
-			0x2c, 0x45, 0x00, 0x20, 0xc2, 0x31, 0x00, 0x00, 0x1e,
-			0x01, 0x1d, 0x80, 0x18, 0x71, 0x1c, 0x16, 0x20, 0x58,
-			0x2c, 0x25, 0x00, 0xc4, 0x8e, 0x21, 0x00, 0x00, 0x9e,
-			0x00, 0x00, 0x00, 0xfc, 0x00, 0x48, 0x44, 0x4d, 0x49,
-			0x20, 0x41, 0x6e, 0x61, 0x6c, 0x79, 0x7a, 0x65, 0x72,
-			0x00, 0x00, 0x00, 0xfd, 0x00, 0x17, 0xf1, 0x08, 0x8c,
-			0x17, 0x00, 0x0a, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
-			0x01, 0xab, 0x02, 0x03, 0x60, 0x71, 0x5f, 0x90, 0x1f,
-			0x20, 0x05, 0x14, 0x04, 0x13, 0x03, 0x02, 0x12, 0x11,
-			0x07, 0x06, 0x16, 0x15, 0x01, 0x0f, 0x0e, 0x1e, 0x1d,
-			0x0d, 0x0c, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x0a,
-			0x0b, 0x09, 0x5c, 0x08, 0x21, 0x22, 0x23, 0x24, 0x25,
-			0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e,
-			0x2f, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
-			0x38, 0x39, 0x3a, 0x3b, 0x32, 0x0f, 0x7f, 0x07, 0x17,
-			0x7f, 0x50, 0x3f, 0x7f, 0xc0, 0x57, 0x7f, 0x00, 0x5f,
-			0x7f, 0x01, 0x67, 0x7f, 0x00, 0x83, 0x4f, 0x00, 0x00,
-			0x67, 0x03, 0x0c, 0x00, 0x10, 0x00, 0x38, 0x2d, 0x00,
-			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-			0x00, 0x00, 0x00, 0x82
-		};
-
-		DSSWARN("forcing EDID on OMAP5\n");
-		memcpy(hdmi.edid, edid_980, sizeof(edid_980));
-		ret = 0;
-	}
 
 	for (i = 0; i < HDMI_EDID_MAX_LENGTH; i += 16)
 		pr_info("edid[%03x] = %02x %02x %02x %02x %02x %02x %02x %02x "\
@@ -402,6 +369,16 @@ static void hdmi_compute_pll(struct omap_dss_device *dssdev, int phy,
 	DSSDBG("range = %d sd = %d\n", pi->dcofreq, pi->regsd);
 }
 
+static void hdmi_load_hdcp_keys(struct omap_dss_device *dssdev)
+{
+	DSSDBG("hdmi_load_hdcp_keys\n");
+	/* load the keys and reset the wrapper to populate the AKSV registers*/
+	if (hdmi.hdmi_power_on_cb()) {
+		hdmi_ti_4xxx_set_wait_soft_reset(&hdmi.ip_data);
+		DSSINFO("HDMI_WRAPPER RESET DONE\n");
+	}
+}
+
 static int hdmi_power_on(struct omap_dss_device *dssdev)
 {
 	int r;
@@ -456,6 +433,8 @@ static int hdmi_power_on(struct omap_dss_device *dssdev)
 
 	hdmi.ip_data.ops->video_enable(&hdmi.ip_data, 0);
 
+	hdmi_load_hdcp_keys(dssdev);
+
 	/* config the PLL and PHY hdmi_set_pll_pwrfirst */
 	r = hdmi.ip_data.ops->pll_enable(&hdmi.ip_data);
 	if (r) {
@@ -468,6 +447,8 @@ static int hdmi_power_on(struct omap_dss_device *dssdev)
 		DSSDBG("Failed to start PHY\n");
 		goto err;
 	}
+
+	hdmi.ip_data.cfg.cm.mode = hdmi.can_do_hdmi ? hdmi.mode : HDMI_DVI;
 
 	hdmi.ip_data.ops->video_configure(&hdmi.ip_data);
 
@@ -491,6 +472,9 @@ static int hdmi_power_on(struct omap_dss_device *dssdev)
 
 	hdmi.ip_data.ops->video_enable(&hdmi.ip_data, 1);
 
+	if (hdmi.hdcp && hdmi.hdmi_start_frame_cb)
+		(*hdmi.hdmi_start_frame_cb)();
+
 	r = dss_mgr_enable(dssdev->manager);
 	if (r)
 		goto err_mgr_enable;
@@ -511,6 +495,7 @@ static void hdmi_power_off(struct omap_dss_device *dssdev)
 {
 	dss_mgr_disable(dssdev->manager);
 
+	hdmi.ip_data.ops->hdcp_disable(&hdmi.ip_data);
 	hdmi.ip_data.ops->video_enable(&hdmi.ip_data, 0);
 	hdmi.ip_data.ops->phy_disable(&hdmi.ip_data);
 	hdmi.ip_data.ops->pll_disable(&hdmi.ip_data);
@@ -521,6 +506,18 @@ static void hdmi_power_off(struct omap_dss_device *dssdev)
 	hdmi_runtime_put();
 
 	hdmi.ip_data.cfg.deep_color = HDMI_DEEP_COLOR_24BIT;
+}
+
+void omapdss_hdmi_register_hdcp_callbacks(void (*hdmi_start_frame_cb)(void),
+				 bool (*hdmi_power_on_cb)(void))
+{
+	hdmi.hdmi_start_frame_cb = hdmi_start_frame_cb;
+	hdmi.hdmi_power_on_cb = hdmi_power_on_cb;
+}
+
+struct hdmi_ip_data *get_hdmi_ip_data(void)
+{
+	return &hdmi.ip_data;
 }
 
 int omapdss_hdmi_set_deepcolor(struct omap_dss_device *dssdev, int val,
@@ -631,6 +628,7 @@ int omapdss_hdmi_display_set_mode2(struct omap_dss_device *dssdev,
 	hdmi.ip_data.set_mode = false;
 	hdmi.ip_data.cfg.timings = *vm;
 	hdmi.custom_set = 1;
+	hdmi.hdcp = true;
 	hdmi.code = code;
 	hdmi.mode = mode;
 	return dssdev->driver->enable(dssdev);
@@ -646,6 +644,7 @@ int omapdss_hdmi_display_set_mode(struct omap_dss_device *dssdev,
 	hdmi.ip_data.set_mode = false;
 	r1 = hdmi_set_timings(vm, false) ? 0 : -EINVAL;
 	hdmi.custom_set = true;
+	hdmi.hdcp = true;
 	hdmi.code = hdmi.ip_data.cfg.cm.code;
 	hdmi.mode = hdmi.ip_data.cfg.cm.mode;
 	r2 = dssdev->driver->enable(dssdev);
@@ -1019,6 +1018,7 @@ void omapdss_hdmi_display_disable(struct omap_dss_device *dssdev)
 	}
 
 	hdmi.enabled = false;
+	hdmi.hdcp = false;
 
 	if (!dssdev->sync_lost_error
 		&& (dssdev->state != OMAP_DSS_DISPLAY_SUSPENDED)) {
@@ -1085,6 +1085,7 @@ static void hdmi_put_clocks(void)
 #if defined(CONFIG_OMAP4_DSS_HDMI_AUDIO)
 int hdmi_compute_acr(u32 sample_freq, u32 *n, u32 *cts)
 {
+	int dc;
 	u32 deep_color;
 	bool deep_color_correct = false;
 	u32 pclk = hdmi.dssdev->panel.timings.pixel_clock;
@@ -1092,9 +1093,19 @@ int hdmi_compute_acr(u32 sample_freq, u32 *n, u32 *cts)
 	if (n == NULL || cts == NULL)
 		return -EINVAL;
 
-
-	/* TODO: When implemented, query deep color mode here. */
-	deep_color = 100;
+	dc = omapdss_hdmi_get_deepcolor();
+	switch (dc) {
+	case HDMI_DEEP_COLOR_36BIT:
+		deep_color = 150;
+		break;
+	case HDMI_DEEP_COLOR_30BIT:
+		deep_color = 125;
+		break;
+	case HDMI_DEEP_COLOR_24BIT:
+	default:
+		deep_color = 100;
+		break;
+	}
 
 	/*
 	 * When using deep color, the default N value (as in the HDMI

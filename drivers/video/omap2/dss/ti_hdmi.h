@@ -25,6 +25,8 @@
 #include <video/cec.h>
 #include <linux/wait.h>
 
+#include "hdcp.h"
+
 #define HDMI_CEC_INT		0x100
 
 struct hdmi_ip_data;
@@ -201,6 +203,14 @@ struct ti_hdmi_ip_ops {
 
 	int (*cec_set_reg_device_list)(struct hdmi_ip_data *ip_data,
 		int mask);
+
+	int (*hdcp_init)(struct hdmi_ip_data *ip_data);
+
+	int (*hdcp_enable) (struct hdmi_ip_data *ip_data);
+
+	int (*hdcp_disable)(struct hdmi_ip_data *ip_data);
+
+	int (*hdcp_status)(struct hdmi_ip_data *ip_data);
 };
 
 /*
@@ -263,6 +273,7 @@ struct hdmi_ip_data {
 	bool set_mode;
 	wait_queue_head_t tx_complete;/*ti signal TX complete*/
 	int cec_int;
+	struct completion ksvlist_arrived;
 };
 int ti_hdmi_4xxx_phy_enable(struct hdmi_ip_data *ip_data);
 void ti_hdmi_4xxx_phy_disable(struct hdmi_ip_data *ip_data);
@@ -313,12 +324,15 @@ int ti_hdmi_4xxx_cec_add_reg_device(struct hdmi_ip_data *ip_data,
 	int device_id, int clear);
 int ti_hdmi_4xxx_cec_set_reg_device_list(struct hdmi_ip_data *ip_data,
 	int mask);
+int hdmi_ti_4xxx_wp_get_video_state(struct hdmi_ip_data *ip_data);
+int hdmi_ti_4xxx_set_wait_soft_reset(struct hdmi_ip_data *ip_data);
 void ti_hdmi_5xxx_basic_configure(struct hdmi_ip_data *ip_data);
 void ti_hdmi_5xxx_core_dump(struct hdmi_ip_data *ip_data, struct seq_file *s);
 int ti_hdmi_5xxx_read_edid(struct hdmi_ip_data *ip_data,
 				u8 *edid, int len);
 int ti_hdmi_5xxx_irq_handler(struct hdmi_ip_data *ip_data);
 int ti_hdmi_5xxx_irq_process(struct hdmi_ip_data *ip_data);
+int ti_hdmi_5xxx_hdcp_status(struct hdmi_ip_data *ip_data);
 int ti_hdmi_5xxx_configure_range(struct hdmi_ip_data *ip_data);
 int ti_hdmi_5xxx_cec_get_rx_cmd(struct hdmi_ip_data *ip_data,
 	char *rx_cmd);
@@ -335,5 +349,8 @@ int ti_hdmi_5xxx_cec_add_reg_device(struct hdmi_ip_data *ip_data,
 	int device_id, int clear);
 int ti_hdmi_5xxx_cec_set_reg_device_list(struct hdmi_ip_data *ip_data,
 	int mask);
+int ti_hdmi_5xxx_hdcp_init(struct hdmi_ip_data *ip_data);
+int ti_hdmi_5xxx_hdcp_enable(struct hdmi_ip_data *ip_data);
+int ti_hdmi_5xxx_hdcp_disable(struct hdmi_ip_data *ip_data);
 
 #endif
