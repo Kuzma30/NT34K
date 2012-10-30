@@ -1307,12 +1307,12 @@ static void omap4_sdp4430_wifi_init(void)
     
 #if defined(CONFIG_TI_EMIF) || defined(CONFIG_TI_EMIF_MODULE)
 static struct __devinitdata emif_custom_configs custom_configs = {
-	.mask»  = EMIF_CUSTOM_CONFIG_LPMODE,
-	.lpmode»        = EMIF_LP_MODE_SELF_REFRESH,
-	.lpmode_timeout_performance = 512,
-	.lpmode_timeout_power = 512,
+	.mask				= EMIF_CUSTOM_CONFIG_LPMODE,
+	.lpmode				= EMIF_LP_MODE_SELF_REFRESH,
+	.lpmode_timeout_performance 	= 512,
+	.lpmode_timeout_power		= 512,
 	/* only at OPP100 should we use performance value */
-	.lpmode_freq_threshold = 400000000,
+	.lpmode_freq_threshold		= 400000000,
 	};
 #endif
 
