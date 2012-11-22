@@ -1235,6 +1235,7 @@ static void __init omap4_sdp4430_wifi_init(void)
 		pr_err("Error registering wl12xx device: %d\n", ret);
 }
 
+<<<<<<< HEAD
 #if defined(CONFIG_USB_EHCI_HCD_OMAP) || defined(CONFIG_USB_OHCI_HCD_OMAP3)
 static const struct usbhs_omap_board_data usbhs_bdata __initconst = {
 	.port_mode[0] = OMAP_EHCI_PORT_MODE_PHY,
@@ -1264,6 +1265,17 @@ static void __init omap4_ehci_ohci_init(void)
 }
 #else
 static void __init omap4_ehci_ohci_init(void){}
+=======
+#if defined(CONFIG_TI_EMIF) || defined(CONFIG_TI_EMIF_MODULE)
+static struct __devinitdata emif_custom_configs custom_configs = {
+	.mask	= EMIF_CUSTOM_CONFIG_LPMODE,
+	.lpmode	= EMIF_LP_MODE_SELF_REFRESH,
+	.lpmode_timeout_performance = 512,
+	.lpmode_timeout_power = 512,
+	/* only at OPP100 should we use performance value */
+	.lpmode_freq_threshold = 400000000,
+};
+>>>>>>> adc39e2... OMAP4: SDP/Tablet44xx: EMIF: Enable self-refresh
 #endif
 
 static void __init omap_4430sdp_init(void)
@@ -1279,20 +1291,20 @@ static void __init omap_4430sdp_init(void)
 		omap_emif_set_device_details(1, &lpddr2_elpida_4G_S4_info,
 				lpddr2_elpida_4G_S4_timings,
 				ARRAY_SIZE(lpddr2_elpida_4G_S4_timings),
-				&lpddr2_elpida_S4_min_tck, NULL);
+				&lpddr2_elpida_S4_min_tck, &custom_configs);
 		omap_emif_set_device_details(2, &lpddr2_elpida_4G_S4_info,
 				lpddr2_elpida_4G_S4_timings,
 				ARRAY_SIZE(lpddr2_elpida_4G_S4_timings),
-				&lpddr2_elpida_S4_min_tck, NULL);
+				&lpddr2_elpida_S4_min_tck, &custom_configs);
 	} else {
 		omap_emif_set_device_details(1, &lpddr2_elpida_2G_S4_x2_info,
 				lpddr2_elpida_2G_S4_timings,
 				ARRAY_SIZE(lpddr2_elpida_2G_S4_timings),
-				&lpddr2_elpida_S4_min_tck, NULL);
+				&lpddr2_elpida_S4_min_tck, &custom_configs);
 		omap_emif_set_device_details(2, &lpddr2_elpida_2G_S4_x2_info,
 				lpddr2_elpida_2G_S4_timings,
 				ARRAY_SIZE(lpddr2_elpida_2G_S4_timings),
-				&lpddr2_elpida_S4_min_tck, NULL);
+				&lpddr2_elpida_S4_min_tck, &custom_configs);
 	}
 #endif
 
