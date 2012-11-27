@@ -343,27 +343,27 @@ obj-$(CONFIG_OMAP_HSI_DEVICE)           += omap_hsi.o
 
 
 ifneq ($(CONFIG_ARCH_OMAP5_ES1),)
-obj-y					+=omap_hwmod_54xx_es1_data.o
-obj-y				        += $(clock-common) clock54xx_es1_data.o \
+#obj-y					+=omap_hwmod_54xx_es1_data.o
+obj-y				        += $(clock-common) # clock54xx_es1_data.o \
                                         dpll3xxx.o dpll44xx_54xx.o clock4xxx_5xxx.o
 obj-y					+= clockdomain.o \
                                         clockdomain44xx.o \
-                                        clockdomains54xx_es1_data.o
+                                        # clockdomains54xx_es1_data.o
 obj-y					+= $(powerdomain-common) \
                                         powerdomain4xxx_5xxx.o \
-                                        powerdomains54xx_es1_data.o
+                                        # powerdomains54xx_es1_data.o
 endif
 
 ifeq ($(CONFIG_ARCH_OMAP5_ES1),)
-obj-y                                   +=omap_hwmod_54xx_data.o
-obj-y                                   += $(clock-common) clock54xx_data.o \
+#obj-y                                   +=omap_hwmod_54xx_data.o
+obj-y                                   += $(clock-common) # clock54xx_data.o \
                                         dpll3xxx.o dpll44xx_54xx.o clock4xxx_5xxx.o
 obj-y                                   += clockdomain.o \
                                         clockdomain44xx.o \
-                                        clockdomains54xx_data.o
+                                        # clockdomains54xx_data.o
 obj-y                                   += $(powerdomain-common) \
                                         powerdomain4xxx_5xxx.o \
-                                        powerdomains54xx_data.o
+                                        # powerdomains54xx_data.o
 endif
 
 ifneq ($(CONFIG_OMAP_REMOTEPROC),)
