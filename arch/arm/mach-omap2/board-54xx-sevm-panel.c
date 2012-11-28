@@ -31,10 +31,12 @@
 
 #include <video/omapdss.h>
 #include <video/omap-panel-lg4591.h>
+#include <plat/android-display.h>
 
 #include "board-54xx-sevm.h"
 
-#define OMAP5_SEVM_FB_RAM_SIZE       SZ_8M /* 1280×800*4 * 2 */
+#define OMAP5_SEVM_FB_RAM_SIZE       (SZ_16M + SZ_4M)
+#define OMAPLFB_NUM_DEV 1
 
 #define HDMI_GPIO_HPD 193
 #define HDMI_GPIO_CT_CP_HPD OMAP_MPUIO(0)
@@ -44,9 +46,24 @@ static void lg_panel_set_power(bool enable)
 {
 }
 
+struct omap_sevm_panel_data {
+	struct omap_dss_board_info *board_info;
+	struct dsscomp_platform_data *dsscomp_data;
+	struct sgx_omaplfb_platform_data *omaplfb_data;
+};
+
 static struct panel_lg4591_data dsi_panel = {
 	.reset_gpio = 183,
 	.set_power = lg_panel_set_power,
+	.number_actions = 6,
+	.cooling_actions = {
+		{ .priority = 0, .percentage = 100, },
+		{ .priority = 1, .percentage = 100, },
+		{ .priority = 2, .percentage = 80, },
+		{ .priority = 3, .percentage = 70, },
+		{ .priority = 4, .percentage = 60, },
+		{ .priority = 5, .percentage = 50, },
+	},
 };
 
 static void omap5evm_lcd_init(void)
@@ -148,6 +165,16 @@ static struct omap_dss_board_info omap5evm_dss_data = {
 	.default_device	= &omap5evm_lcd_device,
 };
 
+static struct omap_dss_device *omap5evm_hdmi_dss_devices[] = {
+	&omap5evm_hdmi_device,
+};
+
+static struct omap_dss_board_info omap5evm_dss_data_hdmi_default_display = {
+	.num_devices    = ARRAY_SIZE(omap5evm_hdmi_dss_devices),
+	.devices        = omap5evm_hdmi_dss_devices,
+	.default_device = &omap5evm_hdmi_device
+};
+
 /*
  * Display monitor features are burnt in their EEPROM as EDID data. The EEPROM
  * is connected as I2C slave device, and can be accessed at address 0x50
@@ -172,18 +199,70 @@ static struct platform_device hdmi_edid_device = {
 	.dev.platform_data      = &i2c_gpio_pdata,
 };
 
+static struct omapfb_platform_data sevm_fb_pdata = {
+	.mem_desc = {
+		.region_cnt = 1,
+		.region = {
+			[0] = {
+				.size = OMAP5_SEVM_FB_RAM_SIZE,
+			},
+		},
+	},
+};
+
+static struct omap_sevm_panel_data panel_data_lg_panel = {
+	.board_info = &omap5evm_dss_data,
+	.dsscomp_data = NULL,
+	.omaplfb_data = NULL,
+};
+
+static struct sgx_omaplfb_config omaplfb_config_hdmi_default_display[OMAPLFB_NUM_DEV] = {
+	{
+		.tiler2d_buffers = 0,
+		.vram_buffers = 2,
+		.swap_chain_length = 2,
+	}
+};
+
+static struct sgx_omaplfb_platform_data omaplfb_plat_data_hdmi_default_display = {
+	.num_configs = OMAPLFB_NUM_DEV,
+	.configs = omaplfb_config_hdmi_default_display,
+};
+
+static struct omap_sevm_panel_data panel_data_hdmi_default_display  = {
+	.board_info = &omap5evm_dss_data_hdmi_default_display,
+	.dsscomp_data = NULL,
+	.omaplfb_data = &omaplfb_plat_data_hdmi_default_display,
+};
+
+static struct omap_sevm_panel_data *get_panel_data(void)
+{
+	if (omap_android_display_is_default(&omap5evm_hdmi_device))
+		return &panel_data_hdmi_default_display;
+	else
+		return &panel_data_lg_panel;
+}
+
+void __init sevm_android_display_setup(void)
+{
+	struct omap_sevm_panel_data *panel_data = get_panel_data();
+	omap_android_display_setup(panel_data->board_info,
+					panel_data->dsscomp_data,
+					panel_data->omaplfb_data,
+					&sevm_fb_pdata);
+}
+
 int __init sevm_panel_init(void)
 {
 
-	omap_vram_set_sdram_vram(OMAP5_SEVM_FB_RAM_SIZE, 0);
-
+	omapfb_set_platform_data(&sevm_fb_pdata);
 	i2c_register_board_info(0, hdmi_i2c_eeprom,
 			ARRAY_SIZE(hdmi_i2c_eeprom));
 	platform_device_register(&hdmi_edid_device);
 
 	omap5evm_lcd_init();
 	omap5evm_hdmi_init();
-	omap_display_init(&omap5evm_dss_data);
+	omap_display_init(get_panel_data()->board_info);
 	return 0;
 
 };

@@ -64,7 +64,10 @@ config ARCH_OMAP5
 	select CPU_V7
 	select ARM_GIC
 	select HAVE_SMP
+	select ARM_ERRATA_766421
 	select ARM_ERRATA_761171
+	select ARM_ERRATA_774769
+	select ARM_ERRATA_773022
 	select ARM_ERRATA_4668
 	select USB_ARCH_HAS_EHCI if USB_SUPPORT
 	select USB_ARCH_HAS_XHCI if USB_SUPPORT
@@ -73,6 +76,11 @@ config ARCH_OMAP5
 	select ARCH_HAS_OPP
 	select PM_OPP if PM
 	select TI_EMIF
+
+config ARCH_OMAP5_ES1
+	bool "TI OMAP5 ES1"
+	default n
+	depends on ARCH_OMAP5
 
 comment "OMAP Core Type"
 	depends on ARCH_OMAP2
@@ -389,6 +397,20 @@ config MACH_OMAP_4430SDP
 	select OMAP_PACKAGE_CBS
 	select REGULATOR_FIXED_VOLTAGE if REGULATOR
 	select OMAP_TPS6236X
+	select TWL6030_GPADC
+	select CDC_TCXO
+	select TWL6040_VIB
+
+config MACH_OMAP_BLAZE
+	bool "OMAP 44XX Tablet board"
+	default y
+	depends on ARCH_OMAP4
+	select OMAP_PACKAGE_CBS
+	select REGULATOR_FIXED_VOLTAGE
+	select OMAP_TPS6236X
+	select TWL6030_GPADC
+	select CDC_TCXO
+	select TWL6040_VIB
 
 config MACH_OMAP4_PANDA
 	bool "OMAP4 Panda Board"
@@ -403,20 +425,8 @@ config MACH_OMAP5_SEVM
 	bool "OMAP5 EVM board"
 	default y
 	depends on ARCH_OMAP5
-	select KEYBOARD_SMSC
-	select TOUCHSCREEN_QUANTUM_OBP
-	select INPUT_TSL2771
-	select INPUT_BMP085
-	select DRV2667_HAPTICS if ANDROID_TIMED_OUTPUT
-	select BATTERY_BQ27x00
 	select GPIO_PCA953X
 	select GPIO_PCA953X_IRQ
-	select OMAP_RAM_CONSOLE if ANDROID_RAM_CONSOLE
-	select INPUT_MPU6050
-	select INPUT_MPU6050_ACCEL
-	select INPUT_MPU6050_GYRO
-	select OMAP_SEVM_DOCK if SWITCH
-	select SENSORS_AK8975
 
 config MACH_OMAP5_PANDA
 	bool "OMAP5 Panda board"
@@ -462,7 +472,7 @@ config OMAP3_SDRC_AC_TIMING
 
 config OMAP4_ERRATA_I688
 	bool "OMAP4 errata: Async Bridge Corruption"
-	depends on ARCH_OMAP4
+	depends on ARCH_OMAP4 || ARCH_OMAP5
 	select ARCH_HAS_BARRIERS
 	help
 	  If a data is stalled inside asynchronous bridge because of back
@@ -491,6 +501,33 @@ config OMAP_RAM_CONSOLE
           that after a kernel panic they can be viewed in the next kernel
           invocation, by accessing /proc/last_kmsg
           NOTE: Board file needs to invoke relevant api to enable the support
+
+config OMAP_SO_MAP_FORCE
+	bool "Force SO range for OMAP IP peripheral memory map"
+	depends on ARCH_OMAP2 || ARCH_OMAP3 || ARCH_OMAP4 || ARCH_OMAP5
+	default y
+	help
+	  Use Strongly Ordered for L3, L4CFG, L4_WK and L4_PER peripherals in
+	  the system. It's seen with robustness testing keeping SO memory
+	  attribute helps system stability. Additionally, having strongly
+	  ordered uncovered external aborts which could have gone un-noticed
+	  as freeze, actually a hidden L3 write abort. Having SO should ease
+	  debug of such external aborts.
+	  If you do not know what to set here, leave at default.
+
+config OMAP4_HS_SECURE_SRAM_SIZE
+	int "Secure SRAM Resized size for OMAP4 HS devices in KB"
+	depends on ARCH_OMAP4
+	default 52
+	help
+	  resized secure SRAM size for OMAP4
+
+config OMAP5_HS_SECURE_SRAM_SIZE
+	int "Secure SRAM Resized size for OMAP5 HS devices in KB"
+	depends on ARCH_OMAP5
+	default 120
+	help
+	  resized secure SRAM size for OMAP5
 
 config OMAP_TPS6236X
 	bool "OMAP4 support for TPS6236X power IC"

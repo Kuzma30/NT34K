@@ -299,7 +299,8 @@ static void transmit_chars(struct uart_omap_port *up)
 		serial_omap_stop_tx(&up->port);
 		return;
 	}
-	count = up->port.fifosize / 4;
+	count = up->port.fifosize -
+		(serial_in(up, UART_OMAP_TXFIFO_LVL) & 0xFF);
 	do {
 		serial_out(up, UART_TX, xmit->buf[xmit->tail]);
 		xmit->tail = (xmit->tail + 1) & (UART_XMIT_SIZE - 1);
@@ -308,8 +309,11 @@ static void transmit_chars(struct uart_omap_port *up)
 			break;
 	} while (--count > 0);
 
-	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
+	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS) {
+		spin_unlock(&up->port.lock);
 		uart_write_wakeup(&up->port);
+		spin_lock(&up->port.lock);
+	}
 
 	if (uart_circ_empty(xmit))
 		serial_omap_stop_tx(&up->port);
@@ -458,10 +462,9 @@ static inline irqreturn_t serial_omap_irq(int irq, void *dev_id)
 	}
 
 	check_modem_status(up);
-	if (int_id == UART_IIR_THRI) {
-		if (lsr & UART_LSR_THRE)
-			transmit_chars(up);
-	}
+	if (int_id == UART_IIR_THRI)
+		transmit_chars(up);
+
 
 	spin_unlock_irqrestore(&up->port.lock, flags);
 	serial_omap_port_disable(up);
@@ -833,7 +836,7 @@ serial_omap_set_termios(struct uart_port *port, struct ktermios *termios,
 	serial_out(up, UART_IER, up->ier);
 	serial_out(up, UART_LCR, cval);		/* reset DLAB */
 	up->lcr = cval;
-	up->scr = OMAP_UART_SCR_TX_EMPTY;
+	up->scr = 0;
 
 	/* FIFOs and DMA Settings */
 
@@ -857,14 +860,9 @@ serial_omap_set_termios(struct uart_port *port, struct ktermios *termios,
 	/* FIFO ENABLE, DMA MODE */
 
 	up->scr |= OMAP_UART_SCR_RX_TRIG_GRANU1_MASK;
-
 	if (up->use_dma) {
 		serial_out(up, UART_TI752_TLR, 0);
 		up->scr |= UART_FCR_TRIGGER_4;
-	} else {
-		/* Set receive FIFO threshold to 1 byte */
-		up->fcr &= ~OMAP_UART_FCR_RX_FIFO_TRIG_MASK;
-		up->fcr |= (0x1 << OMAP_UART_FCR_RX_FIFO_TRIG_SHIFT);
 	}
 
 	serial_out(up, UART_FCR, up->fcr);
@@ -1255,6 +1253,7 @@ static int serial_omap_suspend(struct device *dev)
 	struct omap_uart_port_info *pdata = dev->platform_data;
 
 	if (up) {
+		disable_irq(up->port.irq);
 		if (pdata->rts_mux_write) {
 			up->rts_pullup_in_suspend = 1;
 			pdata->rts_mux_write(MUX_PULL_UP, up->port.line);
@@ -1265,6 +1264,7 @@ static int serial_omap_suspend(struct device *dev)
 
 		if (!device_may_wakeup(dev))
 			pdata->enable_wakeup(up->pdev, false);
+		enable_irq(up->port.irq);
 	}
 
 	return 0;
@@ -1790,8 +1790,8 @@ static int serial_omap_runtime_resume(struct device *dev)
 #endif
 
 static const struct dev_pm_ops serial_omap_dev_pm_ops = {
-	.suspend_noirq = serial_omap_suspend,
-	.resume_noirq = serial_omap_resume,
+	.suspend = serial_omap_suspend,
+	.resume = serial_omap_resume,
 
 	SET_RUNTIME_PM_OPS(serial_omap_runtime_suspend,
 				serial_omap_runtime_resume, NULL)

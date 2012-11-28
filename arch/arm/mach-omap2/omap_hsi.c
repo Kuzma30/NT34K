@@ -179,6 +179,10 @@ static struct omap_device_pad __initdata
 };
 
 /* OMAP54xx MUX settings for HSI port 1 & 2 */
+/* CAUTION: Adding OMAP_DEVICE_PAD_REMUX flags for a pad will add it in the
+ * dynamic pads list and will change the index of following cawake pads, so
+ * increment the second parameter of the omap_hwmod_pad_route_irq() function
+ * accordingly */
 static struct omap_device_pad __initdata
 			omap54xx_hsi_ports_pads[2][HSI_SIGNALS_PER_PORT] = {
 	{
@@ -269,7 +273,7 @@ static struct omap_device_pad __initdata
 		{
 			.name = "hsi2_cadata",
 			.enable = OMAP_MUX_MODE0 | \
-				  OMAP_PIN_INPUT_PULLDOWN | \
+				  OMAP_PIN_INPUT | \
 				  OMAP_PIN_OFF_NONE,
 		},
 
@@ -399,6 +403,8 @@ static struct hsi_platform_data omap_hsi_platform_data = {
 	.device_shutdown = omap_device_shutdown,
 	.device_scale = omap_device_scale,
 	.get_context_loss_count = omap_pm_get_dev_context_loss_count,
+	.runtime_suspend_helper = omap_device_runtime_suspend_helper,
+	.runtime_resume_helper = omap_device_runtime_resume_helper,
 
 };
 
@@ -406,12 +412,19 @@ static u32 omap_hsi_configure_errata(void)
 {
 	u32 errata = 0;
 
+	if (cpu_is_omap44xx())
+		SET_HSI_ERRATA(errata, HSI_ERRATUM_ixxx_3WIRES_NO_SWAKEUP);
+
 	if (cpu_is_omap44xx() ||
 	    (cpu_is_omap54xx() && (omap_rev() <= OMAP5430_REV_ES1_0))) {
 		SET_HSI_ERRATA(errata, HSI_ERRATUM_i696_SW_RESET_FSM_STUCK);
-		SET_HSI_ERRATA(errata, HSI_ERRATUM_ixxx_3WIRES_NO_SWAKEUP);
 		SET_HSI_ERRATA(errata, HSI_ERRATUM_i702_PM_HSI_SWAKEUP);
 	}
+
+	if (cpu_is_omap44xx() &&
+		(omap_rev() > OMAP4430_REV_ES1_0))
+		SET_HSI_ERRATA(errata,
+				HSI_ERRATUM_i646_ERROR_COUNTERS_DISABLED);
 
 	return errata;
 }
@@ -432,6 +445,7 @@ static int __init omap_hsi_register(struct omap_hwmod *oh, void *user)
 {
 	struct platform_device *od;
 	struct hsi_platform_data *pdata = &omap_hsi_platform_data;
+	int i, port, err;
 
 	if (!oh) {
 		pr_err("Could not look up %s omap_hwmod\n",
@@ -443,11 +457,24 @@ static int __init omap_hsi_register(struct omap_hwmod *oh, void *user)
 
 	oh->mux = omap_hsi_fill_default_pads(pdata);
 
+	for (i = 0; i < pdata->num_ports; i++) {
+		port = pdata->ctx->pctx[i].port_number - 1;
+		err = omap_hwmod_pad_route_irq(oh, i, port);
+		if (err < 0) {
+			pr_err("%s: Could not route the IO PAD wakeup event on IRQ %d for the port %d, error = %d\n",
+				__func__, oh->mpu_irqs[i].irq, port + 1, err);
+			return err;
+		}
+	}
+
 	od = omap_device_build(OMAP_HSI_PLATFORM_DEVICE_DRIVER_NAME, 0, oh,
 			       pdata, sizeof(*pdata), omap_hsi_latency,
 			       ARRAY_SIZE(omap_hsi_latency), false);
 	WARN(IS_ERR(od), "Can't build omap_device for %s:%s.\n",
 	     OMAP_HSI_PLATFORM_DEVICE_DRIVER_NAME, oh->name);
+
+	/* DONOT auto-disable me while going to suspend */
+	omap_device_disable_idle_on_suspend(od);
 
 	pr_info("HSI: device registered as omap_hwmod: %s\n", oh->name);
 	return 0;

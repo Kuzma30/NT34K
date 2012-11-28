@@ -8,16 +8,10 @@
  * warranty of any kind, whether express or implied.
  */
 #include <linux/kernel.h>
-#include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/bug.h>
-#include <linux/io.h>
 
-#include <asm/div64.h>
 
-#include <plat/cpu.h>
-
-#include "iomap.h"
 #include "voltage.h"
 #include "vc.h"
 #include "prm-regbits-34xx.h"
@@ -71,6 +65,10 @@ static struct omap_vc_channel_cfg vc_mutant_channel_cfg = {
 static struct omap_vc_channel_cfg *vc_cfg_bits;
 #define CFG_CHANNEL_MASK 0x1f
 
+#define VDD_AUTO_RET_DISABLE	0
+#define VDD_AUTO_SLEEP		1
+#define VDD_AUTO_RET		2
+
 /**
  * omap_vc_config_channel - configure VC channel to PMIC mappings
  * @voltdm: pointer to voltagdomain defining the desired VC channel
@@ -111,8 +109,19 @@ int omap_vc_pre_scale(struct voltagedomain *voltdm,
 		      struct omap_volt_data *target_v,
 		      u8 *target_vsel, u8 *current_vsel)
 {
-	struct omap_vc_channel *vc = voltdm->vc;
+	struct omap_vc_channel *vc;
 	u32 vc_cmdval;
+
+	if (IS_ERR_OR_NULL(voltdm)) {
+		pr_err("%s bad voldm\n", __func__);
+		return -EINVAL;
+	}
+
+	vc = voltdm->vc;
+	if (IS_ERR_OR_NULL(vc)) {
+		pr_err("%s voldm=%s bad vc\n", __func__, voltdm->name);
+		return -EINVAL;
+	}
 
 	/* Check if sufficient pmic info is available for this vdd */
 	if (!voltdm->pmic) {
@@ -131,6 +140,30 @@ int omap_vc_pre_scale(struct voltagedomain *voltdm,
 	if (!voltdm->read || !voltdm->write) {
 		pr_err("%s: No read/write API for accessing vdd_%s regs\n",
 			__func__, voltdm->name);
+		return -EINVAL;
+	}
+
+	if (IS_ERR_OR_NULL(target_v)) {
+		pr_err("%s: No target_v info to scale vdd_%s\n",
+		       __func__, voltdm->name);
+		return -EINVAL;
+	}
+
+	if (IS_ERR_OR_NULL(voltdm->vc_param)) {
+		pr_err("%s: No vc_param info for vdd_%s\n",
+		       __func__, voltdm->name);
+		return -EINVAL;
+	}
+
+	if (IS_ERR_OR_NULL(target_vsel)) {
+		pr_err("%s: No target_vsel info to scale vdd_%s\n",
+		       __func__, voltdm->name);
+		return -EINVAL;
+	}
+
+	if (IS_ERR_OR_NULL(current_vsel)) {
+		pr_err("%s: No current_vsel info to scale vdd_%s\n",
+		       __func__, voltdm->name);
 		return -EINVAL;
 	}
 
@@ -171,6 +204,25 @@ void omap_vc_post_scale(struct voltagedomain *voltdm,
 		return;
 	}
 
+	if (IS_ERR_OR_NULL(target_vdata)) {
+		pr_err("%s: No target_vdata info to scale vdd_%s\n",
+		       __func__, voltdm->name);
+		return;
+	}
+
+	/* Check if sufficient pmic info is available for this vdd */
+	if (!voltdm->pmic) {
+		pr_err("%s: Insufficient pmic info to scale the vdd_%s\n",
+		       __func__, voltdm->name);
+		return;
+	}
+
+	if (!voltdm->write) {
+		pr_err("%s: No write API for accessing vdd_%s regs\n",
+		       __func__, voltdm->name);
+		return;
+	}
+
 	smps_steps = abs(target_vsel - current_vsel);
 	/* SMPS slew rate / step size. 2us added as buffer. */
 	smps_delay = DIV_ROUND_UP(smps_steps * voltdm->pmic->step_size,
@@ -192,12 +244,31 @@ void omap_vc_post_scale(struct voltagedomain *voltdm,
 int omap_vc_bypass_scale(struct voltagedomain *voltdm,
 				struct omap_volt_data *target_v)
 {
-	struct omap_vc_channel *vc = voltdm->vc;
+	struct omap_vc_channel *vc;
 	u32 loop_cnt = 0, retries_cnt = 0;
 	u32 vc_valid, vc_bypass_val_reg, vc_bypass_value;
 	u8 target_vsel, current_vsel;
+	unsigned long target_volt;
 	int ret;
-	unsigned long target_volt = omap_get_operation_voltage(target_v);
+
+	if (IS_ERR_OR_NULL(voltdm)) {
+		pr_err("%s bad voldm\n", __func__);
+		return -EINVAL;
+	}
+
+	if (IS_ERR_OR_NULL(target_v)) {
+		pr_err("%s: No target_v info to scale vdd_%s\n",
+		       __func__, voltdm->name);
+		return -EINVAL;
+	}
+
+	vc = voltdm->vc;
+	if (IS_ERR_OR_NULL(vc)) {
+		pr_err("%s voldm=%s bad vc\n", __func__, voltdm->name);
+		return -EINVAL;
+	}
+
+	target_volt = omap_get_operation_voltage(target_v);
 
 	ret = omap_vc_pre_scale(voltdm, target_volt,
 				target_v, &target_vsel, &current_vsel);
@@ -219,7 +290,7 @@ int omap_vc_bypass_scale(struct voltagedomain *voltdm,
 	 * NOTE: This is legacy code. The loop count and retry count needs
 	 * to be revisited.
 	 */
-	while (!(vc_bypass_value & vc_valid)) {
+	while (vc_bypass_value & vc_valid) {
 		loop_cnt++;
 
 		if (retries_cnt > 10) {
@@ -477,6 +548,51 @@ static void omap4_set_timings(struct voltagedomain *voltdm)
 	omap4_set_volt_ramp_time(voltdm, false);
 }
 
+static int omap4_vc_sleep(struct voltagedomain *voltdm, u8 target_state)
+{
+	u32 val = VDD_AUTO_RET_DISABLE;
+	u32 voltctrl;
+
+	/* Return if voltdm does not support autoret */
+	if (!voltdm->auto_ret)
+		return 0;
+
+	switch (target_state) {
+	case PWRDM_POWER_OFF:
+	case PWRDM_POWER_OSWR:
+	case PWRDM_POWER_CSWR:
+		val = VDD_AUTO_RET;
+		break;
+	}
+
+	voltctrl = voltdm->read(voltdm->vc->common->voltctrl_reg);
+
+	voltctrl &= ~voltdm->vc->voltctrl_mask;
+
+	voltctrl |= val << __ffs(voltdm->vc->voltctrl_mask);
+
+	voltdm->write(voltctrl, voltdm->vc->common->voltctrl_reg);
+
+	return 0;
+}
+
+static int omap4_vc_wakeup(struct voltagedomain *voltdm)
+{
+	u32 voltctrl;
+
+	/* Return if voltdm does not support autoret */
+	if (!voltdm->auto_ret)
+		return 0;
+
+	voltctrl = voltdm->read(voltdm->vc->common->voltctrl_reg);
+
+	voltctrl &= ~voltdm->vc->voltctrl_mask;
+
+	voltdm->write(voltctrl, voltdm->vc->common->voltctrl_reg);
+
+	return 0;
+}
+
 /* OMAP4 specific voltage init functions */
 static void __init omap4_vc_init_channel(struct voltagedomain *voltdm)
 {
@@ -486,6 +602,9 @@ static void __init omap4_vc_init_channel(struct voltagedomain *voltdm)
 	u32 vc_val = 0;
 
 	omap4_set_timings(voltdm);
+
+	voltdm->sleep = omap4_vc_sleep;
+	voltdm->wakeup = omap4_vc_wakeup;
 
 	if (is_initialized)
 		return;
@@ -572,9 +691,14 @@ static u8 omap_vc_calc_vsel(struct voltagedomain *voltdm, u32 uvolt)
 
 void __init omap_vc_init_channel(struct voltagedomain *voltdm)
 {
-	struct omap_vc_channel *vc = voltdm->vc;
+	struct omap_vc_channel *vc;
 	u8 on_vsel, onlp_vsel, ret_vsel, off_vsel;
 	u32 val;
+
+	if (IS_ERR_OR_NULL(voltdm)) {
+		pr_err("%s bad voldm\n", __func__);
+		return;
+	}
 
 	if (!voltdm->pmic || !voltdm->pmic->uv_to_vsel) {
 		pr_err("%s: No PMIC info for vdd_%s\n", __func__, voltdm->name);
@@ -584,6 +708,24 @@ void __init omap_vc_init_channel(struct voltagedomain *voltdm)
 	if (!voltdm->read || !voltdm->write) {
 		pr_err("%s: No read/write API for accessing vdd_%s regs\n",
 			__func__, voltdm->name);
+		return;
+	}
+
+	if (IS_ERR_OR_NULL(voltdm->rmw)) {
+		pr_err("%s: No rmw API for reading vdd_%s regs\n",
+		       __func__, voltdm->name);
+		return;
+	}
+
+	vc = voltdm->vc;
+	if (IS_ERR_OR_NULL(vc)) {
+		pr_err("%s voldm=%s bad vc\n", __func__, voltdm->name);
+		return;
+	}
+
+	if (IS_ERR_OR_NULL(voltdm->vc_param)) {
+		pr_err("%s: No vc_param info for vdd_%s\n",
+		       __func__, voltdm->name);
 		return;
 	}
 

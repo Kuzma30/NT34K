@@ -40,11 +40,13 @@
 #include <linux/of_platform.h>
 #include <linux/irq.h>
 #include <linux/irqdomain.h>
+#include <linux/slab.h>
 
 #include <linux/regulator/machine.h>
 
 #include <linux/i2c.h>
 #include <linux/i2c/twl.h>
+#include <linux/i2c/twl-rtc.h>
 
 #include "twl-core.h"
 
@@ -88,7 +90,13 @@
 #define twl_has_madc()	false
 #endif
 
-#ifdef CONFIG_TWL4030_POWER
+#if defined(CONFIG_TWL6030_GPADC) || defined(CONFIG_TWL6030_GPADC_MODULE)
+#define twl_has_gpadc()	true
+#else
+#define twl_has_gpadc()	false
+#endif
+
+#if defined(CONFIG_TWL4030_POWER) || defined(CONFIG_TWL6030_POWER)
 #define twl_has_power()        true
 #else
 #define twl_has_power()        false
@@ -204,7 +212,7 @@
 #define TWL6030_BASEADD_GASGAUGE	0x00C0
 #define TWL6030_BASEADD_PIH		0x00D0
 #define TWL6030_BASEADD_CHARGER		0x00E0
-#define TWL6025_BASEADD_CHARGER		0x00DA
+#define TWL6032_BASEADD_CHARGER		0x00DA
 
 /* subchip/slave 2 0x4A - DFT */
 #define TWL6030_BASEADD_DIEID		0x00C0
@@ -230,6 +238,9 @@
 #define TPS_SUBSET		BIT(1)	/* tps659[23]0 have fewer LDOs */
 #define TWL5031			BIT(2)  /* twl5031 has different registers */
 #define TWL6030_CLASS		BIT(3)	/* TWL6030 class */
+
+/* need to access USB_PRODUCT_ID_LSB to identify which 6030 varient we are */
+#define USB_PRODUCT_ID_LSB	0x02
 
 /*----------------------------------------------------------------------*/
 
@@ -337,7 +348,7 @@ static struct twl_mapping twl6030_map[] = {
 
 	{ SUB_CHIP_ID0, TWL6030_BASEADD_RTC },
 	{ SUB_CHIP_ID0, TWL6030_BASEADD_MEM },
-	{ SUB_CHIP_ID1, TWL6025_BASEADD_CHARGER },
+	{ SUB_CHIP_ID1, TWL6032_BASEADD_CHARGER },
 };
 
 /*----------------------------------------------------------------------*/
@@ -663,6 +674,51 @@ add_regulator(int num, struct regulator_init_data *pdata,
 }
 
 /*
+ * RTC: callback functions
+ */
+
+static int twl_rtc_read_block(void *mfd, u8 *data, u8 reg, int no_regs)
+{
+	return twl_i2c_read(TWL_MODULE_RTC, data, reg, no_regs);
+}
+
+static int twl_rtc_write_block(void *mfd, u8 *data, u8 reg, int no_regs)
+{
+	u8 tmpdata[2];
+	u8 *datatowrite = data;
+
+	if (no_regs == 1) {
+		tmpdata[1] = data[0];
+		datatowrite = tmpdata;
+	}
+	return twl_i2c_write(TWL_MODULE_RTC, datatowrite, reg, no_regs);
+}
+
+static int twl_rtc_unmask_irq(void *mfd)
+{
+	int ret = 0;
+	if (twl_class_is_6030()) {
+		ret = twl6030_interrupt_unmask(TWL6030_RTC_INT_MASK,
+			REG_INT_MSK_LINE_A);
+		ret |= twl6030_interrupt_unmask(TWL6030_RTC_INT_MASK,
+			REG_INT_MSK_STS_A);
+	}
+	return ret;
+}
+
+static int twl_rtc_mask_irq(void *mfd)
+{
+	int ret = 0;
+	if (twl_class_is_6030()) {
+		ret = twl6030_interrupt_mask(TWL6030_RTC_INT_MASK,
+			REG_INT_MSK_LINE_A);
+		ret |= twl6030_interrupt_mask(TWL6030_RTC_INT_MASK,
+			REG_INT_MSK_STS_A);
+	}
+	return ret;
+}
+
+/*
  * NOTE:  We know the first 8 IRQs after pdata->base_irq are
  * for the PIH, and the next are for the PWR_INT SIH, since
  * that's how twl_init_irq() sets things up.
@@ -699,6 +755,16 @@ add_children(struct twl4030_platform_data *pdata, unsigned irq_base,
 			return PTR_ERR(child);
 	}
 
+	if (twl_has_gpadc() && pdata->madc) {
+		pdata->madc->features = features;
+		child = add_child(1, "twl6030_gpadc",
+				pdata->madc, sizeof(*pdata->madc),
+				true, irq_base + MADC_INTR_OFFSET,
+				irq_base + GPADCSW_INTR_OFFSET);
+		if (IS_ERR(child))
+			return PTR_ERR(child);
+	}
+
 	if (twl_has_rtc()) {
 		/*
 		 * REVISIT platform_data here currently might expose the
@@ -707,12 +773,27 @@ add_children(struct twl4030_platform_data *pdata, unsigned irq_base,
 		 * Eventually, Linux might become more aware of such
 		 * HW security concerns, and "least privilege".
 		 */
+		struct twl_rtc_data *twl_rtc;
+
+		twl_rtc = kzalloc(sizeof(*twl_rtc), GFP_KERNEL);
+		if (!twl_rtc) {
+			pr_err("%s: Can't allocate memory\n", __func__);
+			return -ENOMEM;
+		}
+		twl_rtc->read_block = twl_rtc_read_block;
+		twl_rtc->write_block = twl_rtc_write_block;
+		twl_rtc->unmask_irq = twl_rtc_unmask_irq;
+		twl_rtc->mask_irq = twl_rtc_mask_irq;
+		twl_rtc->chip_version = twl_rev();
+
 		sub_chip_id = twl_map[TWL_MODULE_RTC].sid;
 		child = add_child(sub_chip_id, "twl_rtc",
-				NULL, 0,
+				twl_rtc, sizeof(*twl_rtc),
 				true, irq_base + RTC_INTR_OFFSET, 0);
-		if (IS_ERR(child))
+		if (IS_ERR(child)) {
+			kfree(twl_rtc);
 			return PTR_ERR(child);
+		}
 	}
 
 	if (twl_has_usb() && pdata->usb && twl_class_is_4030()) {
@@ -792,9 +873,9 @@ add_children(struct twl4030_platform_data *pdata, unsigned irq_base,
 					| REGULATOR_CHANGE_STATUS,
 			};
 
-			if (features & TWL6025_SUBCLASS) {
+			if (features & TWL6032_SUBCLASS) {
 				usb3v3.supply =	"ldousb";
-				regulator = TWL6025_REG_LDOUSB;
+				regulator = TWL6032_REG_LDOUSB;
 			} else {
 				usb3v3.supply = "vusb";
 				regulator = TWL6030_REG_VUSB;
@@ -821,8 +902,8 @@ add_children(struct twl4030_platform_data *pdata, unsigned irq_base,
 		if (twl_has_regulator() && child)
 			usb3v3.dev_name = dev_name(child);
 	} else if (twl_has_regulator() && twl_class_is_6030()) {
-		if (features & TWL6025_SUBCLASS)
-			child = add_regulator(TWL6025_REG_LDOUSB,
+		if (features & TWL6032_SUBCLASS)
+			child = add_regulator(TWL6032_REG_LDOUSB,
 						pdata->ldousb, features);
 		else
 			child = add_regulator(TWL6030_REG_VUSB,
@@ -945,7 +1026,7 @@ add_children(struct twl4030_platform_data *pdata, unsigned irq_base,
 
 	/* twl6030 regulators */
 	if (twl_has_regulator() && twl_class_is_6030() &&
-			!(features & TWL6025_SUBCLASS)) {
+			!(features & TWL6032_SUBCLASS)) {
 		child = add_regulator(TWL6030_REG_VDD1, pdata->vdd1,
 					features);
 		if (IS_ERR(child))
@@ -1010,6 +1091,29 @@ add_children(struct twl4030_platform_data *pdata, unsigned irq_base,
 					features);
 		if (IS_ERR(child))
 			return PTR_ERR(child);
+	}
+
+	/* 6030 and 6032 share this regulator */
+	if (twl_has_regulator() && twl_class_is_6030()) {
+		child = add_regulator(TWL6030_REG_VANA, pdata->vana,
+					features);
+		if (IS_ERR(child))
+			return PTR_ERR(child);
+
+		child = add_regulator(TWL6030_REG_CLK32KAUDIO,
+				pdata->clk32kaudio, features);
+		if (IS_ERR(child))
+			return PTR_ERR(child);
+
+		child = add_regulator(TWL6030_REG_SYSEN,
+				pdata->sysen, features);
+		if (IS_ERR(child))
+			return PTR_ERR(child);
+
+		child = add_regulator(TWL6030_REG_REGEN1,
+				pdata->sysen, features);
+		if (IS_ERR(child))
+			return PTR_ERR(child);
 
 		child = add_regulator(TWL6030_REG_CLK32KG, pdata->clk32kg,
 					features);
@@ -1017,68 +1121,65 @@ add_children(struct twl4030_platform_data *pdata, unsigned irq_base,
 			return PTR_ERR(child);
 	}
 
-	/* 6030 and 6025 share this regulator */
-	if (twl_has_regulator() && twl_class_is_6030()) {
-		child = add_regulator(TWL6030_REG_VANA, pdata->vana,
-					features);
-		if (IS_ERR(child))
-			return PTR_ERR(child);
-	}
-
-	/* twl6025 regulators */
+	/* twl6032 regulators */
 	if (twl_has_regulator() && twl_class_is_6030() &&
-			(features & TWL6025_SUBCLASS)) {
-		child = add_regulator(TWL6025_REG_LDO5, pdata->ldo5,
+			(features & TWL6032_SUBCLASS)) {
+		child = add_regulator(TWL6032_REG_EXT_V2V1, pdata->ext_v2v1,
 					features);
 		if (IS_ERR(child))
 			return PTR_ERR(child);
 
-		child = add_regulator(TWL6025_REG_LDO1, pdata->ldo1,
+		child = add_regulator(TWL6032_REG_LDO5, pdata->ldo5,
 					features);
 		if (IS_ERR(child))
 			return PTR_ERR(child);
 
-		child = add_regulator(TWL6025_REG_LDO7, pdata->ldo7,
+		child = add_regulator(TWL6032_REG_LDO1, pdata->ldo1,
 					features);
 		if (IS_ERR(child))
 			return PTR_ERR(child);
 
-		child = add_regulator(TWL6025_REG_LDO6, pdata->ldo6,
+		child = add_regulator(TWL6032_REG_LDO7, pdata->ldo7,
 					features);
 		if (IS_ERR(child))
 			return PTR_ERR(child);
 
-		child = add_regulator(TWL6025_REG_LDOLN, pdata->ldoln,
+		child = add_regulator(TWL6032_REG_LDO6, pdata->ldo6,
 					features);
 		if (IS_ERR(child))
 			return PTR_ERR(child);
 
-		child = add_regulator(TWL6025_REG_LDO2, pdata->ldo2,
+		child = add_regulator(TWL6032_REG_LDOLN, pdata->ldoln,
 					features);
 		if (IS_ERR(child))
 			return PTR_ERR(child);
 
-		child = add_regulator(TWL6025_REG_LDO4, pdata->ldo4,
+		child = add_regulator(TWL6032_REG_LDO2, pdata->ldo2,
 					features);
 		if (IS_ERR(child))
 			return PTR_ERR(child);
 
-		child = add_regulator(TWL6025_REG_LDO3, pdata->ldo3,
+		child = add_regulator(TWL6032_REG_LDO4, pdata->ldo4,
 					features);
 		if (IS_ERR(child))
 			return PTR_ERR(child);
 
-		child = add_regulator(TWL6025_REG_SMPS3, pdata->smps3,
+		child = add_regulator(TWL6032_REG_LDO3, pdata->ldo3,
 					features);
 		if (IS_ERR(child))
 			return PTR_ERR(child);
 
-		child = add_regulator(TWL6025_REG_SMPS4, pdata->smps4,
+		child = add_regulator(TWL6032_REG_SMPS3, pdata->smps3,
 					features);
 		if (IS_ERR(child))
 			return PTR_ERR(child);
 
-		child = add_regulator(TWL6025_REG_VIO, pdata->vio6025,
+		child = add_regulator(TWL6032_REG_SMPS4, pdata->smps4,
+					features);
+		if (IS_ERR(child))
+			return PTR_ERR(child);
+
+		child = add_regulator(TWL6032_REG_VIO, pdata->vio6032,
 					features);
 		if (IS_ERR(child))
 			return PTR_ERR(child);
@@ -1228,6 +1329,8 @@ twl_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	int				irq_base = 0;
 	int				status;
 	unsigned			i, num_slaves;
+	int				features;
+	u8				temp;
 
 	if (node && !pdata) {
 		/*
@@ -1297,8 +1400,23 @@ twl_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	}
 
 	/* load power event scripts */
-	if (twl_has_power() && pdata->power)
-		twl4030_power_init(pdata->power);
+	if (twl_has_power()) {
+		if (twl_class_is_4030() && pdata->power)
+			twl4030_power_init(pdata->power);
+		if (twl_class_is_6030())
+			twl6030_power_init(pdata->power);
+	}
+
+	features = id->driver_data;
+	if (twl_class_is_6030()) {
+		if (twl_i2c_read_u8(TWL_MODULE_USB, &temp,
+						USB_PRODUCT_ID_LSB)) {
+			status = -EIO;
+			goto fail;
+		}
+		if (temp == 0x32)
+			features |= TWL6032_SUBCLASS;
+	}
 
 	/* Maybe init the T2 Interrupt subsystem */
 	if (client->irq) {
@@ -1306,7 +1424,8 @@ twl_probe(struct i2c_client *client, const struct i2c_device_id *id)
 			twl4030_init_chip_irq(id->name);
 			irq_base = twl4030_init_irq(&client->dev, client->irq);
 		} else {
-			irq_base = twl6030_init_irq(&client->dev, client->irq);
+			irq_base = twl6030_init_irq(&client->dev, client->irq,
+					features);
 		}
 
 		if (irq_base < 0) {
@@ -1321,8 +1440,6 @@ twl_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	 * SR_I2C_SCL_CTRL_PU(bit 4)=0 and SR_I2C_SDA_CTRL_PU(bit 6)=0.
 	 */
 	if (twl_class_is_4030()) {
-		u8 temp;
-
 		twl_i2c_read_u8(TWL4030_MODULE_INTBR, &temp, REG_GPPUPDCTR1);
 		temp &= ~(SR_I2C_SDA_CTRL_PU | SR_I2C_SCL_CTRL_PU | \
 			I2C_SDA_CTRL_PU | I2C_SCL_CTRL_PU);
@@ -1332,8 +1449,9 @@ twl_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	status = -ENODEV;
 	if (node)
 		status = of_platform_populate(node, NULL, NULL, &client->dev);
+
 	if (status)
-		status = add_children(pdata, irq_base, id->driver_data);
+		status = add_children(pdata, irq_base, features);
 
 fail:
 	if (status < 0)
@@ -1352,7 +1470,7 @@ static const struct i2c_device_id twl_ids[] = {
 	{ "tps65921", TPS_SUBSET },	/* fewer LDOs; no codec, no LED
 					   and vibrator. Charger in USB module*/
 	{ "twl6030", TWL6030_CLASS },	/* "Phoenix power chip" */
-	{ "twl6025", TWL6030_CLASS | TWL6025_SUBCLASS }, /* "Phoenix lite" */
+	{ "twl6032", TWL6030_CLASS | TWL6032_SUBCLASS }, /* "Phoenix lite" */
 	{ /* end of list */ },
 };
 MODULE_DEVICE_TABLE(i2c, twl_ids);

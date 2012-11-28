@@ -26,10 +26,15 @@
 #include <linux/of_device.h>
 #include <linux/irqdomain.h>
 #include <linux/gpio.h>
+#include <linux/bitops.h>
+#include <linux/sched.h>
 #include <mach/hardware.h>
 #include <asm/irq.h>
 #include <mach/irqs.h>
 #include <asm/mach/irq.h>
+#include <plat/omap_device.h>
+
+#include "../mux.h"
 
 #define OFF_MODE	1
 
@@ -78,15 +83,20 @@ struct gpio_bank {
 	int context_loss_count;
 	u16 id;
 	bool workaround_enabled;
+	u16 mux_val[32];
+	struct omap_mux *mux[32];
+	u32 is_oe_wa;
+	bool is_idle;
+	u32 pending_wakeups;
+	u32 wakeup_enabled;
 
 	void (*set_dataout)(struct gpio_bank *bank, int gpio, int enable);
 	int (*get_context_loss_count)(struct device *dev);
-	int (*do_reset)(struct device *dev, bool context_lost,
-			bool *should_restore_context);
 
 	struct omap_gpio_reg_offs *regs;
 };
 
+static struct clk *gpio8_dbck;
 #define GPIO_INDEX(bank, gpio) (gpio % bank->width)
 #define GPIO_BIT(bank, gpio) (1 << GPIO_INDEX(bank, gpio))
 #define GPIO_MOD_CTRL_BIT	BIT(0)
@@ -176,12 +186,22 @@ static inline void _gpio_dbck_enable(struct gpio_bank *bank)
 	if (bank->dbck_enable_mask && !bank->dbck_enabled) {
 		clk_enable(bank->dbck);
 		bank->dbck_enabled = true;
+
+		__raw_writel(bank->dbck_enable_mask,
+			bank->base + bank->regs->debounce_en);
 	}
 }
 
 static inline void _gpio_dbck_disable(struct gpio_bank *bank)
 {
 	if (bank->dbck_enable_mask && bank->dbck_enabled) {
+		/*
+		 * Disable debounce before cutting it's clock. If debounce is
+		 * enabled but the clock is not, GPIO module seems to be unable
+		 * to detect events and generate interrupts at least on OMAP3.
+		 */
+		__raw_writel(0, bank->base + bank->regs->debounce_en);
+
 		clk_disable(bank->dbck);
 		bank->dbck_enabled = false;
 	}
@@ -518,11 +538,10 @@ static int _set_gpio_wakeup(struct gpio_bank *bank, int gpio, int enable)
 
 	spin_lock_irqsave(&bank->lock, flags);
 	if (enable)
-		bank->context.wake_en |= gpio_bit;
+		bank->wakeup_enabled |= gpio_bit;
 	else
-		bank->context.wake_en &= ~gpio_bit;
+		bank->wakeup_enabled &= ~gpio_bit;
 
-	__raw_writel(bank->context.wake_en, bank->base + bank->regs->wkup_en);
 	spin_unlock_irqrestore(&bank->lock, flags);
 
 	return 0;
@@ -659,7 +678,10 @@ static void gpio_irq_handler(unsigned int irq, struct irq_desc *desc)
 		u32 enabled;
 
 		enabled = _get_gpio_irqbank_mask(bank);
-		isr_saved = isr = __raw_readl(isr_reg) & enabled;
+		isr_saved = isr = (__raw_readl(isr_reg) |
+				   bank->pending_wakeups) & enabled;
+
+		bank->pending_wakeups = 0;
 
 		if (bank->level_mask)
 			level_mask = bank->level_mask & enabled;
@@ -767,14 +789,16 @@ static void gpio_unmask_irq(struct irq_data *d)
 	if (trigger)
 		_set_gpio_triggering(bank, GPIO_INDEX(bank, gpio), trigger);
 
-	/* For level-triggered GPIOs, the clearing must be done after
-	 * the HW source is cleared, thus after the handler has run */
-	if (bank->level_mask & irq_mask) {
-		_set_gpio_irqenable(bank, gpio, 0);
-		_clear_gpio_irqstatus(bank, gpio);
-	}
-
 	_set_gpio_irqenable(bank, gpio, 1);
+	/*
+	 * For level-triggered GPIOs, the clearing must be done after
+	 * the HW source is cleared, thus after the handler has run.
+	 * Also, make sure to clear the status _after_ enabling the irq
+	 * so that pending event will be cleared.
+	 */
+	if (bank->level_mask & irq_mask)
+		_clear_gpio_irqstatus(bank, gpio);
+
 	spin_unlock_irqrestore(&bank->lock, flags);
 }
 
@@ -894,6 +918,24 @@ static int gpio_output(struct gpio_chip *chip, unsigned offset, int value)
 	spin_lock_irqsave(&bank->lock, flags);
 	bank->set_dataout(bank, offset, value);
 	_set_gpio_direction(bank, offset, 0);
+
+	/* Required for GPIO h/w bug WA */
+	if (cpu_is_omap54xx() &&
+		(omap_rev() == OMAP5430_REV_ES1_0 ||
+		omap_rev() == OMAP5432_REV_ES1_0)) {
+
+		/* Store gpio mux value for o/p pins */
+		bank->mux[offset] =
+			omap_mux_get_gpio(offset + (bank->id)*(bank->width));
+		if (bank->mux[offset])
+			bank->mux_val[offset] =
+			omap_mux_read((bank->mux[offset])->partition,
+				(bank->mux[offset])->reg_offset);
+		else
+			dev_err(bank->dev, "Failed to get mux for gpio %d\n",
+				offset + (bank->id)*(bank->width));
+	}
+
 	spin_unlock_irqrestore(&bank->lock, flags);
 	return 0;
 }
@@ -1103,6 +1145,8 @@ static int __devinit omap_gpio_probe(struct platform_device *pdev)
 	bank->chip.of_node = of_node_get(node);
 #endif
 	bank->id = pdev->id;
+	bank->is_oe_wa = 0;
+	bank->is_idle = false;
 
 	bank->irq_base = irq_alloc_descs(-1, 0, bank->width, 0);
 	if (bank->irq_base < 0) {
@@ -1141,6 +1185,24 @@ static int __devinit omap_gpio_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, bank);
 
+	/*
+	 * For GPIO h/w bug (OMAP5430-1.0BUG01667) WA to be effective it is
+	 * necessary that L4PER is ON. This debounce clk is enabled now and
+	 * disabled after WA is applied in idle notifier. It is enabled again
+	 * in resume notifier for WA to be effectively removed.
+	 */
+	if (cpu_is_omap54xx() &&
+		(omap_rev() == OMAP5430_REV_ES1_0 ||
+		 omap_rev() == OMAP5432_REV_ES1_0)) {
+		if (bank->id == 7) {
+			gpio8_dbck = clk_get(bank->dev, "dbclk");
+			if (IS_ERR(gpio8_dbck))
+				dev_err(bank->dev, "Could not get gpio dbck\n");
+			else
+				clk_enable(gpio8_dbck);
+		}
+	}
+
 	pm_runtime_enable(bank->dev);
 	pm_runtime_irq_safe(bank->dev);
 	pm_runtime_get_sync(bank->dev);
@@ -1155,7 +1217,8 @@ static int __devinit omap_gpio_probe(struct platform_device *pdev)
 	if (bank->loses_context)
 		bank->get_context_loss_count = pdata->get_context_loss_count;
 
-	bank->do_reset = pdata->do_module_reset;
+	/* Don't idle omap device during suspend */
+	omap_device_disable_idle_on_suspend(pdev);
 
 	pm_runtime_put(bank->dev);
 
@@ -1164,12 +1227,77 @@ static int __devinit omap_gpio_probe(struct platform_device *pdev)
 	return ret;
 }
 
+static void _omap5_gpio_apply_wa(struct gpio_bank *bank)
+{
+	u32 i;
+	u16 mux_val;
+	unsigned long op;
+
+	/* Get o/p pins */
+	op = ~bank->context.oe;
+	for_each_set_bit(i, &op, bank->width) {
+		/* Check if o/p is pulled high */
+		if (_get_gpio_dataout(bank, i)) {
+			/* Enable pull up for o/p pulled high */
+			mux_val = bank->mux_val[i];
+			mux_val |= OMAP_PIN_INPUT_PULLUP;
+			if (bank->mux[i]) {
+				omap_mux_write((bank->mux[i])->partition,
+						mux_val,
+						(bank->mux[i])->reg_offset);
+				/* Change direction to input */
+				_set_gpio_direction(bank, i, 1);
+				bank->is_oe_wa |= (0x1 << i);
+			} else {
+				/*
+				 * HACK: Temporarily removed print on
+				 * OMAP5432 due to a bug in ducati where
+				 * GPIO65 is misconfigured.
+				 */
+				if (omap_rev() != OMAP5432_REV_ES1_0) {
+					dev_err(bank->dev,
+						"Failed to apply WA for "
+						"gpio %d\n",
+						i + (bank->id)*(bank->width));
+				}
+			}
+		}
+	}
+}
+
+static void _omap5_gpio_remove_wa(struct gpio_bank *bank)
+{
+	u32 i;
+	unsigned long op = bank->is_oe_wa;
+
+	for_each_set_bit(i, &op, bank->width) {
+		/* Change the direction back to o/p */
+		_set_gpio_direction(bank, i, 0);
+		/* Replace the mux to original value */
+		omap_mux_write((bank->mux[i])->partition,
+				bank->mux_val[i],
+				(bank->mux[i])->reg_offset);
+	}
+	bank->is_oe_wa = 0;
+}
+
+static void omap5_gpio_es1_hw_wa(struct gpio_bank *bank, bool is_suspend)
+{
+	if (cpu_is_omap54xx() &&
+			(omap_rev() == OMAP5430_REV_ES1_0 ||
+			 omap_rev() == OMAP5432_REV_ES1_0)) {
+		if (is_suspend)
+			_omap5_gpio_apply_wa(bank);
+		else
+			_omap5_gpio_remove_wa(bank);
+	}
+}
+
 #ifdef CONFIG_ARCH_OMAP2PLUS
 
-#if defined(CONFIG_PM_RUNTIME)
 static void omap_gpio_restore_context(struct gpio_bank *bank);
 
-static int omap_gpio_runtime_suspend(struct device *dev)
+static int omap_gpio_pm_idle(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct gpio_bank *bank = platform_get_drvdata(pdev);
@@ -1179,8 +1307,10 @@ static int omap_gpio_runtime_suspend(struct device *dev)
 
 	spin_lock_irqsave(&bank->lock, flags);
 
-	if (!bank->enabled_non_wakeup_gpios)
-		goto update_gpio_context_count;
+	if (bank->is_idle) {
+		spin_unlock_irqrestore(&bank->lock, flags);
+		return 0;
+	}
 
 	/*
 	 * Only edges can generate a wakeup event to the PRCM.
@@ -1201,6 +1331,9 @@ static int omap_gpio_runtime_suspend(struct device *dev)
 	if (wake_hi)
 		__raw_writel(wake_hi | bank->context.risingdetect,
 			     bank->base + bank->regs->risingdetect);
+
+	if (!bank->enabled_non_wakeup_gpios)
+		goto update_gpio_context_count;
 
 	/*
 	 * If going to OFF, remove triggering for all
@@ -1226,36 +1359,37 @@ update_gpio_context_count:
 				bank->get_context_loss_count(bank->dev);
 
 	/*
-	 * WA for GPIO pins 140 (BT) & 142 (WLAN) used as output pins
-	 * due to h/w bug in GPIO module (Bug ID: OMAP5430-1.0BUG01667)
+	 * WA for GPIO pins used as outputs due to h/w bug in GPIO
+	 * module (Bug ID: OMAP5430-1.0BUG01667)
 	 * On OMAP5 ES1.0 the pins do not maintain their level in OFF.
-	 * This WA changes the direction to input while in OFF and back
-	 * to input in resume. This is fixed in ES2.0
+	 * This WA enables pull up and changes the direction to input
+	 * while in RETENTION/OFF and back to output in resume. This
+	 * is fixed in ES2.0
 	 */
-	if (cpu_is_omap54xx() &&
-	    (omap_rev() == OMAP5430_REV_ES1_0 ||
-	     omap_rev() == OMAP5432_REV_ES1_0) &&
-	    bank->id == 4) {
-		_set_gpio_direction(bank, GPIO_INDEX(bank, 142), 1);
-		_set_gpio_direction(bank, GPIO_INDEX(bank, 140), 1);
-	}
+	omap5_gpio_es1_hw_wa(bank, true);
 
 	_gpio_dbck_disable(bank);
+	bank->is_idle = true;
 	spin_unlock_irqrestore(&bank->lock, flags);
 
 	return 0;
 }
 
-static int omap_gpio_runtime_resume(struct device *dev)
+static int omap_gpio_pm_noidle(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct gpio_bank *bank = platform_get_drvdata(pdev);
 	int context_lost_cnt_after;
 	u32 l = 0, gen, gen0, gen1;
 	unsigned long flags;
-	bool should_restore_context = false;
 
 	spin_lock_irqsave(&bank->lock, flags);
+
+	if (!bank->is_idle) {
+		spin_unlock_irqrestore(&bank->lock, flags);
+		return 0;
+	}
+
 	_gpio_dbck_enable(bank);
 
 	/*
@@ -1272,46 +1406,20 @@ static int omap_gpio_runtime_resume(struct device *dev)
 	if (bank->get_context_loss_count) {
 		context_lost_cnt_after =
 			bank->get_context_loss_count(bank->dev);
-		if (context_lost_cnt_after != bank->context_loss_count ||
-						!context_lost_cnt_after)
-			should_restore_context = true;
+		if (context_lost_cnt_after != bank->context_loss_count)
+			omap_gpio_restore_context(bank);
 	}
 
 	/*
-	 * If bank requires reset to be done, then it should be done
-	 * prior to restore, and let arch code deal with decision
-	 * if certain module can or should restore or not.
-	 */
-	if (bank->do_reset) {
-		int r;
-		bool can_loose_context;
-
-		can_loose_context = bank->get_context_loss_count ? true : false;
-		r = bank->do_reset(dev, can_loose_context,
-				   &should_restore_context);
-		if (r)
-			dev_err(dev, "Bank reset fail(%d)!\n", r);
-		/* Fall through anyway and hope it recovers.. */
-	}
-
-	if (should_restore_context)
-		omap_gpio_restore_context(bank);
-
-	/*
-	 * WA for GPIO pins 140 (BT) & 142 (WLAN) used as output pins
-	 * due to h/w bug in GPIO module (Bug ID: OMAP5430-1.0BUG01667)
+	 * Restore the GPIO pins changed in suspend path while applying
+	 * WA for h/w bug Bug ID: OMAP5430-1.0BUG01667.
 	 * On OMAP5 ES1.0 the pins do not maintain their level in OFF.
-	 * Change the direct back to o/p in resume.
+	 * Change the direction back to output in resume
 	 */
-	if (cpu_is_omap54xx() &&
-			(omap_rev() == OMAP5430_REV_ES1_0 ||
-			 omap_rev() == OMAP5432_REV_ES1_0) &&
-			bank->id == 4) {
-		_set_gpio_direction(bank, GPIO_INDEX(bank, 142), 0);
-		_set_gpio_direction(bank, GPIO_INDEX(bank, 140), 0);
-	}
+	omap5_gpio_es1_hw_wa(bank, false);
 
 	if (!bank->workaround_enabled) {
+		bank->is_idle = false;
 		spin_unlock_irqrestore(&bank->lock, flags);
 		return 0;
 	}
@@ -1371,38 +1479,187 @@ static int omap_gpio_runtime_resume(struct device *dev)
 	}
 
 	bank->workaround_enabled = false;
-
+	bank->is_idle = false;
 	spin_unlock_irqrestore(&bank->lock, flags);
 
 	return 0;
 }
-#endif /* CONFIG_PM_RUNTIME */
+
+static u32 omap2_gpio_set_wakeupenables(struct gpio_bank *bank, bool idle)
+{
+	unsigned long pad_wakeup;
+	int i;
+
+	if (idle)
+		pad_wakeup = bank->context.irqenable1;
+	else
+		pad_wakeup = bank->wakeup_enabled;
+
+	for_each_set_bit(i, &pad_wakeup, bank->width) {
+		if (!bank->mux[i])
+			bank->mux[i] = omap_mux_get_gpio(bank->chip.base + i);
+		omap_mux_set_wakeupenable(bank->mux[i]);
+	}
+
+	return pad_wakeup;
+}
+
+static u32 omap2_gpio_clear_wakeupenables(struct gpio_bank *bank, bool idle)
+{
+	unsigned long pad_wakeup;
+	int i;
+
+	if (idle)
+		pad_wakeup = bank->context.irqenable1;
+	else
+		pad_wakeup = bank->wakeup_enabled;
+
+	for_each_set_bit(i, &pad_wakeup, bank->width)
+		omap_mux_clear_wakeupenable(bank->mux[i]);
+
+	return pad_wakeup;
+}
+
+static void omap2_gpio_scan_iochain(struct gpio_bank *bank)
+{
+	unsigned long pad_wakeup;
+	int i;
+
+	pad_wakeup = bank->context.irqenable1;
+
+	for_each_set_bit(i, &pad_wakeup, bank->width) {
+		if (omap_mux_get_wakeupstatus(bank->mux[i]))
+			bank->pending_wakeups |= 1 << i;
+	}
+}
+
+void omap2_gpio_trigger_wakeup_irqs(void)
+{
+	struct gpio_bank *bank;
+	unsigned long wakeups;
+	int i;
+
+	list_for_each_entry(bank, &omap_gpio_list, node) {
+		wakeups = bank->pending_wakeups;
+
+		if (!wakeups)
+			continue;
+
+		for_each_set_bit(i, &wakeups, bank->width)
+			generic_handle_irq(bank->irq_base + i);
+
+		/*
+		 * Set saved_datain for the wakeup pads to current
+		 * value to avoid triggering duplicate irqs by the
+		 * generic workaround code in omap_gpio_pm_noidle()
+		 */
+		bank->saved_datain &= ~(u32)wakeups;
+		bank->saved_datain |= __raw_readl(bank->base +
+			bank->regs->datain) & (u32)wakeups;
+
+		bank->pending_wakeups = 0;
+	}
+}
+
+static void omap2_gpio_suspend_resume_wkup_bank(struct gpio_bank *bank,
+		bool is_suspending)
+{
+	u32 irqena, wake_en;
+
+	/*
+	 * If we are suspending, disable interrupts for GPIOs which
+	 * don't have wakeup capability enabled
+	 */
+	if (is_suspending) {
+		irqena = bank->context.irqenable1 & bank->wakeup_enabled;
+		wake_en = bank->context.wake_en & bank->wakeup_enabled;
+	} else {
+		irqena = bank->context.irqenable1;
+		wake_en = bank->context.wake_en;
+	}
+
+	/* Only write physical registers if the contents are changing */
+	if ((bank->context.irqenable1 & bank->wakeup_enabled) !=
+			bank->context.irqenable1)
+		__raw_writel(irqena, bank->base + bank->regs->irqenable);
+
+	if ((bank->context.wake_en & bank->wakeup_enabled) !=
+			bank->context.wake_en)
+		__raw_writel(wake_en, bank->base + bank->regs->wkup_en);
+}
 
 void omap2_gpio_prepare_for_idle(int pwr_mode)
 {
 	struct gpio_bank *bank;
+	u32 reconfig_needed = 0;
+	bool idle_task = is_idle_task(current);
 
 	list_for_each_entry(bank, &omap_gpio_list, node) {
-		if (!bank->mod_usage || !bank->loses_context)
+		if (!bank->mod_usage)
 			continue;
 
-		pm_runtime_put_sync_suspend(bank->dev);
+		if (!bank->loses_context) {
+			if (!idle_task) {
+				omap2_gpio_suspend_resume_wkup_bank(bank, true);
+				reconfig_needed |= omap2_gpio_set_wakeupenables(bank,
+									idle_task);
+			}
+			continue;
+		}
+
+		if (idle_task)
+			omap_gpio_pm_idle(bank->dev);
+		else
+			omap_device_runtime_suspend(bank->dev);
+
+		reconfig_needed |= omap2_gpio_set_wakeupenables(bank,
+								idle_task);
 	}
+
+	if (reconfig_needed)
+		omap_mux_reconfigure_iochain();
+
+	if (gpio8_dbck)
+		clk_disable(gpio8_dbck);
 }
 
 void omap2_gpio_resume_after_idle(void)
 {
 	struct gpio_bank *bank;
+	u32 reconfig_needed = 0;
+	bool idle_task = is_idle_task(current);
+
+	if (gpio8_dbck)
+		clk_enable(gpio8_dbck);
 
 	list_for_each_entry(bank, &omap_gpio_list, node) {
-		if (!bank->mod_usage || !bank->loses_context)
+		if (!bank->mod_usage)
 			continue;
 
-		pm_runtime_get_sync(bank->dev);
+		if (!bank->loses_context) {
+			if (!idle_task) {
+				omap2_gpio_suspend_resume_wkup_bank(bank,
+								false);
+				reconfig_needed |= omap2_gpio_clear_wakeupenables(bank,
+									idle_task);
+			}
+			continue;
+		}
+
+		if (idle_task)
+			omap_gpio_pm_noidle(bank->dev);
+		else
+			omap_device_runtime_resume(bank->dev);
+
+		omap2_gpio_scan_iochain(bank);
+		reconfig_needed |= omap2_gpio_clear_wakeupenables(bank,
+								idle_task);
 	}
+
+	if (reconfig_needed)
+		omap_mux_reconfigure_iochain();
 }
 
-#if defined(CONFIG_PM_RUNTIME)
 static void omap_gpio_restore_context(struct gpio_bank *bank)
 {
 	__raw_writel(bank->context.wake_en,
@@ -1436,16 +1693,29 @@ static void omap_gpio_restore_context(struct gpio_bank *bank)
 	__raw_writel(bank->context.irqenable2,
 				bank->base + bank->regs->irqenable2);
 }
-#endif /* CONFIG_PM_RUNTIME */
-#else
-#define omap_gpio_runtime_suspend NULL
-#define omap_gpio_runtime_resume NULL
-#endif
+
+#ifdef CONFIG_PM_RUNTIME
+static int omap_gpio_runtime_suspend(struct device *dev)
+{
+	omap_gpio_pm_idle(dev);
+	return 0;
+}
+
+static int omap_gpio_runtime_resume(struct device *dev)
+{
+	omap_gpio_pm_noidle(dev);
+	return 0;
+}
 
 static const struct dev_pm_ops gpio_pm_ops = {
 	SET_RUNTIME_PM_OPS(omap_gpio_runtime_suspend, omap_gpio_runtime_resume,
 									NULL)
 };
+#define OMAP_GPIO_PM_OPS (&gpio_pm_ops)
+#else
+#define OMAP_GPIO_PM_OPS NULL
+#endif
+#endif
 
 #if defined(CONFIG_OF)
 static struct omap_gpio_reg_offs omap2_gpio_regs = {
@@ -1534,7 +1804,7 @@ static struct platform_driver omap_gpio_driver = {
 	.probe		= omap_gpio_probe,
 	.driver		= {
 		.name	= "omap_gpio",
-		.pm	= &gpio_pm_ops,
+		.pm	= OMAP_GPIO_PM_OPS,
 		.of_match_table = of_match_ptr(omap_gpio_match),
 	},
 };

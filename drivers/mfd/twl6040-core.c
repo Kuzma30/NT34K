@@ -101,6 +101,22 @@ int twl6040_clear_bits(struct twl6040 *twl6040, unsigned int reg, u8 mask)
 }
 EXPORT_SYMBOL(twl6040_clear_bits);
 
+static int twl6040_set_pll_input(struct twl6040 *twl6040, int pll_id, int on)
+{
+	int ret;
+
+	if (!twl6040->set_pll_input)
+		return 0;
+
+	ret = twl6040->set_pll_input(pll_id, on);
+	if (ret)
+		dev_err(twl6040->dev, "failed to %s %s PLL input\n",
+			on ? "enable" : "disable",
+			pll_id ? "High-Performance" : "Low-Power");
+
+	return ret;
+}
+
 /* twl6040 codec manual power-up sequence */
 static int twl6040_power_up(struct twl6040 *twl6040)
 {
@@ -216,24 +232,86 @@ static irqreturn_t twl6040_naudint_handler(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+static int twl6040_is_powered(struct twl6040 *twl6040)
+{
+	int ncpctl;
+	int ldoctl;
+	int lppllctl;
+	u8 ncpctl_exp;
+	u8 ldoctl_exp;
+	u8 lppllctl_exp;
+
+	/* NCPCTL expected value: NCP enabled */
+	ncpctl_exp = (TWL6040_TSHUTENA | TWL6040_NCPENA);
+
+	/* LDOCTL expected value: HS/LS LDOs and Reference enabled */
+	ldoctl_exp = (TWL6040_REFENA | TWL6040_HSLDOENA | TWL6040_LSLDOENA);
+
+	/* LPPLLCTL expected value: Low-Power PLL enabled */
+	lppllctl_exp = TWL6040_LPLLENA;
+
+	ncpctl = twl6040_reg_read(twl6040, TWL6040_REG_NCPCTL);
+	if (ncpctl < 0)
+		return 0;
+
+	ldoctl = twl6040_reg_read(twl6040, TWL6040_REG_LDOCTL);
+	if (ldoctl < 0)
+		return 0;
+
+	lppllctl = twl6040_reg_read(twl6040, TWL6040_REG_LPPLLCTL);
+	if (lppllctl < 0)
+		return 0;
+
+	if ((ncpctl != ncpctl_exp) ||
+	    (ldoctl != ldoctl_exp) ||
+	    (lppllctl != lppllctl_exp)) {
+		dev_warn(twl6040->dev,
+			"NCPCTL: 0x%02x (should be 0x%02x)\n"
+			"LDOCTL: 0x%02x (should be 0x%02x)\n"
+			"LPLLCTL: 0x%02x (should be 0x%02x)\n",
+			ncpctl, ncpctl_exp,
+			ldoctl, ldoctl_exp,
+			lppllctl, lppllctl_exp);
+		return 0;
+	}
+
+	return 1;
+}
+
 static int twl6040_power_up_completion(struct twl6040 *twl6040,
 				       int naudint)
 {
 	int time_left;
+	int round = 0;
 	u8 intid;
 
-	time_left = wait_for_completion_timeout(&twl6040->ready,
-						msecs_to_jiffies(144));
-	if (!time_left) {
-		intid = twl6040_reg_read(twl6040, TWL6040_REG_INTID);
-		if (!(intid & TWL6040_READYINT)) {
-			dev_err(twl6040->dev,
-				"timeout waiting for READYINT\n");
-			return -ETIMEDOUT;
-		}
-	}
+	do {
+		INIT_COMPLETION(twl6040->ready);
+		gpio_set_value(twl6040->audpwron, 1);
+		time_left = wait_for_completion_timeout(&twl6040->ready,
+							msecs_to_jiffies(700));
 
-	return 0;
+		if (twl6040_is_powered(twl6040))
+			return 0;
+
+		if (!time_left) {
+			intid = twl6040_reg_read(twl6040, TWL6040_REG_INTID);
+			if (!(intid & TWL6040_READYINT)) {
+				dev_err(twl6040->dev,
+					"timeout waiting for READYINT\n");
+				return -ETIMEDOUT;
+			}
+		}
+
+		/*
+		 * Power on seemingly completed.
+		 * READYINT received, but not in expected state, retry.
+		 */
+		gpio_set_value(twl6040->audpwron, 0);
+		usleep_range(1000, 1500);
+	} while (round++ < 3);
+
+	return -ENODEV;
 }
 
 int twl6040_power(struct twl6040 *twl6040, int on)
@@ -249,14 +327,20 @@ int twl6040_power(struct twl6040 *twl6040, int on)
 		if (twl6040->power_count++)
 			goto out;
 
+		/* enable LPPLL input: clk32k */
+		ret = twl6040_set_pll_input(twl6040,
+					TWL6040_SYSCLK_SEL_LPPLL, 1);
+		if (ret)
+			goto out;
+
 		if (gpio_is_valid(audpwron)) {
-			/* use AUDPWRON line */
-			gpio_set_value(audpwron, 1);
 			/* wait for power-up completion */
 			ret = twl6040_power_up_completion(twl6040, naudint);
 			if (ret) {
 				dev_err(twl6040->dev,
 					"automatic power-down failed\n");
+				twl6040_set_pll_input(twl6040,
+						TWL6040_SYSCLK_SEL_LPPLL, 0);
 				twl6040->power_count = 0;
 				goto out;
 			}
@@ -266,10 +350,26 @@ int twl6040_power(struct twl6040 *twl6040, int on)
 			if (ret) {
 				dev_err(twl6040->dev,
 					"manual power-up failed\n");
+				twl6040_set_pll_input(twl6040,
+						TWL6040_SYSCLK_SEL_LPPLL, 0);
 				twl6040->power_count = 0;
 				goto out;
 			}
 		}
+
+		/* Errata: PDMCLK can fail to generate at cold temperatures
+		 * The workaround consists of resetting HPPLL and LPPLL
+		 * after Sleep/Deep-Sleep mode and before application mode.
+		 */
+		twl6040_set_bits(twl6040, TWL6040_REG_HPPLLCTL,
+				TWL6040_HPLLRST);
+		twl6040_clear_bits(twl6040, TWL6040_REG_HPPLLCTL,
+				TWL6040_HPLLRST);
+		twl6040_set_bits(twl6040, TWL6040_REG_LPPLLCTL,
+				TWL6040_LPLLRST);
+		twl6040_clear_bits(twl6040, TWL6040_REG_LPPLLCTL,
+				TWL6040_LPLLRST);
+
 		/* Default PLL configuration after power up */
 		twl6040->pll = TWL6040_SYSCLK_SEL_LPPLL;
 		twl6040->sysclk = 19200000;
@@ -296,6 +396,10 @@ int twl6040_power(struct twl6040 *twl6040, int on)
 			/* use manual power-down sequence */
 			twl6040_power_down(twl6040);
 		}
+
+		/* disable current PLL's reference clock */
+		twl6040_set_pll_input(twl6040, twl6040->pll, 0);
+
 		twl6040->sysclk = 0;
 		twl6040->mclk = 0;
 	}
@@ -352,6 +456,12 @@ int twl6040_set_pll(struct twl6040 *twl6040, int pll_id,
 
 		switch (freq_in) {
 		case 32768:
+			/* enable LPPLL reference clock */
+			ret = twl6040_set_pll_input(twl6040,
+						TWL6040_SYSCLK_SEL_LPPLL, 1);
+			if (ret)
+				goto pll_out;
+
 			lppllctl |= TWL6040_LPLLENA;
 			twl6040_reg_write(twl6040, TWL6040_REG_LPPLLCTL,
 					  lppllctl);
@@ -362,6 +472,10 @@ int twl6040_set_pll(struct twl6040 *twl6040, int pll_id,
 			hppllctl &= ~TWL6040_HPLLENA;
 			twl6040_reg_write(twl6040, TWL6040_REG_HPPLLCTL,
 					  hppllctl);
+
+			/* disable MCLK, LPPLL is now running */
+			twl6040_set_pll_input(twl6040,
+					TWL6040_SYSCLK_SEL_HPPLL, 0);
 			break;
 		default:
 			dev_err(twl6040->dev,
@@ -394,7 +508,8 @@ int twl6040_set_pll(struct twl6040 *twl6040, int pll_id,
 				* (enable PLL if MCLK jitter quality
 				*  doesn't meet specification)
 				*/
-				hppllctl |= TWL6040_MCLK_19200KHZ;
+				hppllctl |= TWL6040_MCLK_19200KHZ |
+					    TWL6040_HPLLENA;
 				break;
 			case 26000000:
 				/* PLL enabled, active mode */
@@ -413,6 +528,12 @@ int twl6040_set_pll(struct twl6040 *twl6040, int pll_id,
 				goto pll_out;
 			}
 
+			/* enable MCLK, supplied externally */
+			ret = twl6040_set_pll_input(twl6040,
+						TWL6040_SYSCLK_SEL_HPPLL, 1);
+			if (ret)
+				goto pll_out;
+
 			/*
 			 * enable clock slicer to ensure input waveform is
 			 * square
@@ -428,6 +549,10 @@ int twl6040_set_pll(struct twl6040 *twl6040, int pll_id,
 			lppllctl &= ~TWL6040_LPLLENA;
 			twl6040_reg_write(twl6040, TWL6040_REG_LPPLLCTL,
 					  lppllctl);
+
+			/* disable clk32k, HPPLL is now running */
+			twl6040_set_pll_input(twl6040,
+					TWL6040_SYSCLK_SEL_LPPLL, 0);
 		}
 		break;
 	default:
@@ -578,12 +703,25 @@ static int __devinit twl6040_probe(struct i2c_client *client,
 
 	twl6040->dev = &client->dev;
 	twl6040->irq = client->irq;
+	twl6040->set_pll_input = pdata->set_pll_input;
 
 	mutex_init(&twl6040->mutex);
 	mutex_init(&twl6040->io_mutex);
 	init_completion(&twl6040->ready);
 
 	twl6040->rev = twl6040_reg_read(twl6040, TWL6040_REG_ASICREV);
+
+	/*
+	 * ERRATA: Reset value of PDM_UL buffer logic is 1 (VDDVIO)
+	 * when AUDPWRON = 0, which causes current drain on this pin's
+	 * pull-down on OMAP side. The workaround consists of disabling
+	 * pull-down resistor of ABE_PDM_UL_DATA pin.
+	 * Since workaround is not in twl6040 but in McPDM pin mux, the
+	 * actual implementation isn't done here
+	 */
+	if ((twl6040_get_revid(twl6040) <= TWL6041_REV_ES2_2) &&
+	    pdata->pdm_ul_errata)
+		pdata->pdm_ul_errata();
 
 	/* ERRATA: Automatic power-up is not possible in ES1.0 */
 	if (twl6040_get_revid(twl6040) > TWL6040_REV_ES1_0)

@@ -45,6 +45,7 @@ static const struct omap_vc_common omap4_vc_common = {
 	.i2c_cfg_hsen_mask = OMAP4430_HSMODEEN_MASK,
 	.i2c_mcode_mask	 = OMAP4430_HSMCODE_MASK,
 	.i2c_clk_reg = OMAP4_PRM_VC_CFG_I2C_CLK_OFFSET,
+	.voltctrl_reg = OMAP4_PRM_VOLTCTRL_OFFSET
 };
 
 /* VC instance data for each controllable voltage line */
@@ -60,6 +61,7 @@ struct omap_vc_channel omap4_vc_mpu = {
 	.smps_volra_mask = OMAP4430_VOLRA_VDD_MPU_L_MASK,
 	.smps_cmdra_mask = OMAP4430_CMDRA_VDD_MPU_L_MASK,
 	.cfg_channel_sa_shift = OMAP4430_SA_VDD_MPU_L_SHIFT,
+	.voltctrl_mask = OMAP4430_AUTO_CTRL_VDD_MPU_L_MASK,
 };
 
 struct omap_vc_channel omap4_vc_iva = {
@@ -73,6 +75,7 @@ struct omap_vc_channel omap4_vc_iva = {
 	.smps_volra_mask = OMAP4430_VOLRA_VDD_IVA_L_MASK,
 	.smps_cmdra_mask = OMAP4430_CMDRA_VDD_IVA_L_MASK,
 	.cfg_channel_sa_shift = OMAP4430_SA_VDD_IVA_L_SHIFT,
+	.voltctrl_mask = OMAP4430_AUTO_CTRL_VDD_IVA_L_MASK,
 };
 
 struct omap_vc_channel omap4_vc_core = {
@@ -86,33 +89,76 @@ struct omap_vc_channel omap4_vc_core = {
 	.smps_volra_mask = OMAP4430_VOLRA_VDD_CORE_L_MASK,
 	.smps_cmdra_mask = OMAP4430_CMDRA_VDD_CORE_L_MASK,
 	.cfg_channel_sa_shift = OMAP4430_SA_VDD_CORE_L_SHIFT,
+	.voltctrl_mask = OMAP4430_AUTO_CTRL_VDD_CORE_L_MASK,
 };
 
 /*
  * Voltage levels for different operating modes: on, sleep, retention and off
  */
-#define OMAP4_ON_VOLTAGE_UV			1375000
-#define OMAP4_ONLP_VOLTAGE_UV			1375000
-#define OMAP4_RET_VOLTAGE_UV			837500
-#define OMAP4_OFF_VOLTAGE_UV			0
 
-struct omap_vc_param omap4_mpu_vc_data = {
-	.on			= OMAP4_ON_VOLTAGE_UV,
-	.onlp			= OMAP4_ONLP_VOLTAGE_UV,
-	.ret			= OMAP4_RET_VOLTAGE_UV,
-	.off			= OMAP4_OFF_VOLTAGE_UV,
+struct omap_vc_param omap443x_mpu_vc_data = {
+	.on			= 1388000,
+	.onlp			= 1388000,
+	.ret			= 750000,
+	.off			= 0,
 };
 
-struct omap_vc_param omap4_iva_vc_data = {
-	.on			= OMAP4_ON_VOLTAGE_UV,
-	.onlp			= OMAP4_ONLP_VOLTAGE_UV,
-	.ret			= OMAP4_RET_VOLTAGE_UV,
-	.off			= OMAP4_OFF_VOLTAGE_UV,
+struct omap_vc_param omap443x_iva_vc_data = {
+	.on			= 1291000,
+	.onlp			= 1291000,
+	.ret			= 750000,
+	.off			= 0,
 };
 
-struct omap_vc_param omap4_core_vc_data = {
-	.on			= OMAP4_ON_VOLTAGE_UV,
-	.onlp			= OMAP4_ONLP_VOLTAGE_UV,
-	.ret			= OMAP4_RET_VOLTAGE_UV,
-	.off			= OMAP4_OFF_VOLTAGE_UV,
+struct omap_vc_param omap443x_core_vc_data = {
+	.on			= 1127000,
+	.onlp			= 1127000,
+	.ret			= 750000,
+	.off			= 0,
+};
+
+struct omap_vc_param omap446x_mpu_vc_data = {
+	.on			= 1380000,
+	.onlp			= 1380000,
+	.ret			= 750000,
+	.off			= 0,
+};
+
+struct omap_vc_param omap446x_iva_vc_data = {
+	.on			= 1375000,
+	.onlp			= 1375000,
+	.ret			= 750000,
+	.off			= 0,
+};
+
+struct omap_vc_param omap446x_core_vc_data = {
+	.on			= 1250000,
+	.onlp			= 1250000,
+	.ret			= 750000,
+	/*
+	 * Errata i738:
+	 * OMAP4 + TWL + TPS limitation keep off_volt same as ret_volt
+	 */
+	.off			= 750000,
+};
+
+struct omap_vc_param omap447x_mpu_vc_data = {
+	.on			= 1387000,
+	.onlp			= 1387000,
+	.ret			= 750000,
+	.off			= 0,
+};
+
+struct omap_vc_param omap447x_iva_vc_data = {
+	.on			= 1380000,
+	.onlp			= 1380000,
+	.ret			= 750000,
+	.off			= 0,
+};
+
+struct omap_vc_param omap447x_core_vc_data = {
+	.on			= 1190000,
+	.onlp			= 1190000,
+	.ret			= 750000,
+	.off			= 0,
 };

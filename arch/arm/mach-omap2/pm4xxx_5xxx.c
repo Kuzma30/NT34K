@@ -19,6 +19,9 @@
 #include <linux/clk.h>
 #include <asm/system_misc.h>
 #include <linux/io.h>
+#include <linux/gpio.h>
+#include <linux/mfd/omap_control.h>
+#include <linux/power/smartreflex.h>
 
 #include <plat/omap_device.h>
 #include <plat/dvfs.h>
@@ -30,10 +33,17 @@
 #include "clockdomain.h"
 #include "powerdomain.h"
 #include "prm44xx.h"
-#include "prm54xx.h"
+
 #include "prcm44xx.h"
 #include "prm-regbits-44xx.h"
 #include "prminst44xx.h"
+
+#ifdef CONFIG_ARCH_OMAP5_ES1
+#include "prm54xx_es1.h"
+#else
+#include "prm54xx.h"
+#endif
+
 #include "scrm44xx.h"
 #include "pm.h"
 #include "voltage.h"
@@ -47,6 +57,7 @@ struct power_state {
 #ifdef CONFIG_SUSPEND
 	u32 saved_state;
 	u32 saved_logic_state;
+	u32 context_loss_count;
 #endif
 	struct list_head node;
 };
@@ -56,6 +67,8 @@ u16 pm44xx_errata;
 
 static struct powerdomain *tesla_pwrdm;
 static struct clockdomain *tesla_clkdm;
+static struct powerdomain *gpu_pd;
+static struct voltagedomain *mpu_vdd, *core_vdd, *mm_vdd;
 
 /*
 * HSI - OMAP4430-2.2BUG00055:
@@ -118,8 +131,11 @@ static int omap4_5_pm_suspend(void)
 	}
 
 	/* Set targeted power domain states by suspend */
-	list_for_each_entry(pwrst, &pwrst_list, node)
+	list_for_each_entry(pwrst, &pwrst_list, node) {
+		pwrst->context_loss_count =
+			pwrdm_get_context_loss_count(pwrst->pwrdm);
 		omap_set_pwrdm_state(pwrst->pwrdm, pwrst->next_state);
+	}
 
 	/*
 	 * For MPUSS to hit power domain retention(CSWR or OSWR),
@@ -131,13 +147,24 @@ static int omap4_5_pm_suspend(void)
 	 * More details can be found in OMAP4430 TRM section 4.3.4.2.
 	 */
 	omap_enter_lowpower(cpu_id, PWRDM_POWER_OFF);
-	prcmdebug_dump(PRCMDEBUG_LASTSLEEP);
 
 	/* Restore next powerdomain state */
 	list_for_each_entry(pwrst, &pwrst_list, node) {
+		int context_loss_count =
+			pwrdm_get_context_loss_count(pwrst->pwrdm);
+
 		prev_state = pwrdm_read_prev_pwrst(pwrst->pwrdm);
 		curr_state = pwrdm_read_pwrst(pwrst->pwrdm);
-		if (pwrdm_power_state_gt(prev_state, pwrst->next_state)) {
+
+		/*
+		 * Contextloss count difference is enough to identify
+		 * powerdomains that blocked suspend, except incase of
+		 * always-on powerdomains
+		 * Compare prev_state and next_state to avoid reporting
+		 * always-on powerdomains as those blocking suspend
+		 */
+		if (pwrdm_power_state_gt(prev_state, pwrst->next_state) &&
+		    context_loss_count == pwrst->context_loss_count) {
 			pr_info("Powerdomain (%s) didn't enter target state %s "
 				"(achieved=%s current=%s saved=%s)\n",
 				pwrst->pwrdm->name,
@@ -178,6 +205,39 @@ static int omap4_5_pm_suspend(void)
 }
 #endif /* CONFIG_SUSPEND */
 
+static int _pwrdms_set_to_on(struct powerdomain *pwrdm, void *unused)
+{
+	int r = 0;
+
+	if (pwrdm->pwrsts)
+		r = omap_set_pwrdm_state(pwrdm, PWRDM_POWER_ON);
+
+	return r;
+}
+
+/**
+ * omap4_pm_cold_reset() - Cold reset OMAP4
+ * @reason:	why am I resetting?
+ *
+ * As per the TRM, it is recommended that we set all the power domains to
+ * ON state before we trigger cold reset.
+ */
+int omap4_pm_cold_reset(char *reason)
+{
+	/* Switch ON all pwrst registers */
+	if (pwrdm_for_each(_pwrdms_set_to_on, NULL))
+		pr_err("%s: Failed to setup powerdomains to ON\n", __func__);
+	/* Proceed even if failed */
+
+	WARN(1, "Arch Cold reset has been triggered due to %s\n", reason);
+	omap4_prminst_global_cold_sw_reset(); /* never returns */
+
+	/* If we reached here - something bad went on.. */
+	BUG();
+
+	/* make the compiler happy */
+	return -EINTR;
+}
 
 /* omap_pm_clear_dsp_wake_up - SW WA for hardcoded wakeup dependency
 * from HSI to DSP
@@ -261,6 +321,96 @@ void omap_pm_clear_dsp_wake_up(void)
 					__func__);
 }
 
+/**
+ * omap_idle_core_drivers - function where core driver idle routines
+ * to be called.
+ * @mpu_next_state:	Next MPUSS PD power state that system will attempt
+ * @core_next_state:	Next Core PD power state that system will attempt
+ *
+ * This function is called by cpuidle when system is entering low
+ * power state. Drivers like GPIO, thermal, SR can hook into this function
+ * to trigger idle transition.
+ */
+void omap_idle_core_notifier(int mpu_next_state, int core_next_state)
+{
+	bool is_suspend;
+
+	/*
+	 * Driver notifier calls should make use of is_suspend flag
+	 * to differentiate idle Vs suspend path.
+	 */
+	is_suspend = !is_idle_task(current);
+
+	if (is_suspend && smp_processor_id()) {
+		WARN(1, "Called from processor %d, which is unexpected\n",
+			smp_processor_id());
+		return;
+	}
+
+	if (core_next_state != PWRDM_POWER_ON)
+		omap2_gpio_prepare_for_idle(1);
+
+	/*
+	 * Need to keep thermal monitoring as long as Core is active.
+	 * Check for the GPU powerdomain and Core state before idling
+	 * the thermal.
+	 */
+	if (!is_suspend && gpu_pd
+	     && (pwrdm_read_pwrst(gpu_pd) != PWRDM_POWER_ON)
+	     && pwrdm_power_state_le(core_next_state, PWRDM_POWER_INACTIVE))
+		omap_bandgap_prepare_for_idle();
+
+	if (pwrdm_power_state_lt(mpu_next_state, PWRDM_POWER_INACTIVE))
+		omap_sr_disable(mpu_vdd);
+	if (pwrdm_power_state_lt(core_next_state, PWRDM_POWER_INACTIVE)) {
+		omap_sr_disable(core_vdd);
+		omap_sr_disable(mm_vdd);
+	}
+}
+
+/**
+ * omap_enable_core_drivers - function where core driver enable routines
+ * to be called.
+ * @mpu_next_state:	Next MPUSS PD power state that system will attempt
+ * @core_next_state:	Next Core PD power state that system will attempt
+ *
+ * This function is called by cpuidle when system is exiting low
+ * power state. Drivers like GPIO, thermal, SR can hook into this function
+ * to enable the modules.
+ */
+void omap_enable_core_notifier(int mpu_next_state, int core_next_state)
+{
+	bool is_suspend;
+
+	/*
+	 * Driver notifier calls should make use of is_suspend flag
+	 * to differentiate idle Vs suspend path.
+	 */
+	is_suspend = !is_idle_task(current);
+
+	if (is_suspend && smp_processor_id()) {
+		WARN(1, "Called from processor %d, which is unexpected\n",
+			smp_processor_id());
+		return;
+	}
+
+	if (core_next_state != PWRDM_POWER_ON)
+		omap2_gpio_resume_after_idle();
+
+	/* Coming out of Idle, start monitoring the thermal. */
+	if (!is_suspend && gpu_pd
+	    && (pwrdm_read_pwrst(gpu_pd) != PWRDM_POWER_ON)
+	    && pwrdm_power_state_le(core_next_state, PWRDM_POWER_INACTIVE))
+		omap_bandgap_resume_after_idle();
+
+	if (pwrdm_power_state_lt(mpu_next_state, PWRDM_POWER_INACTIVE))
+		omap_sr_enable(mpu_vdd);
+	if (pwrdm_power_state_lt(core_next_state, PWRDM_POWER_INACTIVE)) {
+		omap_sr_enable(core_vdd);
+		omap_sr_enable(mm_vdd);
+	}
+}
+
 static int __init pwrdms_setup(struct powerdomain *pwrdm, void *unused)
 {
 	struct power_state *pwrst;
@@ -315,7 +465,7 @@ static int __init pwrdms_setup(struct powerdomain *pwrdm, void *unused)
 	 * What state to program every Power domain can enter deepest to when
 	 * not in suspend state?
 	 */
-	program_state = pwrdm_get_achievable_pwrst(pwrdm, PWRDM_POWER_OSWR);
+	program_state = pwrdm_get_achievable_pwrst(pwrdm, PWRDM_POWER_OFF);
 
 do_program_state:
 	return omap_set_pwrdm_state(pwrdm, program_state);
@@ -381,6 +531,7 @@ static inline int omap4_init_static_deps(void)
 static inline int omap5_init_static_deps(void)
 {
 	struct clockdomain *mpuss_clkdm, *emif_clkdm, *dss_clkdm, *wkupaon_clkdm;
+	struct clockdomain *l3_2_clkdm, *l3_1_clkdm, *ipu_clkdm;
 	int ret;
 
 	/*
@@ -390,9 +541,14 @@ static inline int omap5_init_static_deps(void)
 	 * lock ups or random crashes.
 	 */
 	mpuss_clkdm = clkdm_lookup("mpu_clkdm");
+	ipu_clkdm = clkdm_lookup("ipu_clkdm");
 	emif_clkdm = clkdm_lookup("emif_clkdm");
 	dss_clkdm = clkdm_lookup("dss_clkdm");
-	if (!mpuss_clkdm || !emif_clkdm || !dss_clkdm)
+	l3_1_clkdm = clkdm_lookup("l3main1_clkdm");
+	l3_2_clkdm = clkdm_lookup("l3main2_clkdm");
+
+	if (!mpuss_clkdm || !emif_clkdm || !dss_clkdm ||
+	    !l3_1_clkdm || !l3_2_clkdm || !ipu_clkdm)
 		return -EINVAL;
 
 	ret = clkdm_add_wkdep(mpuss_clkdm, emif_clkdm);
@@ -424,6 +580,24 @@ static inline int omap5_init_static_deps(void)
 		pr_err("Failed to add dss -> l3main2/emif wakeup dependency\n");
 	else
 		WARN(1, "Enabled DSS->EMIF Static dependency, needs proper rootcause\n");
+
+	/*
+	 * COBRA-1.0BUG00191: System hang occurs with IPU to L3_main1,
+	 * L3_main2 Dynamic dependencies
+	 * Therefore, use static dependency between IPU and L3
+	 */
+	ret |= clkdm_add_wkdep(ipu_clkdm, l3_1_clkdm);
+	if (ret)
+		pr_err("Failed to add IPUSS -> l3main1 wakeup dependency\n");
+
+	/*
+	 * COBRA-1.0BUG00191: System hang occurs with IPU to L3_main1,
+	 * L3_main2 Dynamic dependencies
+	 * Therefore, use static dependency between IPU and L3
+	 */
+	ret |= clkdm_add_wkdep(ipu_clkdm, l3_2_clkdm);
+	if (ret)
+		pr_err("Failed to add IPUSS -> l3main2 dependency\n");
 
 	return ret;
 }
@@ -465,6 +639,25 @@ static void __init prcm_setup_regs(void)
 			OMAP4430_PRM_PARTITION,
 			OMAP4430_PRM_DEVICE_INST,
 			OMAP4_PRM_LDO_SRAM_IVA_SETUP_OFFSET);
+	}
+
+	/* Allow SRAM LDO to enter RET during  low power state*/
+	if (cpu_is_omap446x() || cpu_is_omap447x()) {
+		omap4_prminst_rmw_inst_reg_bits(OMAP4430_RETMODE_ENABLE_MASK,
+			0x1 << OMAP4430_RETMODE_ENABLE_SHIFT,
+			OMAP4430_PRM_PARTITION,
+			OMAP4430_PRM_DEVICE_INST,
+			OMAP4_PRM_LDO_SRAM_CORE_CTRL_OFFSET);
+		omap4_prminst_rmw_inst_reg_bits(OMAP4430_RETMODE_ENABLE_MASK,
+			0x1 << OMAP4430_RETMODE_ENABLE_SHIFT,
+			OMAP4430_PRM_PARTITION,
+			OMAP4430_PRM_DEVICE_INST,
+			OMAP4_PRM_LDO_SRAM_MPU_CTRL_OFFSET);
+		omap4_prminst_rmw_inst_reg_bits(OMAP4430_RETMODE_ENABLE_MASK,
+			0x1 << OMAP4430_RETMODE_ENABLE_SHIFT,
+			OMAP4430_PRM_PARTITION,
+			OMAP4430_PRM_DEVICE_INST,
+			OMAP4_PRM_LDO_SRAM_IVA_CTRL_OFFSET);
 	}
 
 	/*
@@ -513,10 +706,31 @@ static u32 omap4_usec_to_val_scrm(u32 usec, int shift, u32 mask)
 	return val;
 }
 
+static int __init _voltdm_sum_time(struct voltagedomain *voltdm, void *user)
+{
+	struct omap_voltdm_pmic *pmic;
+	u32 *max_time = (u32 *)user;
+
+	if (!voltdm || !max_time) {
+		WARN_ON(1);
+		return -EINVAL;
+	}
+
+	pmic = voltdm->pmic;
+	if (pmic) {
+		*max_time += DIV_ROUND_UP(voltdm->vc_param->on,
+					  pmic->slew_rate);
+		*max_time += pmic->switch_on_time;
+	}
+
+	return 0;
+}
+
 static void __init omap4_scrm_setup_timings(void)
 {
 	u32 val;
 	u32 tstart, tshut;
+	u32 reset_delay_time;
 
 	/* Setup clksetup/clkshoutdown time for oscillator */
 	omap_pm_get_oscillator(&tstart, &tshut);
@@ -527,6 +741,29 @@ static void __init omap4_scrm_setup_timings(void)
 		OMAP4_DOWNTIME_MASK);
 	omap4_prminst_write_inst_reg(val, OMAP4430_SCRM_PARTITION, 0x0,
 				     OMAP4_SCRM_CLKSETUPTIME_OFFSET);
+
+	/*
+	 * Setup OMAP WARMRESET time:
+	 * we use the sum of each voltage domain setup times to handle
+	 * the worst case condition where the device resets from OFF mode.
+	 * hence we leave PRM_VOLTSETUP_WARMRESET alone as this is
+	 * already part of RSTTIME1 we program in.
+	 * in addition, to handle oscillator switch off and switch back on
+	 * (in case WDT triggered while CLKREQ goes low), we also
+	 * add in the additional latencies.
+	 */
+	reset_delay_time = omap_pm_get_rsttime_latency();
+	if (!voltdm_for_each(_voltdm_sum_time, (void *)&reset_delay_time)) {
+		reset_delay_time += tstart + tshut;
+		val = omap4_usec_to_val_scrm(reset_delay_time,
+					     OMAP4430_RSTTIME1_SHIFT,
+					     OMAP4430_RSTTIME1_MASK);
+		omap4_prminst_rmw_inst_reg_bits(OMAP4430_RSTTIME1_MASK,
+						val,
+						OMAP4430_PRM_PARTITION,
+						OMAP4430_PRM_DEVICE_INST,
+						OMAP4_PRM_RSTTIME_OFFSET);
+	}
 
 	/* Setup max PMIC startup/shutdown time */
 	omap_pm_get_oscillator_voltage_ramp_time(&tstart, &tshut);
@@ -619,25 +856,47 @@ static int __init omap_pm_init(void)
 
 	/*
 	 * XXX: voltage config is not still completely valid for
-	 * OMAP4, and this causes crashes on some platform during
-	 * device off because voltage transitions for device off
-	 * are enabled on reset. Thus, we have to disable the I2C
-	 * channel completely in the VOLTCTRL register to avoid
-	 * trouble. Remove this once voltconfigs are valid.
+	 * all OMAP5 samples as different samples have different
+	 * stability level. Hence disable voltage scaling during Low
+	 * Power states for samples which do not support it.
 	 */
-	mpu_voltdm = voltdm_lookup("mpu");
-	if (!mpu_voltdm) {
-		pr_err("Failed to get MPU voltdm\n");
-		goto err2;
+	if (!omap5_has_auto_ret()) {
+		u32 mask = OMAP4430_VDD_MPU_I2C_DISABLE_MASK |
+				OMAP4430_VDD_CORE_I2C_DISABLE_MASK |
+				OMAP4430_VDD_IVA_I2C_DISABLE_MASK;
+
+		mpu_voltdm = voltdm_lookup("mpu");
+		if (!mpu_voltdm) {
+			pr_err("Failed to get MPU voltdm\n");
+			goto err2;
+		}
+		mpu_voltdm->rmw(mask, mask, OMAP4_PRM_VOLTCTRL_OFFSET);
 	}
-	mpu_voltdm->write(OMAP4430_VDD_MPU_I2C_DISABLE_MASK |
-			  OMAP4430_VDD_CORE_I2C_DISABLE_MASK |
-			  OMAP4430_VDD_IVA_I2C_DISABLE_MASK,
-			  OMAP4_PRM_VOLTCTRL_OFFSET);
 
 	ret = omap_mpuss_init();
 	if (ret) {
 		pr_err("Failed to initialise OMAP MPUSS\n");
+		goto err2;
+	}
+
+	mpu_vdd = voltdm_lookup("mpu");
+	if (!mpu_vdd) {
+		pr_err("Failed to lookup MPU voltage domain\n");
+		goto err2;
+	}
+
+	core_vdd = voltdm_lookup("core");
+	if (!core_vdd) {
+		pr_err("Failed to lookup CORE voltage domain\n");
+		goto err2;
+	}
+
+	if (cpu_is_omap54xx())
+		mm_vdd = voltdm_lookup("mm");
+	else
+		mm_vdd = voltdm_lookup("iva");
+	if (!mm_vdd) {
+		pr_err("Failed to lookup Multimedia(iva) voltage domain\n");
 		goto err2;
 	}
 
@@ -670,14 +929,10 @@ static int __init omap_pm_init(void)
 		tesla_clkdm = clkdm_lookup("tesla_clkdm");
 	}
 
+	gpu_pd = pwrdm_lookup(cpu_is_omap54xx() ? "gpu_pwrdm" : "gfx_pwrdm");
 
-	if (cpu_is_omap44xx()) {
-		/* Overwrite the default arch_idle() */
-		arm_pm_idle = omap_default_idle;
-		omap4_idle_init();
-	} else if (cpu_is_omap54xx()) {
-		omap5_idle_init();
-	}
+	if (!gpu_pd)
+		pr_err("%s: Unable to get GPU power domain\n", __func__);
 
 	/* Setup the scales for every init device appropriately */
 	for (i = 0; i < ARRAY_SIZE(init_devices); i++) {
@@ -707,6 +962,14 @@ static int __init omap_pm_init(void)
 				 __func__, rate, ret);
 			/* Continue to next device */
 		}
+	}
+
+	if (cpu_is_omap44xx()) {
+		/* Overwrite the default arch_idle() */
+		arm_pm_idle = omap_default_idle;
+		omap4_idle_init();
+	} else if (cpu_is_omap54xx()) {
+		omap5_idle_init();
 	}
 
 err2:

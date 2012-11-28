@@ -66,24 +66,29 @@ obj-$(CONFIG_ARCH_OMAP4)		+= opp4xxx_data.o
 obj-$(CONFIG_ARCH_OMAP5)		+= opp5xxx_data.o
 endif
 
-# CPUFREQ driver
-obj-$(CONFIG_CPU_FREQ)                  += dvfs.o
-
 # Power Management
 ifeq ($(CONFIG_PM),y)
-omap-4-5-common-pm			= pm4xxx_5xxx.o omap-mpuss-lowpower.o
+omap-4-5-common-pm			= pm4xxx_5xxx.o omap-mpuss-lowpower.o \
+					  dvfs.o
 obj-$(CONFIG_ARCH_OMAP2)		+= pm24xx.o
 obj-$(CONFIG_ARCH_OMAP2)		+= sleep24xx.o
-obj-$(CONFIG_ARCH_OMAP3)		+= pm34xx.o sleep34xx.o \
-					   cpuidle34xx.o
-obj-$(CONFIG_ARCH_OMAP4)		+= $(omap-4-5-common-pm) cpuidle44xx.o
-obj-$(CONFIG_ARCH_OMAP5)		+= $(omap-4-5-common-pm) cpuidle5xxx.o
+obj-$(CONFIG_ARCH_OMAP3)		+= pm34xx.o sleep34xx.o dvfs.o
+obj-$(CONFIG_ARCH_OMAP4)		+= $(omap-4-5-common-pm)
+obj-$(CONFIG_ARCH_OMAP5)		+= $(omap-4-5-common-pm)
+
+ifeq ($(CONFIG_CPU_IDLE),y)
+obj-$(CONFIG_ARCH_OMAP3)		+= cpuidle34xx.o
+obj-$(CONFIG_ARCH_OMAP4)		+= cpuidle44xx.o
+obj-$(CONFIG_ARCH_OMAP5)		+= cpuidle5xxx.o
+endif
+
 obj-$(CONFIG_PM_DEBUG)			+= pm-debug.o
 ifeq ($(CONFIG_PM_DEBUG),y)
 obj-$(CONFIG_ARCH_OMAP5)		+= prcm-54xx-debug.o
 endif
-obj-$(CONFIG_OMAP_SMARTREFLEX)          += sr_device.o smartreflex.o
-obj-$(CONFIG_OMAP_SMARTREFLEX_CLASS3)	+= smartreflex-class3.o
+obj-$(CONFIG_POWER_AVS_OMAP)		+= sr_device.o
+obj-$(CONFIG_POWER_AVS_OMAP_CLASS3)    += smartreflex-class3.o
+obj-$(CONFIG_POWER_AVS_OMAP_CLASS1_P5)   += smartreflex-class1_p5.o
 
 AFLAGS_sleep24xx.o			:=-Wa,-march=armv6
 AFLAGS_sleep34xx.o			:=-Wa,-march=armv7-a$(plus_sec)
@@ -135,9 +140,6 @@ obj-$(CONFIG_ARCH_OMAP3)		+= $(powerdomain-common) \
 obj-$(CONFIG_ARCH_OMAP4)		+= $(powerdomain-common) \
 					   powerdomain4xxx_5xxx.o \
 					   powerdomains44xx_data.o
-obj-$(CONFIG_ARCH_OMAP5)                += $(powerdomain-common) \
-					   powerdomain4xxx_5xxx.o \
-					   powerdomains54xx_data.o
 # PRCM clockdomain control
 obj-$(CONFIG_ARCH_OMAP2)		+= clockdomain.o \
 					   clockdomain2xxx_3xxx.o \
@@ -151,9 +153,6 @@ obj-$(CONFIG_ARCH_OMAP3)		+= clockdomain.o \
 obj-$(CONFIG_ARCH_OMAP4)		+= clockdomain.o \
 					   clockdomain44xx.o \
 					   clockdomains44xx_data.o
-obj-$(CONFIG_ARCH_OMAP5)                += clockdomain.o \
-                                           clockdomain44xx.o \
-                                           clockdomains54xx_data.o
 
 # Clock framework
 obj-$(CONFIG_ARCH_OMAP2)		+= $(clock-common) clock2xxx.o \
@@ -170,8 +169,6 @@ obj-$(CONFIG_ARCH_OMAP3)		+= $(clock-common) clock3xxx.o \
 					   dpll3xxx.o clock3xxx_data.o \
 					   clkt_iclk.o
 obj-$(CONFIG_ARCH_OMAP4)		+= $(clock-common) clock44xx_data.o \
-					   dpll3xxx.o dpll44xx_54xx.o clock4xxx_5xxx.o
-obj-$(CONFIG_ARCH_OMAP5)		+= $(clock-common) clock54xx_data.o \
 					   dpll3xxx.o dpll44xx_54xx.o clock4xxx_5xxx.o
 
 # OMAP2 clock rate set data (old "OPP" data)
@@ -193,7 +190,6 @@ obj-$(CONFIG_ARCH_OMAP3)		+= omap_hwmod_2xxx_3xxx_ipblock_data.o \
 					   omap_hwmod_2xxx_3xxx_interconnect_data.o \
 					   omap_hwmod_3xxx_data.o
 obj-$(CONFIG_ARCH_OMAP4)		+= omap_hwmod_44xx_data.o
-obj-$(CONFIG_ARCH_OMAP5)		+= omap_hwmod_54xx_data.o
 
 # EMU peripherals
 obj-$(CONFIG_OMAP3_EMU)			+= emu.o
@@ -256,7 +252,18 @@ obj-$(CONFIG_MACH_CM_T35)		+= board-cm-t35.o
 obj-$(CONFIG_MACH_CM_T3517)		+= board-cm-t3517.o
 obj-$(CONFIG_MACH_IGEP0020)		+= board-igep0020.o
 obj-$(CONFIG_MACH_OMAP3_TOUCHBOOK)	+= board-omap3touchbook.o
-obj-$(CONFIG_MACH_OMAP_4430SDP)		+= board-4430sdp.o
+obj-$(CONFIG_MACH_OMAP_4430SDP)		+= board-4430sdp.o \
+					   board-44xx-serial.o \
+					   board-44xx-blaze-touch.o \
+					   board-44xx-blaze-sensors.o \
+					   board-44xx-blaze-keypad.o
+
+obj-$(CONFIG_MACH_OMAP_BLAZE)		+= board-44xx-tablet.o \
+					   board-44xx-tablet-panel.o \
+					   board-44xx-tablet-touch.o \
+					   board-44xx-tablet-buttons.o \
+					   board-44xx-tablet-sensors.o
+
 obj-$(CONFIG_MACH_OMAP4_PANDA)		+= board-omap4panda.o
 
 obj-$(CONFIG_MACH_OMAP4_NOOKTABLET)	+= board-nooktablet.o
@@ -274,12 +281,12 @@ obj-$(CONFIG_MACH_OMAP5_SEVM)		+= board-omap5evm.o \
 					   board-54xx-sevm-dock.o \
 					   board-54xx-sevm-touch.o \
 					   board-54xx-sevm-sensors.o \
-					   board-54xx-connectivity.o \
+					   board-44xx-54xx-connectivity.o \
 					   board-54xx-sevm-panel.o \
 					   board-omap5evm-serial.o \
 					      hsmmc.o
 obj-$(CONFIG_MACH_OMAP5_PANDA)		+= board-omap5panda.o \
-					   board-54xx-connectivity.o
+					   board-44xx-54xx-connectivity.o
 
 ifeq ($(CONFIG_OMAP_HSI_DEVICE),y)
 obj-$(CONFIG_MACH_OMAP5_SEVM)		+= board-54xx-sevm-modem.o
@@ -333,6 +340,32 @@ obj-y					+= $(emif-omap-m) $(emif-omap-y)
 obj-$(CONFIG_ARCH_OMAP4)		+= board-omap-identity.o
 obj-$(CONFIG_ARCH_OMAP5)		+= board-omap-identity.o
 obj-$(CONFIG_OMAP_HSI_DEVICE)           += omap_hsi.o
+
+
+ifneq ($(CONFIG_ARCH_OMAP5_ES1),)
+obj-y					+=omap_hwmod_54xx_es1_data.o
+obj-y				        += $(clock-common) clock54xx_es1_data.o \
+                                        dpll3xxx.o dpll44xx_54xx.o clock4xxx_5xxx.o
+obj-y					+= clockdomain.o \
+                                        clockdomain44xx.o \
+                                        clockdomains54xx_es1_data.o
+obj-y					+= $(powerdomain-common) \
+                                        powerdomain4xxx_5xxx.o \
+                                        powerdomains54xx_es1_data.o
+endif
+
+ifeq ($(CONFIG_ARCH_OMAP5_ES1),)
+obj-y                                   +=omap_hwmod_54xx_data.o
+obj-y                                   += $(clock-common) clock54xx_data.o \
+                                        dpll3xxx.o dpll44xx_54xx.o clock4xxx_5xxx.o
+obj-y                                   += clockdomain.o \
+                                        clockdomain44xx.o \
+                                        clockdomains54xx_data.o
+obj-y                                   += $(powerdomain-common) \
+                                        powerdomain4xxx_5xxx.o \
+                                        powerdomains54xx_data.o
+endif
+
 ifneq ($(CONFIG_OMAP_REMOTEPROC),)
 obj-y					+= remoteproc.o
 endif

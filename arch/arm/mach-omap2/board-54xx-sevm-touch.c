@@ -61,18 +61,19 @@ static struct qtm_touch_keyarray_cfg omap5evm_key_array_data[] = {
 static struct qtouch_ts_platform_data atmel_mxt224_ts_platform_data = {
 	.irqflags       = (IRQF_TRIGGER_FALLING | IRQF_TRIGGER_LOW),
 	.flags          = (QTOUCH_USE_MULTITOUCH | QTOUCH_FLIP_X |
-			   QTOUCH_FLIP_Y | QTOUCH_CFG_BACKUPNV),
+			   QTOUCH_FLIP_Y | QTOUCH_SWAP_XY |
+			   QTOUCH_CFG_BACKUPNV),
 	.abs_min_x      = 0,
-	.abs_max_x      = 1280,
+	.abs_max_x      = 1024,
 	.abs_min_y      = 0,
-	.abs_max_y      = 1024,
+	.abs_max_y      = 1280,
 	.abs_min_p      = 0,
 	.abs_max_p      = 255,
 	.abs_min_w      = 0,
 	.abs_max_w      = 15,
 	.x_delta        = 0x00,
 	.y_delta        = 0x00,
-	.nv_checksum    = 0x187a,
+	.nv_checksum    = 0xffff,
 	.fuzz_x         = 0,
 	.fuzz_y         = 0,
 	.fuzz_p         = 2,
@@ -118,8 +119,8 @@ static struct qtouch_ts_platform_data atmel_mxt224_ts_platform_data = {
 		.merge_hyst     = 0x0a,
 		.merge_thresh   = 0x0a,
 		.amp_hyst       = 0x00,
-		.x_res          = 0x0fff,
-		.y_res          = 0x0500,
+		.x_res          = 0x0500,
+		.y_res          = 0x0400,
 		.x_low_clip     = 0x00,
 		.x_high_clip    = 0x00,
 		.y_low_clip     = 0x00,
@@ -254,6 +255,14 @@ static struct i2c_board_info __initdata sevm_i2c_bus4_touch_info[] = {
 int __init sevm_touch_init(void)
 {
 	gpio_request(OMAP5_TOUCH_RESET, "atmel reset");
+
+	/* HACK:There is a GPIO glitch on 5430 ES1.0 that does not
+	 * allow proper use of the hw reset mechanism through
+	 * suspend/resume or even with early suspend.  So for now
+	 * fall back to the sw reset mechanism for the IC until ES2.0
+	 */
+	if (omap_rev() == OMAP5430_REV_ES1_0)
+		atmel_mxt224_ts_platform_data.hw_reset = NULL;
 
 	i2c_register_board_info(4, sevm_i2c_bus4_touch_info,
 		ARRAY_SIZE(sevm_i2c_bus4_touch_info));

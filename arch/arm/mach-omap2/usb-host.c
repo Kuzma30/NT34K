@@ -22,6 +22,7 @@
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 #include <linux/dma-mapping.h>
+#include <linux/pm_runtime.h>
 
 #include <asm/io.h>
 
@@ -30,6 +31,7 @@
 #include <plat/usb.h>
 #include <plat/omap_device.h>
 
+#include "control.h"
 #include "mux.h"
 
 #ifdef CONFIG_MFD_OMAP_USB_HOST
@@ -165,14 +167,14 @@ static const struct omap_device_pad port1_hsic_pads[] __initconst = {
 	{
 		.name = "usbb1_hsic_data.usbb1_hsic_data",
 		.flags  = OMAP_DEVICE_PAD_REMUX | OMAP_DEVICE_PAD_WAKEUP,
-		.enable = OMAP_PIN_INPUT_PULLUP | OMAP_MUX_MODE0,
-		.idle =  OMAP_PIN_INPUT_PULLUP | OMAP_MUX_MODE0,
+		.enable = OMAP_PIN_INPUT | OMAP_MUX_MODE0,
+		.idle =  OMAP_PIN_INPUT | OMAP_MUX_MODE0,
 	},
 	{
 		.name = "usbb1_hsic_strobe.usbb1_hsic_strobe",
 		.flags  = OMAP_DEVICE_PAD_REMUX | OMAP_DEVICE_PAD_WAKEUP,
-		.enable = OMAP_PIN_INPUT_PULLUP | OMAP_MUX_MODE0,
-		.idle = OMAP_PIN_INPUT_PULLUP | OMAP_MUX_MODE0,
+		.enable = OMAP_PIN_INPUT | OMAP_MUX_MODE0,
+		.idle = OMAP_PIN_INPUT | OMAP_MUX_MODE0,
 	},
 };
 
@@ -180,14 +182,14 @@ static const struct omap_device_pad port2_hsic_pads[] __initconst = {
 	{
 		.name = "usbb2_hsic_data.usbb2_hsic_data",
 		.flags  = OMAP_DEVICE_PAD_REMUX | OMAP_DEVICE_PAD_WAKEUP,
-		.enable = OMAP_PIN_INPUT_PULLUP | OMAP_MUX_MODE0,
-		.idle = OMAP_PIN_INPUT_PULLUP | OMAP_MUX_MODE0,
+		.enable = OMAP_PIN_INPUT | OMAP_MUX_MODE0,
+		.idle = OMAP_PIN_INPUT | OMAP_MUX_MODE0,
 	},
 	{
 		.name = "usbb2_hsic_strobe.usbb2_hsic_strobe",
 		.flags  = OMAP_DEVICE_PAD_REMUX | OMAP_DEVICE_PAD_WAKEUP,
-		.enable = OMAP_PIN_INPUT_PULLUP | OMAP_MUX_MODE0,
-		.idle = OMAP_PIN_INPUT_PULLUP | OMAP_MUX_MODE0,
+		.enable = OMAP_PIN_INPUT | OMAP_MUX_MODE0,
+		.idle = OMAP_PIN_INPUT | OMAP_MUX_MODE0,
 	},
 };
 
@@ -195,14 +197,14 @@ static const struct omap_device_pad port3_hsic_pads[] __initconst = {
 	{
 		.name = "usbb3_hsic_data.usbb3_hsic_data",
 		.flags  = OMAP_DEVICE_PAD_REMUX | OMAP_DEVICE_PAD_WAKEUP,
-		.enable = OMAP_PIN_INPUT_PULLUP | OMAP_MUX_MODE0,
-		.idle = OMAP_PIN_INPUT_PULLUP | OMAP_MUX_MODE0,
+		.enable = OMAP_PIN_INPUT | OMAP_MUX_MODE0,
+		.idle = OMAP_PIN_INPUT | OMAP_MUX_MODE0,
 	},
 	{
 		.name = "usbb3_hsic_strobe.usbb3_hsic_strobe",
 		.flags  = OMAP_DEVICE_PAD_REMUX | OMAP_DEVICE_PAD_WAKEUP,
-		.enable = OMAP_PIN_INPUT_PULLUP | OMAP_MUX_MODE0,
-		.idle = OMAP_PIN_INPUT_PULLUP | OMAP_MUX_MODE0,
+		.enable = OMAP_PIN_INPUT | OMAP_MUX_MODE0,
+		.idle = OMAP_PIN_INPUT | OMAP_MUX_MODE0,
 	},
 };
 
@@ -631,6 +633,28 @@ static void __init setup_ehci_io_mux(const enum usbhs_omap_port_mode *port_mode)
 	return;
 }
 
+static struct platform_device *pdev_usbhs;
+static void usbhs_wakeup_work(struct work_struct *unused);
+static DECLARE_DELAYED_WORK(usbhs_wakeup, usbhs_wakeup_work);
+
+static int usbhs_wakeup_handler(struct omap_hwmod_mux_info *unused)
+{
+	int queued;
+
+	queued = queue_delayed_work(pm_wq, &usbhs_wakeup,
+			msecs_to_jiffies(20));
+
+	if (queued)
+		pm_runtime_get(&pdev_usbhs->dev);
+
+	return 0;
+}
+
+static void usbhs_wakeup_work(struct work_struct *unused)
+{
+	pm_runtime_put_sync(&pdev_usbhs->dev);
+}
+
 
 static struct omap_hwmod_mux_info * __init
 omap_hwmod_mux_array_init(struct platform_device	*pdev,
@@ -678,7 +702,8 @@ omap_hwmod_mux_array_init(struct platform_device	*pdev,
 		case OMAP_EHCI_PORT_MODE_TLL:
 		case OMAP_EHCI_PORT_MODE_HSIC:
 			for (j = 0; j < nr_pads[i]; j++)
-				omap_hwmod_pad_route_irq(uhh_hwm, k + j, 1);
+				omap_hwmod_pad_wakeup_handler(uhh_hwm, k + j,
+							usbhs_wakeup_handler);
 			break;
 		case OMAP_OHCI_PORT_MODE_PHY_6PIN_DATSE0:
 		case OMAP_OHCI_PORT_MODE_PHY_6PIN_DPDM:
@@ -691,7 +716,8 @@ omap_hwmod_mux_array_init(struct platform_device	*pdev,
 		case OMAP_OHCI_PORT_MODE_TLL_2PIN_DATSE0:
 		case OMAP_OHCI_PORT_MODE_TLL_2PIN_DPDM:
 			for (j = 0; j < nr_pads[i]; j++)
-				omap_hwmod_pad_route_irq(uhh_hwm, k + j, 0);
+				omap_hwmod_pad_wakeup_handler(uhh_hwm, k + j,
+							usbhs_wakeup_handler);
 			break;
 
 		case OMAP_USBHS_PORT_MODE_UNUSED:
@@ -721,6 +747,14 @@ setup_4430_usbhs_io_mux(struct platform_device	*pdev,
 	case OMAP_EHCI_PORT_MODE_TLL:
 		pads[0] = port1_tll_pads;
 		pads_cnt[0] = ARRAY_SIZE(port1_tll_pads);
+
+		/* Errata i687: set I/O drive strength to 1 */
+		if (cpu_is_omap443x()) {
+			u32 val;
+			val = omap4_ctrl_pad_readl(OMAP4_CTRL_MODULE_PAD_CORE_CONTROL_SMART2IO_PADCONF_2);
+			val |= OMAP4_USBB1_DR0_DS_MASK;
+			omap4_ctrl_pad_writel(val, OMAP4_CTRL_MODULE_PAD_CORE_CONTROL_SMART2IO_PADCONF_2);
+		}
 			break;
 	case OMAP_EHCI_PORT_MODE_HSIC:
 		pads[0] = port1_hsic_pads;
@@ -761,6 +795,14 @@ setup_4430_usbhs_io_mux(struct platform_device	*pdev,
 	case OMAP_EHCI_PORT_MODE_TLL:
 		pads[1] = port2_tll_pads;
 		pads_cnt[1] = ARRAY_SIZE(port2_tll_pads);
+
+		/* Errata i687: set I/O drive strength to 1 */
+		if (cpu_is_omap443x()) {
+			u32 val;
+			val = omap4_ctrl_pad_readl(OMAP4_CTRL_MODULE_PAD_CORE_CONTROL_SMART2IO_PADCONF_2);
+			val |= OMAP4_USBB2_DR0_DS_MASK;
+			omap4_ctrl_pad_writel(val, OMAP4_CTRL_MODULE_PAD_CORE_CONTROL_SMART2IO_PADCONF_2);
+		}
 			break;
 	case OMAP_EHCI_PORT_MODE_HSIC:
 		pads[1] = port2_hsic_pads;
@@ -955,6 +997,8 @@ void __init usbhs_init(const struct usbhs_omap_board_data *pdata)
 			USBHS_UHH_HWMODNAME);
 		return;
 	}
+
+	pdev_usbhs = pdev;
 
 	if (cpu_is_omap34xx()) {
 		setup_ehci_io_mux(pdata->port_mode);

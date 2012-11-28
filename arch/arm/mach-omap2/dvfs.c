@@ -22,13 +22,13 @@
 #include <linux/seq_file.h>
 #include <linux/uaccess.h>
 #include <linux/pm_qos.h>
+#include <linux/power/smartreflex.h>
 #include <plat/common.h>
 #include <plat/omap_device.h>
 #include <plat/omap_hwmod.h>
 #include <plat/clock.h>
 #include <plat/dvfs.h>
-#include "voltage.h"
-#include "smartreflex.h"
+#include <plat/voltage.h>
 #include "powerdomain.h"
 #include "pm.h"
 
@@ -108,7 +108,6 @@
  *
  * For voltage dependency description, see: struct dependency:
  * voltagedomain -> (description of the voltagedomain)
- *	omap_vdd_info -> (vdd information)
  *		omap_vdd_dep_info[]-> (stores array of depedency info)
  *			omap_vdd_dep_volt[] -> (stores array of maps)
  *				(main_volt -> dep_volt) (a singular map)
@@ -260,20 +259,19 @@ struct omap_vdd_dvfs_info *_voltdm_to_dvfs_info(struct voltagedomain *voltdm)
 }
 
 /**
- * _volt_to_opp() - Find OPP corresponding to a given voltage
- * @dev:	device pointer associated with the OPP list
- * @volt:	voltage to search for in uV
+ * _volt_to_opp_ceil() - Find ceil OPP corresponding to a given voltage
+ * @dev:        device pointer associated with the OPP list
+ * @volt:       voltage to search for in uV
  *
- * Searches for exact match in the OPP list and returns handle to the matching
- * OPP if found, else returns ERR_PTR in case of error and should be handled
- * using IS_ERR. If there are multiple opps with same voltage, it will return
- * the first available entry. Return pointer should be checked against IS_ERR.
+ * Searches for OPP with equal or higher voltage in the OPP list and returns
+ * handle to the matching OPP if found, else returns ERR_PTR in case of error
+ * and should be handled using IS_ERR.
+ * If there are multiple OPPs with same voltage, it will return the first
+ * available entry. Return pointer should be checked against IS_ERR.
  *
- * NOTE: since this uses OPP functions, use under rcu_lock. This function also
- * assumes that the cpufreq table and OPP table are in sync - any modifications
- * to either should be synchronized.
+ * NOTE: since this uses OPP functions, use under rcu_lock.
  */
-static struct opp *_volt_to_opp(struct device *dev, unsigned long volt)
+static struct opp *_volt_to_opp_ceil(struct device *dev, unsigned long volt)
 {
 	struct opp *opp = ERR_PTR(-ENODEV);
 	unsigned long f = 0;
@@ -285,6 +283,36 @@ static struct opp *_volt_to_opp(struct device *dev, unsigned long volt)
 		if (opp_get_voltage(opp) >= volt)
 			break;
 		f++;
+	} while (1);
+
+	return opp;
+}
+
+/**
+ * _volt_to_opp_floor() - Find floor OPP corresponding to a given voltage
+ * @dev:	device pointer associated with the OPP list
+ * @volt:	voltage to search for in uV
+ *
+ * Searches for OPP with equal or lower voltage in the OPP list and returns
+ * handle to the matching OPP if found, else returns ERR_PTR in case of error
+ * and should be handled using IS_ERR.
+ * If there are multiple OPPs with same voltage, it will return the first
+ * available entry. Return pointer should be checked against IS_ERR.
+ *
+ * NOTE: since this uses OPP functions, use under rcu_lock.
+ */
+static struct opp *_volt_to_opp_floor(struct device *dev, unsigned long volt)
+{
+	struct opp *opp = ERR_PTR(-ENODEV);
+	unsigned long f = ULONG_MAX;
+
+	do {
+		opp = opp_find_freq_floor(dev, &f);
+		if (IS_ERR(opp))
+			break;
+		if (opp_get_voltage(opp) <= volt)
+			break;
+		f--;
 	} while (1);
 
 	return opp;
@@ -405,7 +433,7 @@ static int _dep_scan_table(struct device *dev,
 	struct device *target_dev;
 	struct omap_vdd_dvfs_info *tdvfs_info;
 	struct opp *opp;
-	unsigned long dep_volt = 0, new_dep_volt = 0, new_freq = 0;
+	unsigned long dep_volt = 0, new_dep_volt = 0;
 
 	if (!dep_table) {
 		dev_err(dev, "%s: deptable not present for vdd%s\n",
@@ -448,32 +476,34 @@ static int _dep_scan_table(struct device *dev,
 	}
 
 	rcu_read_lock();
-	opp = _volt_to_opp(target_dev, dep_volt);
-	if (!IS_ERR(opp)) {
+	opp = _volt_to_opp_ceil(target_dev, dep_volt);
+	if (!IS_ERR(opp))
 		new_dep_volt = opp_get_voltage(opp);
-		new_freq = opp_get_freq(opp);
-	}
 	rcu_read_unlock();
 
-	if (!new_dep_volt || !new_freq) {
+	if (!new_dep_volt) {
 		dev_err(target_dev, "%s: no valid OPP for voltage %lu\n",
 			__func__, dep_volt);
 		return -ENODATA;
 	}
 
+	if (dep_volt != new_dep_volt)
+		dev_warn(dev, "%s: no exact OPP for %lu voltage, %lu will be used instead\n",
+			 __func__, dep_volt, new_dep_volt);
+
 	/* See if dep_volt is possible for the vdd*/
 	i = _add_vdd_user(_voltdm_to_dvfs_info(dep_info->_dep_voltdm),
-			dev, dep_volt);
+			dev, new_dep_volt);
 	if (i)
 		dev_err(dev, "%s: Failed to add dep to domain %s volt=%ld\n",
-			__func__, dep_info->name, dep_volt);
+			__func__, dep_info->name, new_dep_volt);
 	return i;
 }
 
 /**
  * _dep_scan_domains() - Scan dependency domains for a device
  * @dev:	device requesting the scan
- * @vdd:	vdd_info corresponding to the device
+ * @dep_info:	dep_info corresponding to the device
  * @main_volt:	voltage to scan for
  *
  * Since each domain *may* have multiple dependent domains, we scan
@@ -484,9 +514,8 @@ static int _dep_scan_table(struct device *dev,
  * Returns 0 if all went well.
  */
 static int _dep_scan_domains(struct device *dev,
-		struct omap_vdd_info *vdd, unsigned long main_volt)
+		struct omap_vdd_dep_info *dep_info, unsigned long main_volt)
 {
-	struct omap_vdd_dep_info *dep_info = vdd->dep_vdd_info;
 	int ret = 0, r;
 
 	if (!dep_info) {
@@ -508,7 +537,7 @@ static int _dep_scan_domains(struct device *dev,
 /**
  * _dep_scale_domains() - Cause a scale of all dependent domains
  * @req_dev:	device requesting the scale
- * @req_vdd:	vdd_info corresponding to the requesting device.
+ * @dep_info:	voltage dep_info corresponding to the requesting device.
  *
  * This walks through every dependent domain and triggers a scale
  * It is assumed that the corresponding scale handling for the
@@ -523,9 +552,8 @@ static int _dep_scan_domains(struct device *dev,
  * Returns 0 if all went fine.
  */
 static int _dep_scale_domains(struct device *req_dev,
-				struct omap_vdd_info *req_vdd)
+				struct omap_vdd_dep_info *dep_info)
 {
-	struct omap_vdd_dep_info *dep_info = req_vdd->dep_vdd_info;
 	int ret = 0, r;
 
 	if (!dep_info) {
@@ -590,7 +618,6 @@ static int _dvfs_scale(struct device *req_dev, struct device *target_dev,
 	struct plist_node *node;
 	int ret = 0;
 	struct voltagedomain *voltdm;
-	struct omap_vdd_info *vdd;
 	struct omap_volt_data *new_vdata;
 	struct omap_volt_data *curr_vdata;
 	struct list_head *dev_list;
@@ -600,7 +627,6 @@ static int _dvfs_scale(struct device *req_dev, struct device *target_dev,
 		dev_err(target_dev, "%s: bad voltdm\n", __func__);
 		return -EINVAL;
 	}
-	vdd = voltdm->vdd;
 
 	/* Find the highest voltage being requested */
 	node = plist_last(&tdvfs_info->vdd_user_list);
@@ -631,7 +657,7 @@ static int _dvfs_scale(struct device *req_dev, struct device *target_dev,
 	/* Make a decision to scale dependent domain based on nominal voltage */
 	if (omap_get_nominal_voltage(new_vdata) >
 					omap_get_nominal_voltage(curr_vdata)) {
-		ret = _dep_scale_domains(target_dev, vdd);
+		ret = _dep_scale_domains(target_dev, voltdm->dep_vdd_info);
 		if (ret) {
 			dev_err(target_dev,
 				"%s: Error(%d)scale dependent with %ld volt\n",
@@ -673,12 +699,16 @@ static int _dvfs_scale(struct device *req_dev, struct device *target_dev,
 		temp_dev = list_entry(dev_list, struct omap_vdd_dev_list, node);
 		dev = temp_dev->dev;
 		rcu_read_lock();
-		opp = _volt_to_opp(dev, new_volt);
+		opp = _volt_to_opp_floor(dev,
+					 omap_get_nominal_voltage(new_vdata));
 		if (!IS_ERR(opp))
 			freq = opp_get_freq(opp);
 		rcu_read_unlock();
-		if (!freq)
+		if (!freq) {
+			dev_err(dev, "%s: can't find freq for voltage %lu\n",
+				__func__, omap_get_nominal_voltage(new_vdata));
 			goto next;
+		}
 
 		if (freq == clk_get_rate(temp_dev->clk)) {
 			dev_dbg(dev, "%s: Already at the requested rate %ld\n",
@@ -706,7 +736,15 @@ next:
 	/* Make a decision to scale dependent domain based on nominal voltage */
 	if (omap_get_nominal_voltage(new_vdata) <
 			omap_get_nominal_voltage(curr_vdata)) {
-		_dep_scale_domains(target_dev, vdd);
+		_dep_scale_domains(target_dev, voltdm->dep_vdd_info);
+	}
+
+	/* Ensure that current voltage data pointer points to new volt */
+	if (volt_scale_dir == DVFS_VOLT_SCALE_NONE &&
+	    omap_get_nominal_voltage(new_vdata) !=
+			omap_get_nominal_voltage(curr_vdata)) {
+		voltdm->curr_volt = new_vdata;
+		omap_vp_update_errorgain(voltdm, new_vdata);
 	}
 
 	/* All clear.. go out gracefully */
@@ -717,7 +755,7 @@ fail:
 		   __func__, voltdm->name);
 out:
 	/* Re-enable Smartreflex module */
-	omap_sr_enable(voltdm, new_vdata);
+	omap_sr_enable(voltdm);
 
 	return ret;
 }
@@ -809,7 +847,8 @@ int omap_device_scale(struct device *target_dev, unsigned long rate)
 	}
 
 	/* Check for any dep domains and add the user request */
-	ret = _dep_scan_domains(target_dev, tdvfs_info->voltdm->vdd, volt);
+	ret = _dep_scan_domains(target_dev,
+			tdvfs_info->voltdm->dep_vdd_info, volt);
 	if (ret) {
 		dev_err(target_dev,
 			"%s: Error in scan domains for vdd_%s\n",
@@ -838,14 +877,13 @@ EXPORT_SYMBOL(omap_device_scale);
 static int dvfs_dump_vdd(struct seq_file *sf, void *unused)
 {
 	int k;
-	struct omap_vdd_dvfs_info *dvfs_info;
+	struct omap_vdd_dvfs_info *dvfs_info, *tdvfs_info;
 	struct omap_vdd_user_list *vuser;
-	struct omap_vdd_info *vdd;
 	struct omap_vdd_dep_info *dep_info;
 	struct voltagedomain *voltdm;
 	struct omap_volt_data *volt_data;
+	struct omap_vdd_dev_list *temp_dev;
 	int anyreq;
-	struct opp *opp;
 	unsigned long freq = 0;
 
 	dvfs_info = (struct omap_vdd_dvfs_info *)sf->private;
@@ -860,12 +898,6 @@ static int dvfs_dump_vdd(struct seq_file *sf, void *unused)
 		return -EINVAL;
 	}
 
-	vdd = voltdm->vdd;
-	if (IS_ERR_OR_NULL(vdd)) {
-		pr_err("%s: NO vdd data?\n", __func__);
-		return -EINVAL;
-	}
-
 	seq_printf(sf, "vdd_%s\n", voltdm->name);
 	mutex_lock(&omap_dvfs_lock);
 	spin_lock(&dvfs_info->user_lock);
@@ -873,15 +905,30 @@ static int dvfs_dump_vdd(struct seq_file *sf, void *unused)
 	seq_printf(sf, "|- voltage requests\n|  |\n");
 	anyreq = 0;
 	plist_for_each_entry(vuser, &dvfs_info->vdd_user_list, node) {
-		rcu_read_lock();
-		opp = _volt_to_opp(vuser->dev, vuser->node.prio);
-		if (!IS_ERR(opp))
-			freq = opp_get_freq(opp);
-		rcu_read_unlock();
+		anyreq = 1;
+		tdvfs_info = _dev_to_dvfs_info(vuser->dev);
+		if (IS_ERR_OR_NULL(tdvfs_info)) {
+			seq_printf(sf, "|  |-no vdd!: %s:%s\n",
+				   dev_driver_string(vuser->dev),
+				   dev_name(vuser->dev));
+			continue;
+		}
+		list_for_each_entry(temp_dev, &tdvfs_info->dev_list, node) {
+			if (temp_dev->dev == vuser->dev)
+				break;
+		}
+
+		if (temp_dev->dev != vuser->dev) {
+			seq_printf(sf, "|  |-no DVFS device!: %s:%s\n",
+				   dev_driver_string(vuser->dev),
+				   dev_name(vuser->dev));
+			continue;
+		}
+
+		freq = clk_get_rate(temp_dev->clk);
 		seq_printf(sf, "|  |-%dmV (%ldHz): %s:%s\n",
 			   vuser->node.prio, freq,
 			   dev_driver_string(vuser->dev), dev_name(vuser->dev));
-		anyreq = 1;
 	}
 
 	spin_unlock(&dvfs_info->user_lock);
@@ -892,7 +939,7 @@ static int dvfs_dump_vdd(struct seq_file *sf, void *unused)
 		seq_printf(sf, "|  X\n");
 	seq_printf(sf, "|\n");
 
-	volt_data = vdd->volt_data;
+	volt_data = voltdm->volt_data;
 	seq_printf(sf, "|- Supported voltages\n|  |\n");
 	anyreq = 0;
 	while (volt_data && volt_data->volt_nominal) {
@@ -905,7 +952,7 @@ static int dvfs_dump_vdd(struct seq_file *sf, void *unused)
 	else
 		seq_printf(sf, "|  X\n");
 
-	dep_info = vdd->dep_vdd_info;
+	dep_info = voltdm->dep_vdd_info;
 	seq_printf(sf, "`- voltage dependencies\n   |\n");
 	anyreq = 0;
 	while (dep_info && dep_info->nr_dep_entries) {

@@ -16,6 +16,7 @@
 #include <linux/io.h>
 #include <linux/platform_device.h>
 #include <linux/memblock.h>
+#include <linux/interrupt.h>
 
 #include <asm/hardware/gic.h>
 #include <asm/hardware/cache-l2x0.h>
@@ -78,7 +79,10 @@ void __init omap_barriers_init(void)
 	dram_io_desc[0].type = MT_MEMORY_SO;
 	iotable_init(dram_io_desc, ARRAY_SIZE(dram_io_desc));
 	dram_sync = (void __iomem *) dram_io_desc[0].virtual;
-	sram_sync = (void __iomem *) OMAP4_SRAM_VA;
+	if (cpu_is_omap44xx())
+		sram_sync = (void __iomem *)OMAP4_ERRATA_I688_SRAM_VA;
+	else
+		sram_sync = (void __iomem *)OMAP5_ERRATA_I688_SRAM_VA;
 
 	pr_info("OMAP4: Map 0x%08llx to 0x%08lx for dram barrier\n",
 		(long long) paddr, dram_io_desc[0].virtual);
@@ -87,6 +91,9 @@ void __init omap_barriers_init(void)
 #else
 void __init omap_barriers_init(void)
 {}
+/* The following is defined in sleep4...S file */
+extern void omap_bus_sync(void);
+EXPORT_SYMBOL(omap_bus_sync);
 #endif
 
 void __init gic_init_irq(void)
@@ -201,3 +208,40 @@ static int __init omap_l2_cache_init(void)
 }
 early_initcall(omap_l2_cache_init);
 #endif
+
+static irqreturn_t axi_error_handler(int irq, void *unused)
+{
+	unsigned int err;
+
+	/* read L2ECTLR to decode the AXI error */
+	asm volatile("mrc p15, 1, %0, c9, c0, 3" : "=r" (err));
+
+	if (err == AXI_ERROR) {
+		WARN(true, "\n AXI error due to L2 ECC/GIC and " \
+				"Local pheripheral illegal writes");
+	} else if (err == AXI_L2_ERROR) {
+		WARN(true, "\n AXI error due to L2 ECC/GIC illegal write");
+	} else {
+		WARN(true, "\n AXI error with Local pheripheral");
+	}
+
+	/* Clear the error */
+	asm volatile("mcr p15, 1, %0, c9, c0, 3" : : "r" (0x0));
+
+	return IRQ_HANDLED;
+}
+
+static int __init omap5_axi_err_init(void)
+{
+	int ret;
+
+	if (!cpu_is_omap54xx())
+		return 0;
+
+	ret = request_threaded_irq(OMAP54XX_IRQ_AXI,
+			axi_error_handler, (irq_handler_t) 0,
+			IRQF_DISABLED, "axi-err-irq", 0);
+
+	return ret;
+}
+postcore_initcall(omap5_axi_err_init);

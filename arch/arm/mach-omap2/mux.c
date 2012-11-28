@@ -37,6 +37,7 @@
 
 
 #include <plat/omap_hwmod.h>
+#include <plat/gpio.h>
 
 #include "control.h"
 #include "mux.h"
@@ -50,16 +51,8 @@ struct omap_mux_entry {
 	struct list_head	node;
 };
 
-struct omap_mux_gpio_entry {
-	struct omap_mux			*mux;
-	struct omap_mux_partition	*partition;
-	bool				triggered;
-	struct list_head		node;
-};
-
 static LIST_HEAD(mux_partitions);
 static DEFINE_MUTEX(muxmode_mutex);
-static LIST_HEAD(wakeup_gpio_pads);
 
 struct omap_mux_partition *omap_mux_get(const char *name)
 {
@@ -146,20 +139,6 @@ static int __init _omap_mux_init_gpio(struct omap_mux_partition *partition,
 	else
 		mux_mode |= OMAP_MUX_MODE4;
 
-	if (mux_mode & OMAP_WAKEUP_EN) {
-		struct omap_mux_gpio_entry *gpio_entry;
-		pr_debug("%s: gpio %d has wakeup\n", __func__, gpio);
-		gpio_entry = kzalloc(sizeof(struct omap_mux_gpio_entry),
-				     GFP_KERNEL);
-		if (!gpio_entry) {
-			pr_err("%s: kzalloc failed!\n", __func__);
-		} else {
-			gpio_entry->mux = gpio_mux;
-			gpio_entry->partition = partition;
-			list_add_tail(&gpio_entry->node, &wakeup_gpio_pads);
-		}
-	}
-
 	pr_debug("%s: Setting signal %s.gpio%i 0x%04x -> 0x%04x\n", __func__,
 		 gpio_mux->muxnames[0], gpio, old_mode, mux_mode);
 	omap_mux_write(partition, mux_mode, gpio_mux->reg_offset);
@@ -181,51 +160,6 @@ int __init omap_mux_init_gpio(int gpio, int val)
 	pr_err("%s: Could not set gpio%i\n", __func__, gpio);
 
 	return -ENODEV;
-}
-
-static int _omap_mux_scan_gpio(struct omap_mux_gpio_entry *entry)
-{
-	unsigned int val;
-
-	val = omap_mux_read(entry->partition, entry->mux->reg_offset);
-	if (val & OMAP_WAKEUP_EVENT) {
-		entry->triggered = true;
-		omap_mux_write(entry->partition, val & ~OMAP_WAKEUP_EN,
-			       entry->mux->reg_offset);
-		return 1;
-	}
-
-	return 0;
-}
-
-static void _omap_mux_enable_gpio_wakes(struct omap_mux_gpio_entry *entry)
-{
-	unsigned int val;
-
-	if (!entry->triggered)
-		return;
-
-	entry->triggered = false;
-	val = omap_mux_read(entry->partition, entry->mux->reg_offset);
-	val |= OMAP_WAKEUP_EN;
-	omap_mux_write(entry->partition, val, entry->mux->reg_offset);
-}
-
-static void _omap_mux_gpio_irq(void)
-{
-	struct omap_mux_gpio_entry *e;
-	int reconf_needed = 0;
-
-	list_for_each_entry(e, &wakeup_gpio_pads, node) {
-		reconf_needed += _omap_mux_scan_gpio(e);
-	}
-	if (reconf_needed) {
-		omap_hwmod_reconfigure_io_chain();
-		list_for_each_entry(e, &wakeup_gpio_pads, node) {
-			_omap_mux_enable_gpio_wakes(e);
-		}
-		omap_hwmod_reconfigure_io_chain();
-	}
 }
 
 static int __init _omap_mux_get_by_name(struct omap_mux_partition *partition,
@@ -314,6 +248,14 @@ int __init omap_mux_init_signal(const char *muxname, int val)
 	struct omap_mux *mux = NULL;
 	u16 old_mode;
 	int mux_mode;
+
+	/* If WAKEUPENABLE bit is set, the WAKEUPEVENT has to be handled by the
+	 * framework. Use omap_mux_init_gpio() or omap_hwmod_mux_init() */
+	if (val & OMAP_WAKEUP_EN) {
+		pr_err("%s must not set the WAKEUPENABLE bit, muxing aborted\n",
+		       __func__);
+		return -EINVAL;
+	}
 
 	mux_mode = omap_mux_get_by_name(muxname, &partition, &mux);
 	if (mux_mode < 0)
@@ -441,6 +383,7 @@ static bool omap_hwmod_mux_scan_wakeups(struct omap_hwmod_mux_info *hmux,
 	int i, irq;
 	unsigned int val;
 	u32 handled_irqs = 0;
+	bool retval = false;
 
 	for (i = 0; i < hmux->nr_pads_dynamic; i++) {
 		struct omap_device_pad *pad = hmux->pads_dynamic[i];
@@ -453,8 +396,26 @@ static bool omap_hwmod_mux_scan_wakeups(struct omap_hwmod_mux_info *hmux,
 		if (!(val & OMAP_WAKEUP_EVENT))
 			continue;
 
-		if (!hmux->irqs)
-			return true;
+		/* Clear the WAKEUPEVENT bit */
+		omap_mux_write(pad->partition, val & ~OMAP_WAKEUP_EN,
+			       pad->mux->reg_offset);
+		omap_hwmod_reconfigure_io_chain();
+
+		/* Enable back the WAKEUPENABLE bit */
+		val = omap_mux_read(pad->partition, pad->mux->reg_offset);
+		val |= OMAP_WAKEUP_EN;
+		omap_mux_write(pad->partition, val, pad->mux->reg_offset);
+		omap_hwmod_reconfigure_io_chain();
+
+		if (hmux->wakeup_handler && hmux->wakeup_handler[i]) {
+			hmux->wakeup_handler[i](hmux);
+			continue;
+		}
+
+		if (!hmux->irqs) {
+			retval = true;
+			continue;
+		}
 
 		irq = hmux->irqs[i];
 		/* make sure we only handle each irq once */
@@ -466,7 +427,7 @@ static bool omap_hwmod_mux_scan_wakeups(struct omap_hwmod_mux_info *hmux,
 		generic_handle_irq(mpu_irqs[irq].irq);
 	}
 
-	return false;
+	return retval;
 }
 
 /**
@@ -493,7 +454,7 @@ static int _omap_hwmod_mux_handle_irq(struct omap_hwmod *oh, void *data)
 static irqreturn_t omap_hwmod_mux_handle_irq(int irq, void *unused)
 {
 	omap_hwmod_for_each(_omap_hwmod_mux_handle_irq, NULL);
-	_omap_mux_gpio_irq();
+	omap2_gpio_trigger_wakeup_irqs();
 	return IRQ_HANDLED;
 }
 
@@ -593,7 +554,8 @@ static inline void omap_mux_decode(struct seq_file *s, u16 val)
 
 	OMAP_MUX_TEST_FLAG(val, OMAP_PIN_OFF_WAKEUPENABLE);
 	if (val & OMAP_OFF_EN) {
-		if (!(val & OMAP_OFFOUT_EN)) {
+		if (val & OMAP_OFFOUT_EN) {
+			/* Input */
 			if (!(val & OMAP_OFF_PULL_UP)) {
 				OMAP_MUX_TEST_FLAG(val,
 					OMAP_PIN_OFF_INPUT_PULLDOWN);
@@ -602,6 +564,7 @@ static inline void omap_mux_decode(struct seq_file *s, u16 val)
 					OMAP_PIN_OFF_INPUT_PULLUP);
 			}
 		} else {
+			/* Output */
 			if (!(val & OMAP_OFFOUT_VAL)) {
 				OMAP_MUX_TEST_FLAG(val,
 					OMAP_PIN_OFF_OUTPUT_LOW);
@@ -857,6 +820,27 @@ static void __init omap_mux_free_names(struct omap_mux *m)
 
 }
 
+/*
+ * check if gpio mux mode
+ */
+static int __init omap_mux_mode_gpio(struct omap_mux_partition *partition,
+				     u16 mode)
+{
+	u16 mux = OMAP_MUX_MODE4;	/* default gpio mux mode 4 */
+
+	/* adjust gpio mux mode based on partition flags */
+	if (partition->flags & OMAP_MUX_GPIO_IN_MODE3)
+		mux = OMAP_MUX_MODE3;
+	else if (partition->flags & OMAP_MUX_GPIO_IN_MODE6)
+		mux = OMAP_MUX_MODE6;
+
+	/* check mux mode */
+	if ((mode & OMAP_MUX_MODE7) == mux)
+		return 1;
+	else
+		return 0;
+}
+
 /* Free all data except for GPIO pins unless CONFIG_DEBUG_FS is set */
 static int __init omap_mux_late_init(void)
 {
@@ -869,7 +853,7 @@ static int __init omap_mux_late_init(void)
 			struct omap_mux *m = &e->mux;
 			u16 mode = omap_mux_read(partition, m->reg_offset);
 
-			if (OMAP_MODE_GPIO(mode))
+			if (omap_mux_mode_gpio(partition, mode))
 				continue;
 
 #ifndef CONFIG_DEBUG_FS
@@ -1054,7 +1038,7 @@ static struct omap_mux *omap_mux_get_by_gpio(
 }
 
 /* Needed for dynamic muxing of GPIO pins for off-idle */
-u16 omap_mux_get_gpio(int gpio)
+struct omap_mux *omap_mux_get_gpio(int gpio)
 {
 	struct omap_mux_partition *partition;
 	struct omap_mux *m = NULL;
@@ -1062,13 +1046,10 @@ u16 omap_mux_get_gpio(int gpio)
 	list_for_each_entry(partition, &mux_partitions, node) {
 		m = omap_mux_get_by_gpio(partition, gpio);
 		if (m)
-			return omap_mux_read(partition, m->reg_offset);
+			return m;
 	}
 
-	if (!m || m->reg_offset == OMAP_MUX_TERMINATOR)
-		pr_err("%s: Could not get gpio%i\n", __func__, gpio);
-
-	return OMAP_MUX_TERMINATOR;
+	return NULL;
 }
 
 /* Needed for dynamic muxing of GPIO pins for off-idle */
@@ -1089,6 +1070,60 @@ void omap_mux_set_gpio(u16 val, int gpio)
 		pr_err("%s: Could not set gpio%i\n", __func__, gpio);
 }
 
+/* Has no locking, don't use on a pad that is remuxed (by hwmod or otherwise) */
+bool omap_mux_get_wakeupenable(struct omap_mux *m)
+{
+	u16 val;
+	if (!m)
+		return false;
+
+	val = omap_mux_read(m->partition, m->reg_offset);
+	return val & OMAP_PIN_OFF_WAKEUPENABLE;
+}
+
+bool omap_mux_get_wakeupstatus(struct omap_mux *m)
+{
+	u16 val;
+	if (IS_ERR_OR_NULL(m))
+		return false;
+
+	val = omap_mux_read(m->partition, m->reg_offset);
+	return val & OMAP_WAKEUP_EVENT;
+}
+
+/* Has no locking, don't use on a pad that is remuxed (by hwmod or otherwise) */
+int omap_mux_set_wakeupenable(struct omap_mux *m)
+{
+	u16 val;
+	if (!m)
+		return -EINVAL;
+
+	val = omap_mux_read(m->partition, m->reg_offset);
+	val |= OMAP_PIN_OFF_WAKEUPENABLE;
+	omap_mux_write(m->partition, val, m->reg_offset);
+
+	return 0;
+}
+
+/* Has no locking, don't use on a pad that is remuxed (by hwmod or otherwise) */
+int omap_mux_clear_wakeupenable(struct omap_mux *m)
+{
+	u16 val;
+	if (!m)
+		return -EINVAL;
+
+	val = omap_mux_read(m->partition, m->reg_offset);
+	val &= ~OMAP_PIN_OFF_WAKEUPENABLE;
+	omap_mux_write(m->partition, val, m->reg_offset);
+
+	return 0;
+}
+
+void omap_mux_reconfigure_iochain(void)
+{
+	omap_hwmod_reconfigure_io_chain();
+}
+
 static struct omap_mux * __init omap_mux_list_add(
 					struct omap_mux_partition *partition,
 					struct omap_mux *src)
@@ -1102,6 +1137,7 @@ static struct omap_mux * __init omap_mux_list_add(
 
 	m = &entry->mux;
 	entry->mux = *src;
+	m->partition = partition;
 
 #ifdef CONFIG_OMAP_MUX
 	if (omap_mux_copy_names(src, m)) {
@@ -1135,8 +1171,9 @@ static void __init omap_mux_init_list(struct omap_mux_partition *partition,
 		}
 #else
 		/* Skip pins that are not muxed as GPIO by bootloader */
-		if (!OMAP_MODE_GPIO(omap_mux_read(partition,
-				    superset->reg_offset))) {
+		if (!omap_mux_mode_gpio(partition,
+				omap_mux_read(partition,
+						superset->reg_offset))) {
 			superset++;
 			continue;
 		}

@@ -555,11 +555,19 @@ static int __devinit twl_rtc_probe(struct platform_device *pdev)
 			goto out3;
 	}
 
+	/* ensure interrupts are disabled, bootloaders can be strange */
+	ret = twl_rtc_write_u8(twl_rtc, 0, REG_RTC_INTERRUPTS_REG);
+	if (ret < 0)
+		dev_warn(&pdev->dev, "unable to disable interrupt\n");
+
 	/* init cached IRQ enable bits */
 	ret = twl_rtc_read_u8(twl_rtc, &rtc_irq_bits,
 			REG_RTC_INTERRUPTS_REG);
 	if (ret < 0)
 		goto out3;
+
+	/* Set device as wakeup capable */
+	device_init_wakeup(&pdev->dev, 1);
 
 	rtc = rtc_device_register(pdev->name,
 				  &pdev->dev, &twl_rtc_ops, THIS_MODULE);
@@ -621,6 +629,9 @@ static void twl_rtc_shutdown(struct platform_device *pdev)
 	/* mask timer interrupts, but leave alarm interrupts on to enable
 	   power-on when alarm is triggered */
 	mask_rtc_irq_bit(twl_rtc, BIT_RTC_INTERRUPTS_REG_IT_TIMER_M);
+	/* mask alarm interrupts as well so that we don't get powered on
+	   when alarm is triggered (android specific) */
+	mask_rtc_irq_bit(twl_rtc, BIT_RTC_INTERRUPTS_REG_IT_ALARM_M);
 }
 
 #ifdef CONFIG_PM

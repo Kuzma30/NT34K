@@ -47,7 +47,7 @@ static const char *abe_memory_bank[5] = {
 	"cmem",
 	"smem",
 	"pmem",
-	"mpu"
+	"aess"
 };
 
 static void abe_init_gains(struct omap_aess *abe)
@@ -290,6 +290,12 @@ static int abe_probe(struct snd_soc_platform *platform)
 	omap_aess_set_auto_gating(abe->aess);
 	abe_init_gains(abe->aess);
 
+#if defined(CONFIG_SND_OMAP_SOC_ABE_DL2)
+	omap_aess_select_pdm_output(abe->aess, OMAP_ABE_DL1_HS_DL2_HF);
+#else
+	omap_aess_select_pdm_output(abe->aess, OMAP_ABE_DL1_HS_HF);
+#endif
+
 	/* Stop the engine */
 	omap_aess_stop_event_generator(abe->aess);
 	omap_aess_disable_irq(abe->aess);
@@ -368,6 +374,9 @@ static int __devinit abe_engine_probe(struct platform_device *pdev)
 	if (pdata) {
 		abe->get_context_loss_count = pdata->get_context_loss_count;
 		abe->device_scale = pdata->device_scale;
+		/* AESS must remain active on suspend for voice call */
+		if (pdata->disable_idle_on_suspend)
+			pdata->disable_idle_on_suspend(pdev);
 	}
 #endif
 	abe->context_loss = 0;

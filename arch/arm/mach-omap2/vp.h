@@ -47,10 +47,12 @@ struct omap_volt_data;
  * struct omap_vp_ops - per-VP operations
  * @check_txdone: check for VP transaction done
  * @clear_txdone: clear VP transaction done status
+ * @recover: arch specific VP recovery mechanism
  */
 struct omap_vp_ops {
 	u32 (*check_txdone)(u8 vp_id);
 	void (*clear_txdone)(u8 vp_id);
+	void (*recover)(u8 vp_id);
 };
 
 /**
@@ -150,5 +152,7 @@ int omap_vp_forceupdate_scale(struct voltagedomain *voltdm,
 int omap_vp_update_errorgain(struct voltagedomain *voltdm,
 			     struct omap_volt_data *volt_data);
 unsigned long omap_vp_get_curr_volt(struct voltagedomain *voltdm);
+bool omap_vp_is_transdone(struct voltagedomain *voltdm);
+void omap_vp_clear_transdone(struct voltagedomain *voltdm);
 
 #endif

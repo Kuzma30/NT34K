@@ -35,6 +35,7 @@
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
 #include <linux/pm_runtime.h>
+#include <linux/pm_qos.h>
 
 #include <linux/hsi_driver_if.h>
 #include <plat/omap_hsi.h>
@@ -128,7 +129,6 @@ struct hsi_channel {
  * @cawake_gpio: GPIO number for cawake line (-1 if none)
  * @cawake_gpio_irq: IRQ number for cawake gpio events
  * @cawake_status: Tracks CAWAKE line status
- * @cawake_off_event: True if CAWAKE event was detected from OFF mode
  * @cawake_double_int: True if new CAWAKE detected while tasklet still executing
  * @acwake_status: Bitmap to track ACWAKE line status per channel
  * @in_int_tasklet: True if interrupt tasklet for this port is currently running
@@ -152,7 +152,6 @@ struct hsi_port {
 	int cawake_gpio;
 	int cawake_gpio_irq;
 	int cawake_status;
-	bool cawake_off_event;
 	bool cawake_double_int;
 	unsigned int acwake_status;	/* HSI_TODO : fine tune init values */
 	bool in_int_tasklet;
@@ -181,6 +180,8 @@ struct hsi_port {
  * @hsi_fclk_req: Indicates what HSI FClk user requested (96MHz/192MHz)
  * @hsi_fclk_current: Current HSI Fclock
  * @context_loss_cnt: lost context count
+ * @hsi_latency_us: Current HSI latency
+ * @mpu_latency_us: Current MPU latency
  * @gdd_irq: GDD (DMA) irq number
  * @fifo_mapping_strategy: Selected strategy for fifo to ports/channels mapping
  * @gdd_usecount: Holds the number of ongoning DMA transfers
@@ -192,6 +193,8 @@ struct hsi_port {
  * @hsi_gdd_tasklet: Bottom half for DMA Interrupts when clocks are enabled
  * @dir: debugfs base directory
  * @dev: Reference to the HSI platform device
+ * @pm_qos: pm qos handle
+ * @dev_pm_qos: dev_pm qos handle to set HSI/L3INIT_PD constraints
  */
 struct hsi_dev { /* HSI_TODO:  should be later renamed into hsi_controller*/
 	struct hsi_port hsi_port[HSI_MAX_PORTS];
@@ -206,6 +209,8 @@ struct hsi_dev { /* HSI_TODO:  should be later renamed into hsi_controller*/
 	unsigned long hsi_fclk_req;
 	unsigned long hsi_fclk_current;
 	u32 context_loss_cnt;
+	int hsi_latency_us;
+	int mpu_latency_us;
 	int gdd_irq;
 	unsigned int fifo_mapping_strategy;
 	unsigned int gdd_usecount;
@@ -220,6 +225,9 @@ struct hsi_dev { /* HSI_TODO:  should be later renamed into hsi_controller*/
 	struct dentry *dir;
 #endif
 	struct device *dev;
+	struct pm_qos_request pm_qos;
+	struct dev_pm_qos_request dev_pm_qos;
+
 };
 
 /**
@@ -238,6 +246,8 @@ struct hsi_platform_data {
 	bool (*wakeup_is_from_hsi) (int *hsi_port);
 	int (*board_suspend)(int hsi_port, bool dev_may_wakeup);
 	int (*board_resume)(int hsi_port, bool dev_may_wakeup);
+	int (*runtime_suspend_helper)(struct device *dev);
+	int (*runtime_resume_helper)(struct device *dev);
 	u8 num_ports;
 	struct hsi_ctrl_ctx *ctx;
 	u8 hsi_gdd_chan_count;
@@ -324,7 +334,7 @@ void hsi_set_pm_default(struct hsi_dev *hsi_ctrl);
 int hsi_softreset(struct hsi_dev *hsi_ctrl);
 void hsi_softreset_driver(struct hsi_dev *hsi_ctrl);
 
-void hsi_clocks_disable_channel(struct device *dev, u8 channel_number,
+int hsi_clocks_disable_channel(struct device *dev, u8 channel_number,
 				const char *s);
 int hsi_clocks_enable_channel(struct device *dev, u8 channel_number,
 				const char *s);
@@ -338,6 +348,11 @@ static inline int hsi_runtime_suspend(struct device *dev) { return -ENOSYS; }
 void hsi_save_ctx(struct hsi_dev *hsi_ctrl);
 void hsi_restore_ctx(struct hsi_dev *hsi_ctrl);
 
+int hsi_pm_change_hsi_speed(struct hsi_dev *hsi_ctrl, bool hi_speed);
+int hsi_pm_change_hsi_wakeup_latency(struct hsi_dev *hsi_ctrl,
+					   int latency_us);
+void hsi_pm_change_mpu_wakeup_latency(struct hsi_dev *hsi_ctrl,
+					   int latency_us);
 
 #ifdef CONFIG_DEBUG_FS
 int hsi_debug_init(void);
@@ -426,9 +441,9 @@ static inline int hsi_get_cawake(struct hsi_port *port)
 		return -ENXIO;
 }
 
-static inline void hsi_clocks_disable(struct device *dev, const char *s)
+static inline int hsi_clocks_disable(struct device *dev, const char *s)
 {
-	hsi_clocks_disable_channel(dev, HSI_CH_NUMBER_NONE, s);
+	return hsi_clocks_disable_channel(dev, HSI_CH_NUMBER_NONE, s);
 }
 
 static inline int hsi_clocks_enable(struct device *dev, const char *s)

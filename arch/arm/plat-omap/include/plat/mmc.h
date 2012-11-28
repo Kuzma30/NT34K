@@ -13,6 +13,7 @@
 
 #include <linux/types.h>
 #include <linux/device.h>
+#include <linux/pm_qos.h>
 #include <linux/mmc/host.h>
 
 #include <plat/board.h>
@@ -70,8 +71,18 @@ struct omap_mmc_platform_data {
 	unsigned long max_si_freq;
 	unsigned long min_freq;
 
+	/* To handle core OPP scaling */
+	struct clk *fclk;
+	struct pm_qos_request pm_qos_request;
+
 	/*Function pointer to set clk source */
 	int (*set_clk_src)(struct device *dev, unsigned int slot);
+
+	/* To handle Core OPP scaling */
+	int (*opp_scale_init)(struct omap_mmc_platform_data *pdata);
+	int (*opp_scale)(struct omap_mmc_platform_data *pdata,
+					unsigned int clock);
+	int (*opp_relax)(struct omap_mmc_platform_data *pdata);
 
 	/* switch the bus to a new slot */
 	int (*switch_slot)(struct device *dev, int slot);
@@ -165,6 +176,11 @@ struct omap_mmc_platform_data {
 
 		const char *name;
 		u32 ocr_mask;
+		/* built_in: Use this flag to keep power to MMC/SDIO card
+		 * during suspend in case the driver for the card
+		 * (Eg: SDIO/Wifi driver) has not yet been loaded
+		 */
+		int built_in;
 
 		/* Card detection IRQs */
 		int card_detect_irq;

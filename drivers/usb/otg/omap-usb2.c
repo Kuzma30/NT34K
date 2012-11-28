@@ -52,6 +52,22 @@ void omap_usb2_set_comparator(struct phy_companion *comparator)
 }
 EXPORT_SYMBOL_GPL(omap_usb2_set_comparator);
 
+static int omap_usb2_suspend(struct usb_phy *, int);
+
+int omap_usb2_charger_detect(struct phy_companion *comparator)
+{
+	struct usb_phy  *x = usb_get_phy(USB_PHY_TYPE_USB2);
+	struct omap_usb *phy = phy_to_omapusb(x);
+	int charger = 0;
+
+	omap_usb2_suspend(x, 0);
+	charger = omap_usb_charger_detect(phy->control_dev);
+	omap_usb2_suspend(x, 1);
+
+	return charger;
+}
+EXPORT_SYMBOL_GPL(omap_usb2_charger_detect);
+
 static int omap_usb_set_vbus(struct usb_otg *otg, bool enabled)
 {
 	struct omap_usb *phy = phy_to_omapusb(otg->phy);
@@ -108,10 +124,13 @@ static int omap_usb2_suspend(struct usb_phy *x, int suspend)
 
 		phy->is_suspended = 1;
 	} else if (!suspend && phy->is_suspended) {
-		ret = clk_enable(phy->optclk);
-		if (ret) {
-			dev_err(phy->dev, "Failed to enable optclk %d\n", ret);
-			goto err3;
+		if (phy->optclk) {
+			ret = clk_enable(phy->optclk);
+			if (ret) {
+				dev_err(phy->dev,
+					"Failed to enable optclk %d\n", ret);
+				goto err3;
+			}
 		}
 		ret = clk_enable(phy->wkupclk);
 		if (ret) {
@@ -144,6 +163,7 @@ static int __devinit omap_usb2_probe(struct platform_device *pdev)
 {
 	struct omap_usb			*phy;
 	struct usb_otg			*otg;
+	struct clk			*optclk;
 
 	phy = devm_kzalloc(&pdev->dev, sizeof(*phy), GFP_KERNEL);
 	if (!phy) {
@@ -180,11 +200,16 @@ static int __devinit omap_usb2_probe(struct platform_device *pdev)
 	otg->phy		= &phy->phy;
 
 	phy->wkupclk = clk_get(phy->dev, "usb_phy_cm_clk32k");
-	phy->optclk = clk_get(phy->dev, "usb_otg_ss_refclk960m");
+	optclk = clk_get(phy->dev, "usb_otg_ss_refclk960m");
+	if (!IS_ERR(optclk))
+		phy->optclk = optclk;
 
 	usb_add_phy(&phy->phy, USB_PHY_TYPE_USB2);
 
 	platform_set_drvdata(pdev, phy);
+
+	/* Start with disabled charger detection */
+	omap_usb_charger_enable(phy->control_dev, 0);
 
 	pm_runtime_enable(phy->dev);
 

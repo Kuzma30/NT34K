@@ -50,6 +50,7 @@
 #define DISPC_IRQ_FRAMEDONEWB		(1 << 23)
 #define DISPC_IRQ_FRAMEDONETV		(1 << 24)
 #define DISPC_IRQ_WBBUFFEROVERFLOW	(1 << 25)
+#define DISPC_IRQ_WBINCOMPLETE		(1 << 26)
 
 struct omap_dss_device;
 struct omap_overlay_manager;
@@ -69,6 +70,7 @@ enum omap_plane {
 	OMAP_DSS_VIDEO1	= 1,
 	OMAP_DSS_VIDEO2	= 2,
 	OMAP_DSS_VIDEO3	= 3,
+	OMAP_DSS_WB		= 4,
 };
 
 enum omap_channel {
@@ -97,6 +99,7 @@ enum omap_color_mode {
 	OMAP_DSS_COLOR_RGBX16		= 1 << 16, /* RGBx16 - 4444 */
 	OMAP_DSS_COLOR_ARGB16_1555	= 1 << 17, /* ARGB16 - 1555 */
 	OMAP_DSS_COLOR_XRGB16_1555	= 1 << 18, /* xRGB16 - 1555 */
+	OMAP_DSS_COLOR_BGRA32	= 1 << 19,  /* BGRA32 */
 };
 
 enum omap_lcd_display_type {
@@ -109,22 +112,6 @@ enum omap_dss_load_mode {
 	OMAP_DSS_LOAD_CLUT_ONLY		= 1,
 	OMAP_DSS_LOAD_FRAME_ONLY	= 2,
 	OMAP_DSS_LOAD_CLUT_ONCE_FRAME	= 3,
-};
-
-/* Writeback data structures */
-enum omap_writeback_source {
-	OMAP_WB_LCD1		= 0,
-	OMAP_WB_TV		= 1,
-	OMAP_WB_LCD2		= 2,
-	OMAP_WB_GFX		= 3,
-	OMAP_WB_VID1		= 4,
-	OMAP_WB_VID2		= 5,
-	OMAP_WB_VID3		= 6,
-};
-
-enum omap_writeback_mode {
-	OMAP_WB_CAPTURE_MODE	= 0,
-	OMAP_WB_MEM2MEM_MODE	= 1,
 };
 
 enum omap_dss_trans_key_type {
@@ -202,6 +189,7 @@ enum omap_overlay_caps {
 	OMAP_DSS_OVL_CAP_GLOBAL_ALPHA = 1 << 1,
 	OMAP_DSS_OVL_CAP_PRE_MULT_ALPHA = 1 << 2,
 	OMAP_DSS_OVL_CAP_ZORDER = 1 << 3,
+	OMAP_DSS_OVL_CAP_FORCE_1D = 1 << 4,
 };
 
 enum omap_overlay_manager_caps {
@@ -228,14 +216,14 @@ enum omap_hdmi_flags {
  * are with respect to native scan order
 */
 enum s3d_disp_type {
-	S3D_DISP_NONE = 0,
-	S3D_DISP_FRAME_SEQ,
-	S3D_DISP_ROW_IL,
-	S3D_DISP_COL_IL,
-	S3D_DISP_PIX_IL,
-	S3D_DISP_CHECKB,
-	S3D_DISP_OVERUNDER,
-	S3D_DISP_SIDEBYSIDE,
+	S3D_DISP_FRAME_PACKING          = 0,
+	S3D_DISP_FIELD_ALTERNATIVE      = 1,
+	S3D_DISP_LINE_ALTERNATIVE       = 2,
+	S3D_DISP_SIDE_BY_SIDE_FULL      = 3,
+	S3D_DISP_L_DEPTH                = 4,
+	S3D_DISP_L_DEPTH_GFX_GFX_DEPTH  = 5,
+	S3D_DISP_TOPBOTTOM              = 6,
+	S3D_DISP_SIDE_BY_SIDE_HALF      = 8,
 };
 
 /* Subsampling direction is based on native panel scan order.
@@ -447,6 +435,73 @@ struct omap_dss_cconv_coefs {
 	u16 full_range;
 } __aligned(4);
 
+/* Writeback data structures */
+enum omap_writeback_source {
+	OMAP_WB_LCD1		= 0,
+	OMAP_WB_TV		= 1,
+	OMAP_WB_LCD2		= 2,
+	OMAP_WB_GFX		= 3,
+	OMAP_WB_VID1		= 4,
+	OMAP_WB_VID2		= 5,
+	OMAP_WB_VID3		= 6
+};
+
+enum omap_writeback_capturemode {
+	OMAP_WB_CAPTURE_ALL		= 0x0,
+	OMAP_WB_CAPTURE_1		= 0x1,
+	OMAP_WB_CAPTURE_1_OF_2	= 0x2,
+	OMAP_WB_CAPTURE_1_OF_3	= 0x3,
+	OMAP_WB_CAPTURE_1_OF_4	= 0x4,
+	OMAP_WB_CAPTURE_1_OF_5	= 0x5,
+	OMAP_WB_CAPTURE_1_OF_6	= 0x6,
+	OMAP_WB_CAPTURE_1_OF_7	= 0x7
+};
+
+enum omap_writeback_mode {
+	OMAP_WB_CAPTURE_MODE	= 0x0,
+	OMAP_WB_MEM2MEM_MODE	= 0x1,
+};
+
+struct omap_writeback_info {
+	bool					enabled;
+	bool					info_dirty;
+	enum omap_writeback_source		source;
+	u16					width;
+	u16					height;
+	u16					out_width;
+	u16					out_height;
+	enum omap_color_mode			dss_mode;
+	enum omap_writeback_capturemode		capturemode;
+	/* capture or mem2mem mode */
+	enum omap_writeback_mode		mode;
+	u32					paddr;
+	/* NV12 support*/
+	u32					p_uv_addr;
+	u8					rotation;
+	enum omap_dss_rotation_type		rotation_type;
+	bool force_1d;
+};
+
+struct omap_writeback {
+	struct kobject			kobj;
+	struct list_head		list;
+	bool				info_dirty;
+	int				width;
+	int				height;
+	/* mutex to control access to wb data */
+	struct mutex			lock;
+	struct omap_writeback_info	info;
+	struct completion		wb_completion;
+
+	bool (*check_wb)(struct omap_writeback *wb);
+	int (*set_wb_info)(struct omap_writeback *wb,
+			struct omap_writeback_info *info);
+	void (*get_wb_info)(struct omap_writeback *wb,
+			struct omap_writeback_info *info);
+	int (*register_framedone)(struct omap_writeback *wb);
+	int (*wait_framedone)(struct omap_writeback *wb);
+};
+
 
 struct omap_overlay_info {
 	u32 paddr;
@@ -465,11 +520,14 @@ struct omap_overlay_info {
 	u16 out_height;	/* if 0, out_height == height */
 	u8 global_alpha;
 	u8 pre_mult_alpha;
+	u8 wb_source;
 	u8 zorder;
 	u16 min_x_decim, max_x_decim, min_y_decim, max_y_decim;
 
 	struct omapdss_ovl_cb cb;
 	struct omap_dss_cconv_coefs cconv;
+	bool force_1d;
+	bool mflag_en;
 };
 
 struct omap_overlay {
@@ -522,6 +580,9 @@ struct omap_overlay_manager_info {
 
 	bool partial_alpha_enabled;
 
+	/* if true, manager is used in MEM2MEM mode */
+	bool wb_only;
+
 	bool cpr_enable;
 	struct omap_dss_cpr_coefs cpr_coefs;
 
@@ -573,6 +634,8 @@ struct omap_overlay_manager {
 	int (*blank)(struct omap_overlay_manager *mgr, bool wait_for_vsync);
 	void (*dump_cb)(struct omap_overlay_manager *mgr, struct seq_file *s);
 	int (*set_ovl)(struct omap_overlay_manager *mgr);
+	int (*wb_apply)(struct omap_overlay_manager *mgr,
+		struct omap_writeback *wb);
 };
 
 struct omap_dss_device {
@@ -669,9 +732,10 @@ struct omap_dss_device {
 		enum omap_dss_dsi_pixel_format dsi_pix_fmt;
 		enum omap_dss_dsi_mode dsi_mode;
 		struct omap_dss_dsi_videomode_data dsi_vm_data;
-		struct s3d_disp_info s3d_info;
 		u32 width_in_um;
 		u32 height_in_um;
+		u16 fb_xres;
+		u16 fb_yres;
 	} panel;
 
 	struct {
@@ -784,8 +848,15 @@ struct omap_dss_driver {
 	int (*audio_config)(struct omap_dss_device *dssdev,
 		struct snd_aes_iec958 *iec, struct snd_cea_861_aud_if *aud_if);
 
-	int (*s3d_enable)(struct omap_dss_device *dssdev,
-				struct s3d_disp_info *info, int code);
+	/*
+	 * S3D Support
+	 */
+	int (*s3d_enable_set)(struct omap_dss_device *dssdev,
+				bool enable);
+	int (*s3d_enable_get)(struct omap_dss_device *dssdev);
+	int (*s3d_type_set)(struct omap_dss_device *dssdev,
+				int type);
+	char* (*s3d_type_get)(struct omap_dss_device *dssdev);
 };
 
 int omap_dss_register_driver(struct omap_dss_driver *);
@@ -806,6 +877,7 @@ struct omap_overlay_manager *omap_dss_get_overlay_manager(int num);
 
 int omap_dss_get_num_overlays(void);
 struct omap_overlay *omap_dss_get_overlay(int num);
+struct omap_writeback *omap_dss_get_wb(int num);
 
 void omapdss_default_get_resolution(struct omap_dss_device *dssdev,
 		u16 *xres, u16 *yres);

@@ -52,7 +52,7 @@ struct omap_abe_data {
 	int twl6040_power_mode;
 	int mcbsp_cfg;
 	struct snd_soc_platform *abe_platform;
-	struct twl6040 *twl6040;
+	struct snd_soc_codec *twl6040_codec;
 	struct i2c_client *tps6130x;
 	struct i2c_adapter *adapter;
 };
@@ -266,7 +266,8 @@ static int omap_abe_dmic_startup(struct snd_pcm_substream *substream)
 	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
 	struct snd_soc_card *card = rtd->card;
 	struct omap_abe_data *card_data = snd_soc_card_get_drvdata(card);
-	struct twl6040 *twl6040 = card_data->twl6040;
+	struct snd_soc_codec *codec = card_data->twl6040_codec;
+	struct twl6040 *twl6040 = codec->control_data;
 	int ret = 0;
 
 	/* twl6040 supplies DMic PAD_CLKS */
@@ -301,7 +302,8 @@ static void omap_abe_dmic_shutdown(struct snd_pcm_substream *substream)
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_card *card = rtd->card;
 	struct omap_abe_data *card_data = snd_soc_card_get_drvdata(card);
-	struct twl6040 *twl6040 = card_data->twl6040;
+	struct snd_soc_codec *codec = card_data->twl6040_codec;
+	struct twl6040 *twl6040 = codec->control_data;
 
 	twl6040_power(twl6040, 0);
 }
@@ -316,10 +318,24 @@ static int mcbsp_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 {
 	struct snd_interval *channels = hw_param_interval(params,
 						SNDRV_PCM_HW_PARAM_CHANNELS);
+	struct snd_interval *rate = hw_param_interval(params,
+						SNDRV_PCM_HW_PARAM_RATE);
 	unsigned int be_id = rtd->dai_link->be_id;
 
-	if (be_id == OMAP_ABE_DAI_MM_FM || be_id == OMAP_ABE_DAI_BT_VX)
+	switch (be_id) {
+	case OMAP_ABE_DAI_BT_VX:
 		channels->min = 2;
+		rate->min = rate->max = 16000;
+		break;
+	case OMAP_ABE_DAI_MM_FM:
+		channels->min = 2;
+		rate->min = rate->max = 48000;
+		break;
+	case OMAP_ABE_DAI_MODEM:
+		break;
+	default:
+		return -EINVAL;
+	}
 
 	snd_mask_set(&params->masks[SNDRV_PCM_HW_PARAM_FORMAT -
 				SNDRV_PCM_HW_PARAM_FIRST_MASK],
@@ -471,17 +487,30 @@ static inline void twl6040_disconnect_pin(struct snd_soc_dapm_context *dapm,
 		snd_soc_dapm_disable_pin(dapm, pin);
 }
 
-#if 0
 /* set optimum DL1 output path gain for ABE -> McPDM -> twl6040 */
 static int omap_abe_set_pdm_dl1_gains(struct snd_soc_dapm_context *dapm)
 {
-	int gain_dB, gain;
+	int gain_dB = 0, gain;
+	struct snd_soc_card *card = dapm->card;
+	struct omap_abe_data *abe_data = snd_soc_card_get_drvdata(card);
+	struct snd_soc_codec *codec = abe_data->twl6040_codec;
+	struct snd_soc_platform *platform = abe_data->abe_platform;
+	struct omap_abe *abe = snd_soc_platform_get_drvdata(platform);
 
-	gain_dB = twl6040_get_dl1_gain(dapm->codec);
+	if (codec) {
+#if !defined(CONFIG_SND_OMAP_SOC_ABE_DL2)
+		gain_dB = twl6040_get_dl2_gain(codec);
+#endif
+		if (!gain_dB)
+			gain_dB = twl6040_get_dl1_gain(codec);
+	}
 
 	switch (gain_dB) {
 	case -8:
 		gain = GAIN_M8dB;
+		break;
+	case -7:
+		gain = GAIN_M7dB;
 		break;
 	case -1:
 		gain = GAIN_M1dB;
@@ -490,12 +519,20 @@ static int omap_abe_set_pdm_dl1_gains(struct snd_soc_dapm_context *dapm)
 		gain = GAIN_0dB;
 		break;
 	}
-
-	abe_write_gain(GAINS_DL1, gain, RAMP_2MS, GAIN_LEFT_OFFSET);
-	abe_write_gain(GAINS_DL1, gain, RAMP_2MS, GAIN_RIGHT_OFFSET);
+	omap_aess_write_gain(abe->aess, OMAP_AESS_GAIN_DL1_LEFT, gain);
+	omap_aess_write_gain(abe->aess, OMAP_AESS_GAIN_DL1_RIGHT, gain);
 	return 0;
 }
-#endif
+
+static int omap_abe_stream_event(struct snd_soc_dapm_context *dapm,
+				  int event_id)
+{
+	/*
+	 * set DL1 gains dynamically according to the active output
+	 * (Headset, Earpiece) and HSDAC power mode
+	 */
+	return omap_abe_set_pdm_dl1_gains(dapm);
+}
 
 static int omap_abe_twl6040_init(struct snd_soc_pcm_runtime *rtd)
 {
@@ -503,12 +540,13 @@ static int omap_abe_twl6040_init(struct snd_soc_pcm_runtime *rtd)
 	struct snd_soc_card *card = codec->card;
 	struct snd_soc_platform *platform = rtd->platform;
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
+	struct snd_soc_dapm_context *card_dapm = &card->dapm;
 	struct omap_abe_twl6040_data *pdata = dev_get_platdata(card->dev);
 	struct omap_abe_data *card_data = snd_soc_card_get_drvdata(card);
 	u32 hsotrim, left_offset, right_offset, step_mV;
 	int ret = 0;
 
-	card_data->twl6040 = codec->control_data;
+	card_data->twl6040_codec = codec;
 
 	/* Disable not connected paths if not used */
 	twl6040_disconnect_pin(dapm, pdata->has_hs, "Headset Stereophone");
@@ -531,6 +569,8 @@ static int omap_abe_twl6040_init(struct snd_soc_pcm_runtime *rtd)
 	snd_soc_dapm_ignore_suspend(&card->dapm, "Digital Mic 1");
 	snd_soc_dapm_ignore_suspend(&card->dapm, "Digital Mic 2");
 
+	card_dapm->stream_event = omap_abe_stream_event;
+
 	/* DC offset cancellation computation only if ABE is enabled */
 	if (pdata->has_abe) {
 		hsotrim = twl6040_get_trim_value(codec, TWL6040_TRIM_HSOTRIM);
@@ -551,14 +591,17 @@ static int omap_abe_twl6040_init(struct snd_soc_pcm_runtime *rtd)
 
 		ret = snd_soc_jack_add_pins(&hs_jack, ARRAY_SIZE(hs_jack_pins),
 					hs_jack_pins);
-		if (machine_is_omap_4430sdp() || machine_is_omap5_sevm())
+		if (machine_is_omap_4430sdp() ||
+			machine_is_omap_tabletblaze() ||
+			machine_is_omap5_sevm() ||
+			machine_is_omap5_panda())
 			twl6040_hs_jack_detect(codec, &hs_jack, SND_JACK_HEADSET);
 		else
 			snd_soc_jack_report(&hs_jack, SND_JACK_HEADSET, SND_JACK_HEADSET);
 	}
 
-	/* Only configure the TPS6130x on SDP4430 */
-	if (machine_is_omap_4430sdp()) {
+	/* Only configure the TPS6130x on SDP4430 and 44xx_Tablet*/
+	if (machine_is_omap_4430sdp() || machine_is_omap_tabletblaze()) {
 		card_data->adapter = i2c_get_adapter(1);
 		if (!card_data->adapter) {
 			dev_err(card->dev, "can't get i2c adapter\n");
@@ -644,17 +687,6 @@ static int omap_abe_twl6040_fe_init(struct snd_soc_pcm_runtime *rtd)
 
 	return 0;
 }
-
-#if 0
-static int omap_abe_stream_event(struct snd_soc_dapm_context *dapm)
-{
-	/*
-	 * set DL1 gains dynamically according to the active output
-	 * (Headset, Earpiece) and HSDAC power mode
-	 */
-	return omap_abe_set_pdm_dl1_gains(dapm);
-}
-#endif
 
 /* Digital audio interface glue - connects codec <--> CPU */
 static struct snd_soc_dai_link twl6040_dmic_dai[] = {
@@ -855,6 +887,7 @@ static struct snd_soc_dai_link omap_abe_dai_link[] = {
 
 		.init = omap_abe_dmic_init,
 		.ops = &omap_abe_dmic_ops,
+		.ignore_suspend = 1,
 	},
 
 /*
@@ -1484,7 +1517,7 @@ static int __devexit omap_abe_remove(struct platform_device *pdev)
 
 	snd_soc_unregister_card(card);
 
-	if (machine_is_omap_4430sdp()) {
+	if (machine_is_omap_4430sdp() || machine_is_omap_tabletblaze()) {
 		i2c_unregister_device(card_data->tps6130x);
 		i2c_put_adapter(card_data->adapter);
 	}

@@ -44,6 +44,8 @@
 #include <linux/kthread.h>
 #include <linux/delay.h>
 #include <linux/vmalloc.h>
+#include <linux/rproc_drm.h>
+#include <linux/rproc_secure.h>
 
 #include "remoteproc_internal.h"
 
@@ -395,15 +397,19 @@ static void rproc_disable_iommu(struct rproc *rproc)
  * code/data sections) or expose us certain symbols in other device address
  * (e.g. their trace buffer).
  *
- * This function is an internal helper with which we can go over the allocated
+ * This function is a helper function with which we can go over the allocated
  * carveouts and translate specific device address to kernel virtual addresses
  * so we can access the referenced memory.
+ *
+ * This function is exported so that it can also be used by individual remote
+ * processor driver implementations to convert a device address into the
+ * corresponding kernel virtual address that it can operate on.
  *
  * Note: phys_to_virt(iommu_iova_to_phys(rproc->domain, da)) will work too,
  * but only on kernel direct mapped RAM memory. Instead, we're just using
  * here the output of the DMA API, which should be more correct.
  */
-static void *rproc_da_to_va(struct rproc *rproc, u64 da, int len)
+void *rproc_da_to_va(struct rproc *rproc, u64 da, int len)
 {
 	struct rproc_mem_entry *carveout;
 	void *ptr = NULL;
@@ -426,7 +432,7 @@ static void *rproc_da_to_va(struct rproc *rproc, u64 da, int len)
 
 	return ptr;
 }
-
+EXPORT_SYMBOL(rproc_da_to_va);
 
 int rproc_pa_to_da(struct rproc *rproc, phys_addr_t pa, u64 *da)
 {
@@ -944,12 +950,6 @@ static int rproc_handle_devmem(struct rproc *rproc, struct fw_rsc_devmem *rsc,
 		return -EINVAL;
 	}
 
-	/* make sure reserved bytes are zeroes */
-	if (rsc->reserved) {
-		dev_err(dev, "devmem rsc has non zero reserved bytes\n");
-		return -EINVAL;
-	}
-
 	mapping = kzalloc(sizeof(*mapping), GFP_KERNEL);
 	if (!mapping) {
 		dev_err(dev, "kzalloc mapping failed\n");
@@ -972,6 +972,7 @@ static int rproc_handle_devmem(struct rproc *rproc, struct fw_rsc_devmem *rsc,
 	mapping->dma = rsc->pa;
 	mapping->da = rsc->da;
 	mapping->len = rsc->len;
+	mapping->memregion = rsc->memregion;
 	list_add_tail(&mapping->node, &rproc->mappings);
 
 	dev_dbg(dev, "mapped devmem pa 0x%x, da 0x%x, len 0x%x\n",
@@ -1016,26 +1017,13 @@ static int rproc_handle_carveout(struct rproc *rproc,
 		return -EINVAL;
 	}
 
-	/* make sure reserved bytes are zeroes */
-	if (rsc->reserved) {
-		dev_err(dev, "carveout rsc has non zero reserved bytes\n");
-		return -EINVAL;
-	}
-
 	dev_dbg(dev, "carveout rsc: da %x, pa %x, len %x, flags %x\n",
 			rsc->da, rsc->pa, rsc->len, rsc->flags);
-
-	mapping = kzalloc(sizeof(*mapping), GFP_KERNEL);
-	if (!mapping) {
-		dev_err(dev, "kzalloc mapping failed\n");
-		return -ENOMEM;
-	}
 
 	carveout = kzalloc(sizeof(*carveout), GFP_KERNEL);
 	if (!carveout) {
 		dev_err(dev, "kzalloc carveout failed\n");
-		ret = -ENOMEM;
-		goto free_mapping;
+		return -ENOMEM;
 	}
 
 	va = dma_alloc_coherent(dev->parent, rsc->len, &dma, GFP_KERNEL);
@@ -1065,11 +1053,18 @@ static int rproc_handle_carveout(struct rproc *rproc,
 	 * physical address in this case.
 	 */
 	if (rproc->domain) {
+		mapping = kzalloc(sizeof(*mapping), GFP_KERNEL);
+		if (!mapping) {
+			dev_err(dev, "kzalloc mapping failed\n");
+			ret = -ENOMEM;
+			goto dma_free;
+		}
+
 		ret = iommu_map(rproc->domain, rsc->da, dma, rsc->len,
 								rsc->flags);
 		if (ret) {
 			dev_err(dev, "iommu_map failed: %d\n", ret);
-			goto dma_free;
+			goto free_mapping;
 		}
 
 		/*
@@ -1105,17 +1100,18 @@ static int rproc_handle_carveout(struct rproc *rproc,
 	carveout->len = rsc->len;
 	carveout->dma = dma;
 	carveout->da = rsc->da;
+	carveout->memregion = rsc->memregion;
 
 	list_add_tail(&carveout->node, &rproc->carveouts);
 
 	return 0;
 
+free_mapping:
+	kfree(mapping);
 dma_free:
 	dma_free_coherent(dev->parent, rsc->len, va, dma);
 free_carv:
 	kfree(carveout);
-free_mapping:
-	kfree(mapping);
 	return ret;
 }
 
@@ -1142,6 +1138,38 @@ static int rproc_handle_suspd_time(struct rproc *rproc,
 	rproc->auto_suspend_timeout = rsc->suspd_time;
 	return 0;
 }
+
+/**
+ * rproc_handle_custom_rsc() - provide implementation specific hook
+ *			       to handle custom resources
+ * @rproc: the remote processor
+ * @rsc: custom resource to be handled by drivers
+ * @avail: size of available data
+ *
+ * Remoteproc implementations might want to add resource table
+ * entries that are not generic enough to be handled by the framework.
+ * This provides a hook to handle such custom resources.
+ *
+ * Returns 0 on success, or an appropriate error code otherwise
+ */
+static int rproc_handle_custom_rsc(struct rproc *rproc,
+		 struct fw_rsc_custom *rsc, int avail)
+{
+	struct device *dev = &rproc->dev;
+
+	if (!rproc->ops->handle_custom_rsc) {
+		dev_err(dev, "custom resource handler unavailable\n");
+		return -EINVAL;
+	}
+
+	if (sizeof(*rsc) > avail) {
+		dev_err(dev, "custom resource is truncated\n");
+		return -EINVAL;
+	}
+
+	return rproc->ops->handle_custom_rsc(rproc, (void *)rsc);
+}
+
 /*
  * A lookup table for resource handlers. The indices are defined in
  * enum fw_resource_type.
@@ -1151,6 +1179,7 @@ static rproc_handle_resource_t rproc_handle_rsc[] = {
 	[RSC_DEVMEM] = (rproc_handle_resource_t)rproc_handle_devmem,
 	[RSC_TRACE] = (rproc_handle_resource_t)rproc_handle_trace,
 	[RSC_SUSPD_TIME] = (rproc_handle_resource_t)rproc_handle_suspd_time,
+	[RSC_CUSTOM] = (rproc_handle_resource_t)rproc_handle_custom_rsc,
 	[RSC_VDEV] = NULL, /* VDEVs were handled upon registrarion */
 };
 
@@ -1227,6 +1256,72 @@ rproc_handle_virtio_rsc(struct rproc *rproc, struct resource_table *table, int l
 	return ret;
 }
 
+/* handle firmware version entry before loading the firmware sections */
+static int
+rproc_handle_fw_version(struct rproc *rproc, const char *version, int versz)
+{
+	struct device *dev = &rproc->dev;
+
+	rproc->fw_version = kmemdup(version, versz, GFP_KERNEL);
+	if (!rproc->fw_version) {
+		dev_err(dev, "%s: version kzalloc failed\n", __func__);
+		return -ENOMEM;
+	}
+	return 0;
+}
+
+/**
+ * rproc_find_fw_section() - find the section named in fw
+ * @rproc: the rproc handle
+ * @elf_data: the content of the ELF firmware image
+ * @len: firmware size (in bytes)
+ * @sect: name of fw section
+ * @sectsz: size of the fw section
+ *
+ * This function finds the given section inside the remote processor's
+ * firmware.
+ *
+ * Returns the pointer to the section if it is found, and write its
+ * size into @sectsz. If a valid section isn't found, NULL is returned
+ * (and @sectsz isn't set).
+ */
+static const u8 *
+rproc_find_fw_section(struct rproc *rproc, const u8 *elf_data, size_t len,
+						const char *sect, int *sectsz)
+{
+	struct elf32_hdr *ehdr;
+	struct elf32_shdr *shdr;
+	const char *name_sect;
+	struct device *dev = &rproc->dev;
+	const u8 *sectaddr = NULL;
+	int i;
+
+	ehdr = (struct elf32_hdr *)elf_data;
+	shdr = (struct elf32_shdr *)(elf_data + ehdr->e_shoff);
+	name_sect = elf_data + shdr[ehdr->e_shstrndx].sh_offset;
+
+	/* look for the section */
+	for (i = 0; i < ehdr->e_shnum; i++, shdr++) {
+		int size = shdr->sh_size;
+		int offset = shdr->sh_offset;
+
+		if (strcmp(name_sect + shdr->sh_name, sect))
+			continue;
+
+		/* make sure we have the entire table */
+		if (offset + size > len) {
+			dev_err(dev, "%s truncated\n", sect);
+			return NULL;
+		}
+		sectaddr = elf_data + offset;
+		*sectsz = shdr->sh_size;
+
+		break;
+	}
+
+	return sectaddr;
+}
+
 /**
  * rproc_find_rsc_table() - find the resource table
  * @rproc: the rproc handle
@@ -1247,62 +1342,42 @@ static struct resource_table *
 rproc_find_rsc_table(struct rproc *rproc, const u8 *elf_data, size_t len,
 							int *tablesz)
 {
-	struct elf32_hdr *ehdr;
-	struct elf32_shdr *shdr;
-	const char *name_table;
 	struct device *dev = &rproc->dev;
 	struct resource_table *table = NULL;
-	int i;
+	int size;
 
-	ehdr = (struct elf32_hdr *)elf_data;
-	shdr = (struct elf32_shdr *)(elf_data + ehdr->e_shoff);
-	name_table = elf_data + shdr[ehdr->e_shstrndx].sh_offset;
+	table = (struct resource_table *) rproc_find_fw_section(rproc, elf_data,
+		len, ".resource_table", &size);
 
-	/* look for the resource table and handle it */
-	for (i = 0; i < ehdr->e_shnum; i++, shdr++) {
-		int size = shdr->sh_size;
-		int offset = shdr->sh_offset;
+	if (!table)
+		return NULL;
 
-		if (strcmp(name_table + shdr->sh_name, ".resource_table"))
-			continue;
-
-		table = (struct resource_table *)(elf_data + offset);
-
-		/* make sure we have the entire table */
-		if (offset + size > len) {
-			dev_err(dev, "resource table truncated\n");
-			return NULL;
-		}
-
-		/* make sure table has at least the header */
-		if (sizeof(struct resource_table) > size) {
-			dev_err(dev, "header-less resource table\n");
-			return NULL;
-		}
-
-		/* we don't support any version beyond the first */
-		if (table->ver != 1) {
-			dev_err(dev, "unsupported fw ver: %d\n", table->ver);
-			return NULL;
-		}
-
-		/* make sure reserved bytes are zeroes */
-		if (table->reserved[0] || table->reserved[1]) {
-			dev_err(dev, "non zero reserved bytes\n");
-			return NULL;
-		}
-
-		/* make sure the offsets array isn't truncated */
-		if (table->num * sizeof(table->offset[0]) +
-				sizeof(struct resource_table) > size) {
-			dev_err(dev, "resource table incomplete\n");
-			return NULL;
-		}
-
-		*tablesz = shdr->sh_size;
-		break;
+	/* make sure table has at least the header */
+	if (sizeof(struct resource_table) > size) {
+		dev_err(dev, "header-less resource table\n");
+		return NULL;
 	}
 
+	/* we don't support any version beyond the first */
+	if (table->ver != 1) {
+		dev_err(dev, "unsupported fw ver: %d\n", table->ver);
+		return NULL;
+	}
+
+	/* make sure reserved bytes are zeroes */
+	if (table->reserved[0] || table->reserved[1]) {
+		dev_err(dev, "non zero reserved bytes\n");
+		return NULL;
+	}
+
+	/* make sure the offsets array isn't truncated */
+	if (table->num * sizeof(table->offset[0]) +
+			sizeof(struct resource_table) > size) {
+		dev_err(dev, "resource table incomplete\n");
+		return NULL;
+	}
+
+	*tablesz = size;
 	return table;
 }
 
@@ -1449,7 +1524,8 @@ static int rproc_fw_boot(struct rproc *rproc, const struct firmware *fw)
 	const char *name = rproc->firmware;
 	struct elf32_hdr *ehdr;
 	struct resource_table *table;
-	int ret, tablesz;
+	int ret, tablesz, versz;
+	const u8 *version;
 
 	ret = rproc_fw_sanity_check(rproc, fw);
 	if (ret)
@@ -1490,18 +1566,33 @@ static int rproc_fw_boot(struct rproc *rproc, const struct firmware *fw)
 		goto clean_up;
 	}
 
+	/* look for the firmware version, and store if present */
+	version = rproc_find_fw_section(rproc, fw->data, fw->size,
+				".version", &versz);
+	if (version) {
+		ret = rproc_handle_fw_version(rproc, version, versz);
+		if (ret) {
+			dev_err(dev, "Failed to process version info: %d\n",
+					ret);
+			goto clean_up;
+		}
+	}
+
 	/* load the ELF segments to memory */
 	ret = rproc_load_segments(rproc, fw->data, fw->size);
 	if (ret) {
 		dev_err(dev, "Failed to load program segments: %d\n", ret);
-		goto clean_up;
+		goto free_version;
 	}
+
+	/* check and validate secure certificate */
+	rproc_secure_boot(rproc, fw);
 
 	/* power up the remote processor */
 	ret = rproc->ops->start(rproc);
 	if (ret) {
 		dev_err(dev, "can't start rproc %s: %d\n", rproc->name, ret);
-		goto clean_up;
+		goto free_version;
 	}
 
 	rproc->state = RPROC_RUNNING;
@@ -1522,6 +1613,8 @@ static int rproc_fw_boot(struct rproc *rproc, const struct firmware *fw)
 
 	return 0;
 
+free_version:
+	kfree(rproc->fw_version);
 clean_up:
 	rproc_resource_cleanup(rproc);
 	rproc_disable_iommu(rproc);
@@ -1695,6 +1788,9 @@ void rproc_shutdown(struct rproc *rproc)
 		goto out;
 	}
 
+	/* free fw version */
+	kfree(rproc->fw_version);
+
 	/* clean up all acquired resources */
 	rproc_resource_cleanup(rproc);
 
@@ -1789,6 +1885,10 @@ static int _reset_all_vdev(struct rproc *rproc)
 	struct rproc_vdev *rvdev, *rvtmp;
 
 	dev_dbg(&rproc->dev, "reseting virtio devices for %s\n", rproc->name);
+
+	/* reset firewalls */
+	rproc_secure_reset(rproc);
+
 	/* clean up remote vdev entries */
 	list_for_each_entry_safe(rvdev, rvtmp, &rproc->rvdevs, node)
 		rproc_remove_virtio_dev(rvdev);
@@ -1845,6 +1945,37 @@ void rproc_recover(struct rproc *rproc)
 		dev_info(&rproc->dev, "rproc recovering....\n");
 		_reset_all_vdev(rproc);
 	}
+}
+
+/**
+ * rproc_reload() - trigger reload for a rproc
+ *
+ * This function is used to trigger a rproc reload explicitly.
+ */
+int rproc_reload(const char *name)
+{
+	struct rproc *rproc;
+	struct klist_iter i;
+	int ret = 0;
+
+	/* find the remote processor, and upref its refcount */
+	klist_iter_init(&rprocs, &i);
+	while ((rproc = next_rproc(&i)) != NULL)
+		if (!strcmp(rproc->name, name)) {
+			kref_get(&rproc->refcount);
+			break;
+		}
+	klist_iter_exit(&i);
+
+	/* can't find this rproc ? */
+	if (!rproc) {
+		pr_err("can't find remote processor %s\n", name);
+		return -ENODEV;
+	}
+
+	dev_info(&rproc->dev, "rproc reloading....\n");
+	_reset_all_vdev(rproc);
+	return ret;
 }
 
 /**
@@ -1972,25 +2103,27 @@ static int rproc_loader_thread(struct rproc *rproc)
 	unsigned long to;
 	int ret;
 
-	/* wait until 120 secs waiting for the firmware */
+	/* wait until 120 secs for the firmware */
 	to = jiffies + msecs_to_jiffies(120000);
 
 	/* wait until uevent can be sent */
-	do {
-		ret = kobject_uevent(&dev->kobj, KOBJ_CHANGE);
-	} while (ret && time_after(to, jiffies));
+	while (kobject_uevent(&dev->kobj, KOBJ_CHANGE) &&
+				time_after(to, jiffies))
+		msleep(1000);
 
-	if (ret) {
+	if (time_before(to, jiffies)) {
+		ret = -ETIME;
 		dev_err(dev, "failed waiting for udev %d\n", ret);
 		return ret;
 	}
 
 	/* make some retries in case FS is not up yet */
-	do {
-		ret = request_firmware(&fw, rproc->firmware, dev);
-	} while (ret && time_after(to, jiffies));
+	while (request_firmware(&fw, rproc->firmware, dev) &&
+				time_after(to, jiffies))
+		msleep(1000);
 
-	if (ret || !fw) {
+	if (!fw) {
+		ret = -ETIME;
 		dev_err(dev, "error %d requesting firmware %s\n",
 							ret, rproc->firmware);
 		return ret;
@@ -2043,6 +2176,9 @@ int rproc_register(struct rproc *rproc)
 
 	/* rproc_unregister() calls must wait until async loader completes */
 	init_completion(&rproc->firmware_loading_complete);
+
+	/* initialize secure service */
+	rproc_secure_reset(rproc);
 
 	/*
 	 * We must retrieve early virtio configuration info from
@@ -2143,6 +2279,8 @@ struct rproc *rproc_alloc(struct device *dev, const char *name,
 	INIT_LIST_HEAD(&rproc->rvdevs);
 
 	INIT_WORK(&rproc->error_handler, rproc_error_handler_work);
+
+	rproc_secure_init(rproc);
 
 	rproc->state = RPROC_OFFLINE;
 

@@ -30,6 +30,7 @@
 #include <linux/time.h>
 #include <linux/list.h>
 #include <linux/semaphore.h>
+#include <linux/debugfs.h>
 
 #include "omap_dmm_tiler.h"
 #include "omap_dmm_priv.h"
@@ -73,6 +74,24 @@ static const uint32_t reg[][4] = {
 		[PAT_DESCR]  = {DMM_PAT_DESCR__0, DMM_PAT_DESCR__1,
 				DMM_PAT_DESCR__2, DMM_PAT_DESCR__3},
 };
+
+#ifdef CONFIG_DEBUG_FS
+#ifndef CONFIG_DRM_OMAP_DISPLAY
+static struct dentry *dbgfs;
+
+static int tiler_debug_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, tiler_map_show, inode->i_private);
+}
+
+static const struct file_operations dmm_tiler_debug_fops = {
+	.open           = tiler_debug_open,
+	.read           = seq_read,
+	.llseek         = seq_lseek,
+	.release        = single_release,
+};
+#endif
+#endif
 
 /* simple allocator to grab next 16 byte aligned memory from txn */
 static void *alloc_dma(struct dmm_txn *txn, size_t sz, dma_addr_t *pa)
@@ -371,6 +390,7 @@ struct tiler_block *tiler_reserve_2d(enum tiler_fmt fmt, uint16_t w,
 	struct tiler_block *block;
 	u32 min_align = 128;
 	int ret;
+	size_t slot_bytes;
 
 	/* check for valid format and overflow for w/h */
 	if (!validfmt(fmt) || !w || !h ||
@@ -390,15 +410,17 @@ struct tiler_block *tiler_reserve_2d(enum tiler_fmt fmt, uint16_t w,
 	block->stride = round_up(geom[fmt].cpp * w, PAGE_SIZE);
 
 	/* convert alignment to slots */
-	min_align = max(min_align, (geom[fmt].slot_w * geom[fmt].cpp));
+	slot_bytes = geom[fmt].slot_w * geom[fmt].cpp;
+	min_align = max(min_align, slot_bytes);
 	align = ALIGN(align, min_align);
-	align /= geom[fmt].slot_w * geom[fmt].cpp;
+	align /= slot_bytes;
 
 	/* convert width/height to slots */
 	w = DIV_ROUND_UP(w, geom[fmt].slot_w);
 	h = DIV_ROUND_UP(h, geom[fmt].slot_h);
 
-	ret = tcm_reserve_2d(containers[fmt], w, h, align, &block->area);
+	ret = tcm_reserve_2d(containers[fmt], w, h, align, -1, slot_bytes,
+			&block->area);
 	if (ret) {
 		kfree(block);
 		return ERR_PTR(-ENOMEM);
@@ -816,6 +838,9 @@ static int omap_dmm_probe(struct platform_device *dev)
 	omap_dmm->container_width = 256;
 	omap_dmm->container_height = 128;
 
+	/* reserve CPCAM engine - engine 4 */
+	omap_dmm->num_engines--;
+
 	/* read out actual LUT width and height */
 	pat_geom = readl(omap_dmm->base + DMM_PAT_GEOMETRY);
 	omap_dmm->lut_width = ((pat_geom >> 16) & 0xF) << 5;
@@ -923,8 +948,7 @@ static int omap_dmm_probe(struct platform_device *dev)
 	/* init containers */
 	for (i = 0; i < omap_dmm->num_lut; i++) {
 		omap_dmm->tcm[i] = sita_init(omap_dmm->container_width,
-						omap_dmm->container_height,
-						NULL);
+						omap_dmm->container_height);
 
 		if (!omap_dmm->tcm[i]) {
 			dev_err(&dev->dev, "failed to allocate container\n");
@@ -972,6 +996,18 @@ static int omap_dmm_probe(struct platform_device *dev)
 	}
 
 	dev_info(omap_dmm->dev, "initialized all PAT entries\n");
+
+#ifdef CONFIG_DEBUG_FS
+#ifndef CONFIG_DRM_OMAP_DISPLAY
+	dbgfs = debugfs_create_dir("dmm_tiler", NULL);
+	if (IS_ERR_OR_NULL(dbgfs))
+		dev_warn(omap_dmm->dev, "failed to create debug files\n");
+	else
+		debugfs_create_file("tiler_map", S_IRUGO,
+			dbgfs, NULL,
+			&dmm_tiler_debug_fops);
+#endif
+#endif
 
 	return 0;
 

@@ -29,6 +29,8 @@
 #include <linux/i2c/twl.h>
 #include <linux/mfd/twl6040.h>
 #include <linux/platform_data/omap-abe-twl6040.h>
+#include <linux/omapfb.h>
+#include <linux/gpio_keys.h>
 
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
@@ -50,17 +52,22 @@
 #include "mux.h"
 #include "omap5_ion.h"
 #include "board-54xx-sevm.h"
+#include "board-omap5evm.h"
+#include "control.h"
 
 #include <video/omapdss.h>
 #include <video/omap-panel-generic-dpi.h>
 
 #include <drm/drm_edid.h>
 
-#define OMAP5_SEVM_FB_RAM_SIZE       SZ_8M /* 1280×800*4 * 2 */
+#include <plat/sgx_omaplfb.h>
+#define OMAP5_SEVM_FB_RAM_SIZE       (SZ_16M + SZ_4M) /* 1280×800*4 * 2 */
 
 #define GPIO_ETH_NRESET		15	/* USBB3 to SMSC LAN9730 */
 #define GPIO_HUB_NRESET		80	/* USBB2 to SMSC 3530 HUB */
+#define GPIO_POWER_BUTTON	83
 #define GPIO_EXT_INT_PIN	99
+#define GPIO_TWL6040_PWRON	141
 #define GPIO_SDCARD_DETECT	152
 #define HDMI_GPIO_HPD		193
 #define HDMI_GPIO_CT_CP_HPD	256
@@ -68,21 +75,45 @@
 
 static struct gpio_led panda5_gpio_leds[] = {
 	{
-		.name	= "blue",
-		.default_trigger = "timer",
-		.gpio	= OMAP_MPUIO(19),
+		.name			= "blue",
+		.default_trigger	= "timer",
+		.gpio			= OMAP_MPUIO(19),
 	},
 	{
-		.name	= "red",
-		.default_trigger = "timer",
-		.gpio	= OMAP_MPUIO(17),
+		.name			= "red",
+		.default_trigger	= "timer",
+		.gpio			= OMAP_MPUIO(17),
 	},
 	{
-		.name	= "green",
-		.default_trigger = "timer",
-		.gpio	= OMAP_MPUIO(18),
+		.name			= "green",
+		.default_trigger	= "timer",
+		.gpio			= OMAP_MPUIO(18),
 	},
-
+	{
+		.name			= "panda5::status1",
+		.default_trigger	= "heartbeat",
+		.gpio			= OMAP_MPUIO(2),
+	},
+	{
+		.name			= "panda5::status2",
+		.default_trigger	= "mmc0",
+		.gpio			= OMAP_MPUIO(3),
+	},
+	{
+		.name			= "panda5::status3",
+		.default_trigger	= "none",
+		.gpio			= OMAP_MPUIO(4),
+	},
+	{
+		.name			= "panda5::status4",
+		.default_trigger	= "none",
+		.gpio			= OMAP_MPUIO(5),
+	},
+	{
+		.name			= "panda5::status5",
+		.default_trigger	= "none",
+		.gpio			= OMAP_MPUIO(6),
+	},
 };
 
 static struct gpio_led_platform_data panda5_led_data = {
@@ -105,11 +136,56 @@ static struct omap_board_mux board_mux[] __initdata = {
 	OMAP5_MUX(USBB2_HSIC_DATA, OMAP_PIN_INPUT | OMAP_MUX_MODE0),
 	OMAP5_MUX(ABEDMIC_DIN3,
 		OMAP_PIN_INPUT_PULLUP | OMAP_PIN_OFF_NONE | OMAP_MUX_MODE6),
+	OMAP5_MUX(HSI2_ACDATA,
+		OMAP_WAKEUP_EN | OMAP_PIN_INPUT_PULLUP | OMAP_MUX_MODE6),
+	OMAP5_MUX(MCSPI1_SOMI, OMAP_PIN_OUTPUT | OMAP_MUX_MODE6),
+
+	/* Audio pads */
+	OMAP5_MUX(ABE_CLKS, OMAP_PIN_INPUT | OMAP_MUX_MODE0),
+	OMAP5_MUX(ABEDMIC_DIN1, OMAP_PIN_INPUT | OMAP_MUX_MODE4),
+	OMAP5_MUX(ABEDMIC_DIN2, OMAP_PIN_INPUT | OMAP_MUX_MODE4),
+	OMAP5_MUX(ABEDMIC_CLK1, OMAP_MUX_MODE4),
+	OMAP5_MUX(ABEDMIC_CLK2, OMAP_PIN_INPUT | OMAP_MUX_MODE1),
+	OMAP5_MUX(ABEDMIC_CLK3, OMAP_MUX_MODE1),
+	OMAP5_MUX(ABESLIMBUS1_CLOCK, OMAP_PIN_INPUT | OMAP_MUX_MODE1),
+	OMAP5_MUX(ABESLIMBUS1_DATA, OMAP_PIN_INPUT_PULLDOWN | OMAP_MUX_MODE1),
+	OMAP5_MUX(ABEMCBSP2_DR, OMAP_PIN_INPUT | OMAP_MUX_MODE0),
+	OMAP5_MUX(ABEMCBSP2_DX, OMAP_MUX_MODE0),
+	OMAP5_MUX(ABEMCBSP2_FSX, OMAP_PIN_INPUT | OMAP_MUX_MODE0),
+	OMAP5_MUX(ABEMCBSP2_CLKX, OMAP_PIN_INPUT | OMAP_MUX_MODE0),
+	OMAP5_MUX(ABEMCPDM_UL_DATA, OMAP_PIN_INPUT_PULLDOWN | OMAP_MUX_MODE0),
+	OMAP5_MUX(ABEMCPDM_DL_DATA, OMAP_PIN_INPUT_PULLDOWN | OMAP_MUX_MODE0),
+	OMAP5_MUX(ABEMCPDM_FRAME, OMAP_PIN_INPUT_PULLUP | OMAP_MUX_MODE0),
+	OMAP5_MUX(ABEMCPDM_LB_CLK, OMAP_PIN_INPUT_PULLUP | OMAP_MUX_MODE0),
 	{ .reg_offset = OMAP_MUX_TERMINATOR },
 };
 #else
 #define board_mux NULL
 #endif
+
+static struct gpio_keys_button panda5_gpio_keys[] = {
+	{
+		.desc			= "power_button",
+		.type			= EV_KEY,
+		.code			= KEY_POWER,
+		.gpio			= GPIO_POWER_BUTTON,
+		.active_low		= 1,
+		.wakeup			= 1,
+		.debounce_interval	= 10,
+	},
+};
+
+static struct gpio_keys_platform_data panda5_gpio_keys_data = {
+	.buttons	= panda5_gpio_keys,
+	.nbuttons	= ARRAY_SIZE(panda5_gpio_keys),
+};
+
+static struct platform_device panda5_gpio_keys_device = {
+	.name	= "gpio-keys",
+	.dev	= {
+		.platform_data	= &panda5_gpio_keys_data,
+	},
+};
 
 static struct omap2_hsmmc_info mmc[] = {
 	{
@@ -391,7 +467,7 @@ static struct regulator_init_data omap5_ldo1 = {
 	},
 };
 
-static struct regulator_consumer_supply omap5evm_lcd_panel_supply[] = {
+static struct regulator_consumer_supply panda5_lcd_panel_supply[] = {
 	REGULATOR_SUPPLY("panel_supply", "omapdss_dsi.0"),
 };
 
@@ -405,8 +481,8 @@ static struct regulator_init_data omap5_ldo2 = {
 					| REGULATOR_CHANGE_STATUS,
 		.apply_uV		= 1,
 	},
-	.num_consumer_supplies	= ARRAY_SIZE(omap5evm_lcd_panel_supply),
-	.consumer_supplies	= omap5evm_lcd_panel_supply,
+	.num_consumer_supplies	= ARRAY_SIZE(panda5_lcd_panel_supply),
+	.consumer_supplies	= panda5_lcd_panel_supply,
 };
 
 static struct regulator_init_data omap5_ldo3 = {
@@ -610,32 +686,48 @@ static struct twl6040_codec_data twl6040_codec = {
 	.hf_right_step	= 0x1d,
 };
 
-static struct twl6040_vibra_data twl6040_vibra = {
-	.vibldrv_res = 8,
-	.vibrdrv_res = 3,
-	.viblmotor_res = 10,
-	.vibrmotor_res = 10,
-	.vddvibl_uV = 0,	/* fixed volt supply - VBAT */
-	.vddvibr_uV = 0,	/* fixed volt supply - VBAT */
-};
+static int omap5evm_twl6040_set_pll_input(int pll_id, int on)
+{
+	u32 reg_offset = OMAP5_CTRL_MODULE_WKUP_PAD_CONTROL_CKOBUFFER;
+	void __iomem *reg = OMAP5_CTRL_MODULE_WKUP_PAD_REGADDR(reg_offset);
+	u32 val = __raw_readl(reg);
+
+	/* nothing to do for clk32k */
+	if (pll_id == TWL6040_SYSCLK_SEL_LPPLL)
+		return 0;
+
+	if (on)
+		val |= OMAP5_CKOBUFFER_CLK_EN_MASK;
+	else
+		val &= ~OMAP5_CKOBUFFER_CLK_EN_MASK;
+
+	writel(val, reg);
+
+	return 0;
+}
 
 static struct twl6040_platform_data twl6040_data = {
 	.codec		= &twl6040_codec,
-	.vibra		= &twl6040_vibra,
-	.audpwron_gpio	= 145,
+	.audpwron_gpio	= GPIO_TWL6040_PWRON,
+	.set_pll_input	= omap5evm_twl6040_set_pll_input,
 };
 
-static struct platform_device omap5evm_dmic_codec = {
+static struct platform_device panda5_dmic_codec = {
 	.name	= "dmic-codec",
 	.id	= -1,
 };
 
-static struct platform_device omap5evm_hdmi_audio_codec = {
+static struct platform_device panda5_spdif_dit_codec = {
+	.name           = "spdif-dit",
+	.id             = -1,
+};
+
+static struct platform_device panda5_hdmi_audio_codec = {
 	.name	= "hdmi-audio-codec",
 	.id	= -1,
 };
 
-static struct omap_abe_twl6040_data omap5evm_abe_audio_data = {
+static struct omap_abe_twl6040_data panda5_abe_audio_data = {
 	/* Audio out */
 	.has_hs		= ABE_TWL6040_LEFT | ABE_TWL6040_RIGHT,
 	/* HandsFree through expasion connector */
@@ -655,19 +747,21 @@ static struct omap_abe_twl6040_data omap5evm_abe_audio_data = {
 
 };
 
-static struct platform_device omap5evm_abe_audio = {
+static struct platform_device panda5_abe_audio = {
 	.name		= "omap-abe-twl6040",
 	.id		= -1,
 	.dev = {
-		.platform_data = &omap5evm_abe_audio_data,
+		.platform_data = &panda5_abe_audio_data,
 	},
 };
 
-static struct platform_device *omap5evm_devices[] __initdata = {
-	&omap5evm_dmic_codec,
-	&omap5evm_hdmi_audio_codec,
-	&omap5evm_abe_audio,
+static struct platform_device *panda5_devices[] __initdata = {
+	&panda5_dmic_codec,
+	&panda5_spdif_dit_codec,
+	&panda5_hdmi_audio_codec,
+	&panda5_abe_audio,
 	&panda5_leds_gpio,
+	&panda5_gpio_keys_device,
 };
 
 /*
@@ -723,15 +817,15 @@ static struct platform_device dummy_sd_regulator_device = {
 	}
 };
 
-static struct pca953x_platform_data omap5evm_gpio_expander_info = {
+static struct pca953x_platform_data panda5_gpio_expander_info = {
 	.gpio_base	= OMAP_MAX_GPIO_LINES,
 	.irq_base	= OMAP_TCA6424_IRQ_BASE,
 };
 
-static struct i2c_board_info __initdata omap5evm_i2c_5_boardinfo[] = {
+static struct i2c_board_info __initdata panda5_i2c_5_boardinfo[] = {
 	{
 		I2C_BOARD_INFO("tca6424", 0x22),
-		.platform_data = &omap5evm_gpio_expander_info,
+		.platform_data = &panda5_gpio_expander_info,
 		.irq = GPIO_EXT_INT_PIN,
 	},
 };
@@ -743,8 +837,8 @@ static int __init omap5pandai2c_init(void)
 	omap_register_i2c_bus(2, 400, NULL, 0);
 	omap_register_i2c_bus(3, 400, NULL, 0);
 	omap_register_i2c_bus(4, 400, NULL, 0);
-	omap_register_i2c_bus(5, 400, omap5evm_i2c_5_boardinfo,
-					ARRAY_SIZE(omap5evm_i2c_5_boardinfo));
+	omap_register_i2c_bus(5, 400, panda5_i2c_5_boardinfo,
+					ARRAY_SIZE(panda5_i2c_5_boardinfo));
 
 	return 0;
 }
@@ -807,14 +901,14 @@ static struct omap_dss_device omap5panda_hdmi_device = {
 };
 
 static struct omap_dss_device *omap5panda_dss_devices[] = {
-	&omap5_panda_dvi_device,
 	&omap5panda_hdmi_device,
+	&omap5_panda_dvi_device,
 };
 
-static struct omap_dss_board_info omap5evm_dss_data = {
+static struct omap_dss_board_info panda5_dss_data = {
 	.num_devices	= ARRAY_SIZE(omap5panda_dss_devices),
 	.devices	= omap5panda_dss_devices,
-	.default_device	= &omap5_panda_dvi_device,
+	.default_device	= &omap5panda_hdmi_device,
 };
 
 static void omap5panda_hdmi_init(void)
@@ -823,16 +917,35 @@ static void omap5panda_hdmi_init(void)
 	omap_hdmi_init(0);
 }
 
+static struct omapfb_platform_data panda_fb_pdata = {
+	.mem_desc = {
+		.region_cnt = 1,
+		.region = {
+			[0] = {
+				.size = OMAP5_SEVM_FB_RAM_SIZE,
+			},
+		},
+	},
+};
+
 static void __init omap5panda_display_init(void)
 {
+	struct sgx_omaplfb_config data = {
+		.tiler2d_buffers = 0,
+		.swap_chain_length = 2,
+		.vram_buffers = 2,
+	};
+
+	omapfb_set_platform_data(&panda_fb_pdata);
 	omap_vram_set_sdram_vram(OMAP5_SEVM_FB_RAM_SIZE, 0);
+	sgx_omaplfb_set(0, &data);
 
 	i2c_register_board_info(0, hdmi_i2c_eeprom,
 			ARRAY_SIZE(hdmi_i2c_eeprom));
 	platform_device_register(&hdmi_edid_device);
 
 	omap5panda_hdmi_init();
-	omap_display_init(&omap5evm_dss_data);
+	omap_display_init(&panda5_dss_data);
 }
 
 static const struct usbhs_omap_board_data usbhs_bdata __initconst = {
@@ -876,18 +989,19 @@ static void __init omap_5_panda_init(void)
 	omap5_pmic_init(1, PALMAS_NAME, OMAP44XX_IRQ_SYS_1N, PALMAS_DATA,
 			"twl6040", OMAP44XX_IRQ_SYS_2N, &twl6040_data);
 
-	omap_serial_init();
+	omap5_board_serial_init();
+
 	platform_device_register(&dummy_sd_regulator_device);
 	omap_ehci_ohci_init();
 
 	/* TODO: Once the board identification is passed in from the
 	 * bootloader pass in the HACK board ID to the conn board file
 	*/
-	omap5_connectivity_init(OMAP5_PANDA5_BOARD_ID);
+	omap4plus_connectivity_init(OMAP5_PANDA5_BOARD_ID);
 
 	omap_hsmmc_init(mmc);
 	usb_dwc3_init();
-	platform_add_devices(omap5evm_devices, ARRAY_SIZE(omap5evm_devices));
+	platform_add_devices(panda5_devices, ARRAY_SIZE(panda5_devices));
 
 	omap_init_dmm_tiler();
 	omap5_register_ion();
@@ -913,4 +1027,5 @@ MACHINE_START(OMAP5_PANDA, "OMAP5 panda board")
 	.handle_irq	= gic_handle_irq,
 	.init_machine	= omap_5_panda_init,
 	.timer		= &omap5_timer,
+	.restart        = omap_prcm_restart,
 MACHINE_END

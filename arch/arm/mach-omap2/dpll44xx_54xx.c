@@ -10,6 +10,7 @@
  */
 
 #include <linux/kernel.h>
+#include <linux/module.h>
 #include <linux/errno.h>
 #include <linux/clk.h>
 #include <linux/io.h>
@@ -23,17 +24,26 @@
 #include "clock.h"
 #include "clock44xx.h"
 #include "cm-regbits-44xx.h"
-#include "cm-regbits-54xx.h"
 #include "cm.h"
 #include "clockdomain.h"
 #include "cm1_44xx.h"
-#include "cm1_54xx.h"
 #include "iomap.h"
 #include "common.h"
 #include "cm2_44xx.h"
+
 #include "prcm44xx.h"
 #include "cminst44xx.h"
 #include "cm44xx.h"
+
+#ifdef CONFIG_ARCH_OMAP5_ES1
+#include "cm-regbits-54xx_es1.h"
+#include "cm1_54xx_es1.h"
+#include "cm2_54xx_es1.h"
+#else
+#include "cm-regbits-54xx.h"
+#include "cm1_54xx.h"
+#include "cm2_54xx.h"
+#endif
 
 #define MAX_DPLL_WAIT_TRIES	1000000
 #define MAX_FREQ_UPDATE_TIMEOUT  100000
@@ -68,66 +78,133 @@ struct omap4_dpll_regs {
 	struct dpll_reg clkdcoldo;
 };
 
-static struct omap4_dpll_regs dpll_regs[] = {
-	/* MPU DPLL */
-	{ .name		= "mpu",
-	  .mod_partition = OMAP4430_CM1_PARTITION,
-	  .mod_inst	= OMAP4430_CM1_CKGEN_INST,
-	  .clkmode	= {.offset = OMAP4_CM_CLKMODE_DPLL_MPU_OFFSET},
-	  .autoidle	= {.offset = OMAP4_CM_AUTOIDLE_DPLL_MPU_OFFSET},
-	  .idlest	= {.offset = OMAP4_CM_IDLEST_DPLL_MPU_OFFSET},
-	  .clksel	= {.offset = OMAP4_CM_CLKSEL_DPLL_MPU_OFFSET},
-	  .div_m2	= {.offset = OMAP4_CM_DIV_M2_DPLL_MPU_OFFSET},
-	},
-	/* IVA DPLL */
-	{ .name		= "iva",
-	  .mod_partition = OMAP4430_CM1_PARTITION,
-	  .mod_inst	= OMAP4430_CM1_CKGEN_INST,
-	  .clkmode	= {.offset = OMAP4_CM_CLKMODE_DPLL_IVA_OFFSET},
-	  .autoidle	= {.offset = OMAP4_CM_AUTOIDLE_DPLL_IVA_OFFSET},
-	  .idlest	= {.offset = OMAP4_CM_IDLEST_DPLL_IVA_OFFSET},
-	  .clksel	= {.offset = OMAP4_CM_CLKSEL_DPLL_IVA_OFFSET},
-	  .div_m4	= {.offset = OMAP4_CM_DIV_M4_DPLL_IVA_OFFSET},
-	  .div_m5	= {.offset = OMAP4_CM_DIV_M5_DPLL_IVA_OFFSET},
-	},
-	/* ABE DPLL */
-	{ .name		= "abe",
-	  .mod_partition = OMAP4430_CM1_PARTITION,
-	  .mod_inst	= OMAP4430_CM1_CKGEN_INST,
-	  .clkmode	= {.offset = OMAP4_CM_CLKMODE_DPLL_ABE_OFFSET},
-	  .autoidle	= {.offset = OMAP4_CM_AUTOIDLE_DPLL_ABE_OFFSET},
-	  .idlest	= {.offset = OMAP4_CM_IDLEST_DPLL_ABE_OFFSET},
-	  .clksel	= {.offset = OMAP4_CM_CLKSEL_DPLL_ABE_OFFSET},
-	  .div_m2	= {.offset = OMAP4_CM_DIV_M2_DPLL_ABE_OFFSET},
-	  .div_m3	= {.offset = OMAP4_CM_DIV_M3_DPLL_ABE_OFFSET},
-	},
-	/* USB DPLL */
-	{ .name		= "usb",
-	  .mod_partition = OMAP4430_CM2_PARTITION,
-	  .mod_inst	= OMAP4430_CM2_CKGEN_INST,
-	  .clkmode	= {.offset = OMAP4_CM_CLKMODE_DPLL_USB_OFFSET},
-	  .autoidle	= {.offset = OMAP4_CM_AUTOIDLE_DPLL_USB_OFFSET},
-	  .idlest	= {.offset = OMAP4_CM_IDLEST_DPLL_USB_OFFSET},
-	  .clksel	= {.offset = OMAP4_CM_CLKSEL_DPLL_USB_OFFSET},
-	  .div_m2	= {.offset = OMAP4_CM_DIV_M2_DPLL_USB_OFFSET},
-	  .clkdcoldo	= {.offset = OMAP4_CM_CLKDCOLDO_DPLL_USB_OFFSET},
-	 },
-	/* PER DPLL */
-	{ .name		= "per",
-	  .mod_partition = OMAP4430_CM2_PARTITION,
-	  .mod_inst	= OMAP4430_CM2_CKGEN_INST,
-	  .clkmode	= {.offset = OMAP4_CM_CLKMODE_DPLL_PER_OFFSET},
-	  .autoidle	= {.offset = OMAP4_CM_AUTOIDLE_DPLL_PER_OFFSET},
-	  .idlest	= {.offset = OMAP4_CM_IDLEST_DPLL_PER_OFFSET},
-	  .clksel	= {.offset = OMAP4_CM_CLKSEL_DPLL_PER_OFFSET},
-	  .div_m2	= {.offset = OMAP4_CM_DIV_M2_DPLL_PER_OFFSET},
-	  .div_m3	= {.offset = OMAP4_CM_DIV_M3_DPLL_PER_OFFSET},
-	  .div_m4	= {.offset = OMAP4_CM_DIV_M4_DPLL_PER_OFFSET},
-	  .div_m5	= {.offset = OMAP4_CM_DIV_M5_DPLL_PER_OFFSET},
-	  .div_m6	= {.offset = OMAP4_CM_DIV_M6_DPLL_PER_OFFSET},
-	  .div_m7	= {.offset = OMAP4_CM_DIV_M7_DPLL_PER_OFFSET},
-	},
+/* MPU DPLL */
+static struct omap4_dpll_regs omap4_omap5_dpll_regs_mpu = {
+	.name		= "mpu",
+	.mod_partition	= OMAP4430_CM1_PARTITION,
+	.mod_inst	= OMAP4430_CM1_CKGEN_INST,
+	.clkmode	= {.offset = OMAP4_CM_CLKMODE_DPLL_MPU_OFFSET},
+	.autoidle	= {.offset = OMAP4_CM_AUTOIDLE_DPLL_MPU_OFFSET},
+	.idlest		= {.offset = OMAP4_CM_IDLEST_DPLL_MPU_OFFSET},
+	.clksel		= {.offset = OMAP4_CM_CLKSEL_DPLL_MPU_OFFSET},
+	.div_m2		= {.offset = OMAP4_CM_DIV_M2_DPLL_MPU_OFFSET},
+	.div_m3		= {.offset = OMAP4_CM_BYPCLK_DPLL_MPU_OFFSET},
 };
+
+/* IVA DPLL */
+static struct omap4_dpll_regs omap4_omap5_dpll_regs_iva = {
+	.name		= "iva",
+	.mod_partition	= OMAP4430_CM1_PARTITION,
+	.mod_inst	= OMAP4430_CM1_CKGEN_INST,
+	.clkmode	= {.offset = OMAP4_CM_CLKMODE_DPLL_IVA_OFFSET},
+	.autoidle	= {.offset = OMAP4_CM_AUTOIDLE_DPLL_IVA_OFFSET},
+	.idlest		= {.offset = OMAP4_CM_IDLEST_DPLL_IVA_OFFSET},
+	.clksel		= {.offset = OMAP4_CM_CLKSEL_DPLL_IVA_OFFSET},
+	.div_m4		= {.offset = OMAP4_CM_DIV_M4_DPLL_IVA_OFFSET},
+	.div_m5		= {.offset = OMAP4_CM_DIV_M5_DPLL_IVA_OFFSET},
+	.div_m6		= {.offset = OMAP4_CM_BYPCLK_DPLL_IVA_OFFSET},
+};
+
+/* ABE DPLL */
+static struct omap4_dpll_regs omap4_omap5_dpll_regs_abe = {
+	.name		= "abe",
+	.mod_partition	= OMAP4430_CM1_PARTITION,
+	.mod_inst	= OMAP4430_CM1_CKGEN_INST,
+	.clkmode	= {.offset = OMAP4_CM_CLKMODE_DPLL_ABE_OFFSET},
+	.autoidle	= {.offset = OMAP4_CM_AUTOIDLE_DPLL_ABE_OFFSET},
+	.idlest		= {.offset = OMAP4_CM_IDLEST_DPLL_ABE_OFFSET},
+	.clksel		= {.offset = OMAP4_CM_CLKSEL_DPLL_ABE_OFFSET},
+	.div_m2		= {.offset = OMAP4_CM_DIV_M2_DPLL_ABE_OFFSET},
+	.div_m3		= {.offset = OMAP4_CM_DIV_M3_DPLL_ABE_OFFSET},
+};
+
+/* USB DPLL */
+static struct omap4_dpll_regs omap4_omap5_dpll_regs_usb = {
+	.name		= "usb",
+	.mod_partition	= OMAP4430_CM2_PARTITION,
+	.mod_inst	= OMAP4430_CM2_CKGEN_INST,
+	.clkmode	= {.offset = OMAP4_CM_CLKMODE_DPLL_USB_OFFSET},
+	.autoidle	= {.offset = OMAP4_CM_AUTOIDLE_DPLL_USB_OFFSET},
+	.idlest		= {.offset = OMAP4_CM_IDLEST_DPLL_USB_OFFSET},
+	.clksel		= {.offset = OMAP4_CM_CLKSEL_DPLL_USB_OFFSET},
+	.div_m2		= {.offset = OMAP4_CM_DIV_M2_DPLL_USB_OFFSET},
+	.clkdcoldo	= {.offset = OMAP4_CM_CLKDCOLDO_DPLL_USB_OFFSET},
+};
+
+/* PER DPLL */
+static struct omap4_dpll_regs omap4_dpll_regs_per = {
+	.name		= "per",
+	.mod_partition	= OMAP4430_CM2_PARTITION,
+	.mod_inst	= OMAP4430_CM2_CKGEN_INST,
+	.clkmode	= {.offset = OMAP4_CM_CLKMODE_DPLL_PER_OFFSET},
+	.autoidle	= {.offset = OMAP4_CM_AUTOIDLE_DPLL_PER_OFFSET},
+	.idlest		= {.offset = OMAP4_CM_IDLEST_DPLL_PER_OFFSET},
+	.clksel		= {.offset = OMAP4_CM_CLKSEL_DPLL_PER_OFFSET},
+	.div_m2		= {.offset = OMAP4_CM_DIV_M2_DPLL_PER_OFFSET},
+	.div_m3		= {.offset = OMAP4_CM_DIV_M3_DPLL_PER_OFFSET},
+	.div_m4		= {.offset = OMAP4_CM_DIV_M4_DPLL_PER_OFFSET},
+	.div_m5		= {.offset = OMAP4_CM_DIV_M5_DPLL_PER_OFFSET},
+	.div_m6		= {.offset = OMAP4_CM_DIV_M6_DPLL_PER_OFFSET},
+	.div_m7		= {.offset = OMAP4_CM_DIV_M7_DPLL_PER_OFFSET},
+};
+
+/* PER DPLL */
+static struct omap4_dpll_regs omap5_dpll_regs_per = {
+	.name		= "per",
+	.mod_partition	= OMAP4430_CM2_PARTITION,
+	.mod_inst	= OMAP4430_CM2_CKGEN_INST,
+	.clkmode	= {.offset = OMAP4_CM_CLKMODE_DPLL_PER_OFFSET},
+	.autoidle	= {.offset = OMAP4_CM_AUTOIDLE_DPLL_PER_OFFSET},
+	.idlest		= {.offset = OMAP4_CM_IDLEST_DPLL_PER_OFFSET},
+	.clksel		= {.offset = OMAP4_CM_CLKSEL_DPLL_PER_OFFSET},
+	.div_m2		= {.offset = OMAP4_CM_DIV_M2_DPLL_PER_OFFSET},
+	.div_m3		= {.offset = OMAP4_CM_DIV_M3_DPLL_PER_OFFSET},
+	.div_m4		= {.offset = OMAP54XX_CM_DIV_H11_DPLL_PER_OFFSET},
+	.div_m5		= {.offset = OMAP54XX_CM_DIV_H12_DPLL_PER_OFFSET},
+	.div_m6		= {.offset = OMAP54XX_CM_DIV_H14_DPLL_PER_OFFSET},
+};
+
+static struct omap4_dpll_regs *omap4_dpll_regs[] = {
+	&omap4_omap5_dpll_regs_mpu,
+	&omap4_omap5_dpll_regs_iva,
+	&omap4_omap5_dpll_regs_abe,
+	&omap4_omap5_dpll_regs_usb,
+	&omap4_dpll_regs_per,
+	NULL,
+};
+
+static struct omap4_dpll_regs *omap5_dpll_regs[] = {
+	&omap4_omap5_dpll_regs_mpu,
+	&omap4_omap5_dpll_regs_iva,
+	&omap4_omap5_dpll_regs_abe,
+	&omap4_omap5_dpll_regs_usb,
+	&omap5_dpll_regs_per,
+	NULL,
+};
+
+static struct omap4_dpll_regs **omap_dpll_regs;
+
+static int dpll_dump_level;
+#define DPLL_DUMP_LEVEL_BEFORE	(1 << 0)
+#define DPLL_DUMP_LEVEL_AFTER	(1 << 1)
+#define DPLL_DUMP_LEVEL_RESTORE	(1 << 2)
+
+/* Enable control only if PM advanced debug is active in build */
+#ifdef CONFIG_PM_ADVANCED_DEBUG
+module_param(dpll_dump_level, int, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(dpll_dump_level,
+		 "DUMP dpll: (1)before,(2)after suspend,(4)around restore");
+#endif
+
+static int __init __init_dpll_list(void)
+{
+	if (cpu_is_omap54xx())
+		omap_dpll_regs = omap5_dpll_regs;
+	else if (cpu_is_omap44xx())
+		omap_dpll_regs = omap4_dpll_regs;
+	return 0;
+}
+core_initcall(__init_dpll_list);
 
 /**
  * omap4_core_dpll_m2_set_rate - set CORE DPLL M2 divider
@@ -444,6 +521,76 @@ unsigned long omap4460_mpu_dpll_recalc(struct clk *clk)
 	return omap2_get_dpll_rate(clk->parent);
 }
 
+int omap4470_mpu_dpll_set_rate(struct clk *clk, unsigned long rate)
+{
+	struct dpll_data *dd;
+	unsigned long dpll_rate;
+	u32 v;
+
+	if (!clk || !rate || !clk->parent || !clk->parent->dpll_data)
+		return -EINVAL;
+
+	dd = clk->parent->dpll_data;
+
+	if (rate > clk->rate)
+		omap4460_mpu_dpll_update_children(rate);
+
+	dpll_rate = clk->parent->recalc(clk->parent);
+
+	if (rate <= OMAP_1GHz) {
+		/* If DCC is enabled, disable it */
+		v = __raw_readl(dd->mult_div1_reg);
+		if (v & OMAP4460_DCC_EN_MASK) {
+			v &= ~OMAP4460_DCC_EN_MASK;
+			__raw_writel(v, dd->mult_div1_reg);
+		}
+
+		if (rate != dpll_rate)
+			clk->parent->set_rate(clk->parent, rate);
+	} else {
+		/*
+		 * On OMAP4470, the MPU clk for frequencies higher than 1Ghz
+		 * is sourced from CLKOUTX2_M3, instead of CLKOUT_M2, while
+		 * value of M3 is fixed to 1. Hence for frequencies higher
+		 * than 1 Ghz, lock the DPLL at half the rate so the
+		 * CLKOUTX2_M3 then matches the requested rate.
+		 */
+		if (rate != dpll_rate * 2)
+			clk->parent->set_rate(clk->parent, rate / 2);
+
+		v = __raw_readl(dd->mult_div1_reg);
+		v &= ~OMAP4460_DCC_COUNT_MAX_MASK;
+		v |= (5 << OMAP4460_DCC_COUNT_MAX_SHIFT);
+		__raw_writel(v, dd->mult_div1_reg);
+
+		v |= OMAP4460_DCC_EN_MASK;
+		__raw_writel(v, dd->mult_div1_reg);
+	}
+
+	if (rate < clk->rate)
+		omap4460_mpu_dpll_update_children(rate);
+
+	clk->rate = rate;
+
+	return 0;
+}
+
+unsigned long omap4470_mpu_dpll_recalc(struct clk *clk)
+{
+	struct dpll_data *dd;
+	unsigned long dpll_rate;
+	u32 v;
+
+	if (!clk || !clk->parent || !clk->parent->dpll_data)
+		return -EINVAL;
+
+	dd = clk->parent->dpll_data;
+
+	dpll_rate = omap2_get_dpll_rate(clk->parent);
+	v = __raw_readl(dd->mult_div1_reg);
+	return (v & OMAP4460_DCC_EN_MASK) ? (dpll_rate * 2) : dpll_rate;
+}
+
 static void omap5_mpu_dpll_update_children(unsigned long rate)
 {
 	u32 v;
@@ -718,32 +865,6 @@ static inline void omap4_dpll_store_reg(struct omap4_dpll_regs *dpll_reg,
 }
 
 /**
- * omap4_dpll_prepare_off - stores DPLL settings before off mode
- *
- * Saves all DPLL register settings. This must be called before
- * entering device off.
- */
-void omap4_dpll_prepare_off(void)
-{
-	u32 i;
-	struct omap4_dpll_regs *dpll_reg = dpll_regs;
-
-	for (i = 0; i < ARRAY_SIZE(dpll_regs); i++, dpll_reg++) {
-		omap4_dpll_store_reg(dpll_reg, &dpll_reg->clkmode);
-		omap4_dpll_store_reg(dpll_reg, &dpll_reg->autoidle);
-		omap4_dpll_store_reg(dpll_reg, &dpll_reg->clksel);
-		omap4_dpll_store_reg(dpll_reg, &dpll_reg->div_m2);
-		omap4_dpll_store_reg(dpll_reg, &dpll_reg->div_m3);
-		omap4_dpll_store_reg(dpll_reg, &dpll_reg->div_m4);
-		omap4_dpll_store_reg(dpll_reg, &dpll_reg->div_m5);
-		omap4_dpll_store_reg(dpll_reg, &dpll_reg->div_m6);
-		omap4_dpll_store_reg(dpll_reg, &dpll_reg->div_m7);
-		omap4_dpll_store_reg(dpll_reg, &dpll_reg->clkdcoldo);
-		omap4_dpll_store_reg(dpll_reg, &dpll_reg->idlest);
-	}
-}
-
-/**
  * omap4_dpll_print_reg - dump out a single DPLL register value
  * @dpll_reg: register to dump
  * @name: name of the register
@@ -769,8 +890,8 @@ static void omap4_dpll_print_reg(struct omap4_dpll_regs *dpll_reg, char *name,
  */
 static void omap4_dpll_dump_regs(struct omap4_dpll_regs *dpll_reg)
 {
-	pr_warn("%s: Unable to lock dpll %s[part=%x inst=%x]:\n",
-		__func__, dpll_reg->name, dpll_reg->mod_partition,
+	pr_warn("DPLL: Dump of dpll %s[part=%x inst=%x]:\n",
+		dpll_reg->name, dpll_reg->mod_partition,
 		dpll_reg->mod_inst);
 	omap4_dpll_print_reg(dpll_reg, "clksel", &dpll_reg->clksel);
 	omap4_dpll_print_reg(dpll_reg, "div_m2", &dpll_reg->div_m2);
@@ -787,6 +908,44 @@ static void omap4_dpll_dump_regs(struct omap4_dpll_regs *dpll_reg)
 			dpll_reg->idlest.offset,
 			dpll_reg->idlest.val,
 			omap4_dpll_read_reg(dpll_reg, &dpll_reg->idlest));
+}
+
+/**
+ * omap4_dpll_prepare_off - stores DPLL settings before off mode
+ *
+ * Saves all DPLL register settings. This must be called before
+ * entering device off.
+ */
+void omap4_dpll_prepare_off(void)
+{
+	struct omap4_dpll_regs **dpll_regs_list = omap_dpll_regs;
+
+	if (dpll_dump_level & DPLL_DUMP_LEVEL_BEFORE)
+		pr_warn("========= Before suspending(Begin) ==============\n");
+
+	while (NULL != *dpll_regs_list) {
+		struct omap4_dpll_regs *dpll_reg = *dpll_regs_list;
+
+		omap4_dpll_store_reg(dpll_reg, &dpll_reg->clkmode);
+		omap4_dpll_store_reg(dpll_reg, &dpll_reg->autoidle);
+		omap4_dpll_store_reg(dpll_reg, &dpll_reg->clksel);
+		omap4_dpll_store_reg(dpll_reg, &dpll_reg->div_m2);
+		omap4_dpll_store_reg(dpll_reg, &dpll_reg->div_m3);
+		omap4_dpll_store_reg(dpll_reg, &dpll_reg->div_m4);
+		omap4_dpll_store_reg(dpll_reg, &dpll_reg->div_m5);
+		omap4_dpll_store_reg(dpll_reg, &dpll_reg->div_m6);
+		omap4_dpll_store_reg(dpll_reg, &dpll_reg->div_m7);
+		omap4_dpll_store_reg(dpll_reg, &dpll_reg->clkdcoldo);
+		omap4_dpll_store_reg(dpll_reg, &dpll_reg->idlest);
+
+		if (dpll_dump_level & DPLL_DUMP_LEVEL_BEFORE)
+			omap4_dpll_dump_regs(dpll_reg);
+
+		dpll_regs_list++;
+	}
+
+	if (dpll_dump_level & DPLL_DUMP_LEVEL_BEFORE)
+		pr_warn("========= Before suspending(End) ==============\n");
 }
 
 /**
@@ -813,6 +972,9 @@ static void omap4_wait_dpll_lock(struct omap4_dpll_regs *dpll_reg)
 			break;
 		if (j == MAX_DPLL_WAIT_TRIES) {
 			/* If we are unable to lock, warn and move on.. */
+			pr_warn("%s: Unable to lock dpll %s[part=%x inst=%x]:\n",
+				__func__, dpll_reg->name,
+				dpll_reg->mod_partition, dpll_reg->mod_inst);
 			omap4_dpll_dump_regs(dpll_reg);
 			break;
 		}
@@ -844,10 +1006,20 @@ static inline void omap4_dpll_restore_reg(struct omap4_dpll_regs *dpll_reg,
  */
 void omap4_dpll_resume_off(void)
 {
-	u32 i;
-	struct omap4_dpll_regs *dpll_reg = dpll_regs;
+	struct omap4_dpll_regs **dpll_regs_list = omap_dpll_regs;
 
-	for (i = 0; i < ARRAY_SIZE(dpll_regs); i++, dpll_reg++) {
+	if (dpll_dump_level & DPLL_DUMP_LEVEL_AFTER)
+		pr_warn("========= After suspending(Begin) ==============\n");
+
+	while (NULL != *dpll_regs_list) {
+		struct omap4_dpll_regs *dpll_reg = *dpll_regs_list;
+
+		if (dpll_dump_level & DPLL_DUMP_LEVEL_RESTORE) {
+			pr_warn("DUMP before restore dpll %s:\n",
+				dpll_reg->name);
+			omap4_dpll_dump_regs(dpll_reg);
+		}
+
 		omap4_dpll_restore_reg(dpll_reg, &dpll_reg->clksel);
 		omap4_dpll_restore_reg(dpll_reg, &dpll_reg->div_m2);
 		omap4_dpll_restore_reg(dpll_reg, &dpll_reg->div_m3);
@@ -864,7 +1036,18 @@ void omap4_dpll_resume_off(void)
 
 		/* Restore autoidle settings after the dpll is locked */
 		omap4_dpll_restore_reg(dpll_reg, &dpll_reg->autoidle);
+
+		if (dpll_dump_level & DPLL_DUMP_LEVEL_RESTORE) {
+			pr_warn("DUMP after restore dpll %s:\n",
+				dpll_reg->name);
+			omap4_dpll_dump_regs(dpll_reg);
+		}
+
+		dpll_regs_list++;
 	}
+
+	if (dpll_dump_level & DPLL_DUMP_LEVEL_AFTER)
+		pr_warn("========= After suspending(End) ==============\n");
 }
 
 int omap4_core_dpll_register_notifier(struct notifier_block *nb)

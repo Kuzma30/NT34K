@@ -90,6 +90,33 @@ struct omap_opp_def {
 	.vp_errgain	= _errgain				       \
 }
 
+#define VOLT_DATA_DEFINE_MARGIN(_v_nom, _v_margin, _efuse_offs, _errminlimit, _errgain)  \
+{								       \
+	.volt_nominal	= _v_nom,				       \
+	.volt_margin	= _v_margin,				       \
+	.sr_efuse_offs	= _efuse_offs,				       \
+	.sr_errminlimit = _errminlimit,				       \
+	.vp_errgain	= _errgain				       \
+}
+
+#define OMAP5_VOLT_DATA_DEFINE(_v_nom, _efuse_offs, _lvt_efuse_offs, _errminlimit, _errgain)  \
+{								       \
+	.volt_nominal	= _v_nom,				       \
+	.sr_efuse_offs	= _efuse_offs,				       \
+	.lvt_sr_efuse_offs	= _lvt_efuse_offs,				       \
+	.sr_errminlimit = _errminlimit,				       \
+	.vp_errgain	= _errgain				       \
+}
+
+#define OMAP5_VOLT_DATA_DEFINE_MARGIN(_v_nom, _v_margin, _efuse_offs, _lvt_efuse_offs, _errminlimit, _errgain)  \
+{								       \
+	.volt_nominal	= _v_nom,				       \
+	.volt_margin	= _v_margin,				       \
+	.sr_efuse_offs	= _efuse_offs,				       \
+	.lvt_sr_efuse_offs	= _lvt_efuse_offs,				       \
+	.sr_errminlimit = _errminlimit,				       \
+	.vp_errgain	= _errgain				       \
+}
 /* Use this to initialize the default table */
 extern int __init omap_init_opp_table(struct omap_opp_def *opp_def,
 		u32 opp_def_size);
@@ -108,16 +135,29 @@ extern struct omap_volt_data omap443x_vdd_core_volt_data[];
 extern struct omap_volt_data omap446x_vdd_mpu_volt_data[];
 extern struct omap_volt_data omap446x_vdd_iva_volt_data[];
 extern struct omap_volt_data omap446x_vdd_core_volt_data[];
+extern struct omap_volt_data omap447x_vdd_mpu_volt_data[];
+extern struct omap_volt_data omap447x_vdd_iva_volt_data[];
+extern struct omap_volt_data omap447x_vdd_core_volt_data[];
 
 extern struct omap_vdd_dep_info omap443x_vddmpu_dep_info[];
 extern struct omap_vdd_dep_info omap443x_vddiva_dep_info[];
 extern struct omap_vdd_dep_info omap446x_vddmpu_dep_info[];
 extern struct omap_vdd_dep_info omap446x_vddiva_dep_info[];
+extern struct omap_vdd_dep_info omap447x_vddmpu_dep_info[];
+extern struct omap_vdd_dep_info omap447x_vddiva_dep_info[];
 
-extern struct omap_volt_data omap54xx_vdd_mpu_volt_data[];
-extern struct omap_volt_data omap54xx_vdd_mm_volt_data[];
-extern struct omap_volt_data omap54xx_vdd_core_volt_data[];
+extern struct omap_volt_data omap5430_vdd_mpu_volt_data[];
+extern struct omap_volt_data omap5430_vdd_mm_volt_data[];
+extern struct omap_volt_data omap5430_vdd_core_volt_data[];
 
-extern struct omap_vdd_dep_info omap54xx_vddmpu_dep_info[];
-extern struct omap_vdd_dep_info omap54xx_vddmm_dep_info[];
+extern struct omap_vdd_dep_info omap5430_vddmpu_dep_info[];
+extern struct omap_vdd_dep_info omap5430_vddmm_dep_info[];
+
+extern struct omap_volt_data omap5432_vdd_mpu_volt_data[];
+extern struct omap_volt_data omap5432_vdd_mm_volt_data[];
+extern struct omap_volt_data omap5432_vdd_core_volt_data[];
+
+extern struct omap_vdd_dep_info omap5432_vddmpu_dep_info[];
+extern struct omap_vdd_dep_info omap5432_vddmm_dep_info[];
+
 #endif		/* __ARCH_ARM_MACH_OMAP2_OMAP_OPP_DATA_H */

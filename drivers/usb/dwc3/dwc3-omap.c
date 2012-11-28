@@ -164,8 +164,7 @@ static void omap_dwc3_set_mailbox(struct dwc3_omap *omap)
 	switch (omap->status) {
 	case OMAP_DWC3_ID_GROUND:
 		dev_dbg(omap->dev, "ID GND\n");
-
-		dwc3_core_late_init(&omap->dwc3->dev);
+		dwc3_core_host_init(&omap->dwc3->dev);
 
 		ret = pm_runtime_get_sync(omap->dev);
 		if (ret < 0) {
@@ -217,6 +216,7 @@ static void omap_dwc3_set_mailbox(struct dwc3_omap *omap)
 		dev_dbg(omap->dev, "VBUS Disconnect\n");
 
 		dwc->is_connected = false;
+		dwc->gadget_is_connected = false;
 
 		pm_qos_update_request(&omap->pm_qos_request,
 							PM_QOS_DEFAULT_VALUE);
@@ -242,6 +242,9 @@ static void omap_dwc3_set_mailbox(struct dwc3_omap *omap)
 		 * done, before shutting down the DWC core.
 		 */
 		msleep(25);
+		if (omap->status == OMAP_DWC3_ID_FLOAT)
+			dwc3_host_exit(dwc);
+
 		dwc3_core_shutdown(&omap->dwc3->dev);
 
 		wake_unlock(&omap->dwc_wakelock);
@@ -267,6 +270,9 @@ void omap_dwc3_mailbox(enum omap_dwc3_vbus_id_status status)
 		dwc->is_connected = true;
 		wake_lock(&omap->dwc_wakelock);
 	}
+
+	if (status == OMAP_DWC3_VBUS_VALID)
+		dwc->gadget_is_connected = true;
 
 #ifdef CONFIG_PM
 	if (omap->dev->power.disable_depth)

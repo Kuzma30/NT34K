@@ -26,6 +26,8 @@
 #include <linux/debugfs.h>
 #include <linux/slab.h>
 #include <linux/clk.h>
+#include <linux/power/smartreflex.h>
+#include <plat/voltage.h>
 
 #include "common.h"
 
@@ -36,7 +38,6 @@
 #include "prminst44xx.h"
 #include "control.h"
 
-#include "voltage.h"
 #include "powerdomain.h"
 
 #include "vc.h"
@@ -122,6 +123,8 @@ int voltdm_scale(struct voltagedomain *voltdm,
  * This API finds out the correct voltage the voltage domain is supposed
  * to be at and resets the voltage to that level. Should be used especially
  * while disabling any voltage compensation modules.
+ *
+ * NOTE: appropriate locks should be held for mutual exclusivity.
  */
 void voltdm_reset(struct voltagedomain *voltdm)
 {
@@ -275,6 +278,52 @@ static int vp_volt_debug_get(void *data, u64 *val)
 }
 DEFINE_SIMPLE_ATTRIBUTE(vp_volt_debug_fops, vp_volt_debug_get, NULL, "%llu\n");
 
+static int dyn_volt_debug_get(void *data, u64 *val)
+{
+	struct voltagedomain *voltdm = (struct voltagedomain *)data;
+	struct omap_volt_data *volt_data;
+
+	if (!voltdm) {
+		pr_warning("%s: Wrong paramater passed\n", __func__);
+		return -EINVAL;
+	}
+
+	volt_data = omap_voltage_get_curr_vdata(voltdm);
+	if (IS_ERR_OR_NULL(volt_data)) {
+		pr_warning("%s: No voltage/domain?\n", __func__);
+		return -ENODEV;
+	}
+
+	*val = volt_data->volt_dynamic_nominal;
+
+	return 0;
+}
+DEFINE_SIMPLE_ATTRIBUTE(dyn_volt_debug_fops, dyn_volt_debug_get, NULL,
+			"%llu\n");
+
+static int calib_volt_debug_get(void *data, u64 *val)
+{
+	struct voltagedomain *voltdm = (struct voltagedomain *)data;
+	struct omap_volt_data *volt_data;
+
+	if (!voltdm) {
+		pr_warning("%s: Wrong paramater passed\n", __func__);
+		return -EINVAL;
+	}
+
+	volt_data = omap_voltage_get_curr_vdata(voltdm);
+	if (IS_ERR_OR_NULL(volt_data)) {
+		pr_warning("%s: No voltage/domain?\n", __func__);
+		return -ENODEV;
+	}
+
+	*val = volt_data->volt_calibrated;
+
+	return 0;
+}
+DEFINE_SIMPLE_ATTRIBUTE(calib_volt_debug_fops, calib_volt_debug_get, NULL,
+			"%llu\n");
+
 static int nom_volt_debug_get(void *data, u64 *val)
 {
 	struct voltagedomain *voltdm = (struct voltagedomain *)data;
@@ -324,6 +373,12 @@ static void __init voltdm_debugfs_init(struct dentry *voltage_dir,
 	(void) debugfs_create_file("curr_nominal_volt", S_IRUGO,
 				voltdm->debug_dir, (void *)voltdm,
 				&nom_volt_debug_fops);
+	(void) debugfs_create_file("curr_dyn_nominal_volt", S_IRUGO,
+				voltdm->debug_dir, (void *)voltdm,
+				&dyn_volt_debug_fops);
+	(void) debugfs_create_file("curr_calibrated_volt", S_IRUGO,
+				voltdm->debug_dir, (void *)voltdm,
+				&calib_volt_debug_fops);
 }
 
 /**
@@ -395,6 +450,35 @@ static struct voltagedomain *_voltdm_lookup(const char *name)
 }
 
 /**
+ * omap_voltage_calib_reset() - reset the calibrated voltage entries
+ * @voltdm: voltage domain to reset the entries for
+ *
+ * when the calibrated entries are no longer valid, this api allows
+ * the calibrated voltages to be reset.
+ *
+ * NOTE: Appropriate locks must be held by calling path to ensure mutual
+ * exclusivity
+ */
+int omap_voltage_calib_reset(struct voltagedomain *voltdm)
+{
+	struct omap_volt_data *volt_data;
+
+	if (!voltdm) {
+		pr_warning("%s: voltdm NULL!\n", __func__);
+		return -EINVAL;
+	}
+
+	volt_data = voltdm->volt_data;
+
+	/* reset the calibrated voltages as 0 */
+	while (volt_data->volt_nominal) {
+		volt_data->volt_calibrated = 0;
+		volt_data++;
+	}
+	return 0;
+}
+
+/**
  * voltdm_add_pwrdm - add a powerdomain to a voltagedomain
  * @voltdm: struct voltagedomain * to add the powerdomain to
  * @pwrdm: struct powerdomain * to associate with a voltagedomain
@@ -415,6 +499,87 @@ int voltdm_add_pwrdm(struct voltagedomain *voltdm, struct powerdomain *pwrdm)
 	list_add(&pwrdm->voltdm_node, &voltdm->pwrdm_list);
 
 	return 0;
+}
+
+/**
+ * voltdm_pwrdm_enable - increase usecount for a voltagedomain
+ * @voltdm: struct voltagedomain * to increase count for
+ *
+ * Increases usecount for a given voltagedomain. If the usecount reaches
+ * 1, the domain is awakened from idle and the function will call the
+ * voltagedomain->wakeup callback for this domain.
+ */
+void voltdm_pwrdm_enable(struct voltagedomain *voltdm)
+{
+	int ret;
+	unsigned long flag;
+
+	if (!voltdm) {
+		WARN(1, "%s: voltdm = NULL\n", __func__);
+		return;
+	}
+
+	spin_lock_irqsave(&voltdm->lock, flag);
+
+	voltdm->usecount++;
+
+	if ((voltdm->usecount == 1)  && voltdm->wakeup) {
+		ret = voltdm->wakeup(voltdm);
+		if (ret)
+			WARN(1, "%s: voltdm%s wakeup returned %d\n",
+			     __func__, voltdm->name, ret);
+	}
+	spin_unlock_irqrestore(&voltdm->lock, flag);
+
+}
+
+/**
+ * voltdm_pwrdm_disable - decrease usecount for a voltagedomain
+ * @voltdm: struct voltagedomain * to decrease count for
+ *
+ * Decreases the usecount for a given voltagedomain. If the usecount
+ * reaches zero, the domain can idle and the function will call the
+ * voltagedomain->sleep callback, and calculate the overall target
+ * state for the voltagedomain.
+ */
+void voltdm_pwrdm_disable(struct voltagedomain *voltdm)
+{
+	int ret = 0;
+	u8 target_state = PWRDM_POWER_OFF;
+	int state;
+	struct powerdomain *pwrdm;
+	unsigned long flag;
+
+	if (!voltdm) {
+		WARN(1, "%s: voltdm = NULL\n", __func__);
+		return;
+	}
+
+	spin_lock_irqsave(&voltdm->lock, flag);
+	voltdm->usecount--;
+
+	if (voltdm->usecount < 0) {
+		pr_warn("%s: voltdm_%s usecount is %d, setting to 0\n",
+			__func__, voltdm->name, voltdm->usecount);
+		voltdm->usecount = 0;
+	} else if (voltdm->usecount == 0) {
+		/*
+		 * Determine target state for voltdm by looking at the highest
+		 * powerdomain state in the given voltage domain.
+		 */
+		list_for_each_entry(pwrdm, &voltdm->pwrdm_list, voltdm_node) {
+			state = pwrdm_read_next_pwrst(pwrdm);
+			if (pwrdm_power_state_lt(target_state, state))
+				target_state = state;
+		}
+		if (voltdm->sleep) {
+			ret = voltdm->sleep(voltdm, target_state);
+			if (ret)
+				WARN(1, "%s: voltdm%s sleep returned %d\n",
+				     __func__, voltdm->name, ret);
+		}
+	}
+	spin_unlock_irqrestore(&voltdm->lock, flag);
 }
 
 /**
@@ -478,6 +643,7 @@ static int _voltdm_register(struct voltagedomain *voltdm)
 		return -EINVAL;
 
 	INIT_LIST_HEAD(&voltdm->pwrdm_list);
+	spin_lock_init(&voltdm->lock);
 	list_add(&voltdm->node, &voltdm_list);
 
 	pr_debug("voltagedomain: registered %s\n", voltdm->name);

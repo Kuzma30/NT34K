@@ -51,7 +51,10 @@ obj-$(CONFIG_TWL4030_MADC)      += twl4030-madc.o
 obj-$(CONFIG_TWL4030_POWER)    += twl4030-power.o
 obj-$(CONFIG_MFD_TWL4030_AUDIO)	+= twl4030-audio.o
 obj-$(CONFIG_TWL6030_PWM)	+= twl6030-pwm.o
+obj-$(CONFIG_TWL6030_GPADC)    += twl6030-gpadc.o
 obj-$(CONFIG_TWL6040_CORE)	+= twl6040-core.o twl6040-irq.o
+obj-$(CONFIG_TWL6030_POWER)    += twl6030-power.o
+obj-$(CONFIG_TWL6030_POWEROFF)	+= twl6030-poweroff.o
 
 obj-$(CONFIG_MFD_MC13XXX)	+= mc13xxx-core.o
 
@@ -121,4 +124,5 @@ obj-$(CONFIG_MFD_PALMAS)	+= palmas.o palmas-irq.o
 obj-$(CONFIG_MFD_PALMAS_GPADC)	+= palmas-gpadc.o
 obj-$(CONFIG_MFD_PALMAS_RESOURCE) += palmas-resource.o
 obj-$(CONFIG_MFD_PALMAS_PWM)	+= palmas-pwm.o
+obj-$(CONFIG_MFD_PALMAS_POWEROFF) += palmas-poweroff.o
 

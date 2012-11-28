@@ -253,7 +253,7 @@ static int __devinit register_hsi_devices(struct hsi_dev *hsi_ctrl)
 	return 0;
 }
 
-static void __devexit unregister_hsi_devices(struct hsi_dev *hsi_ctrl)
+static void unregister_hsi_devices(struct hsi_dev *hsi_ctrl)
 {
 	struct hsi_port *hsi_p;
 	struct hsi_device *device;
@@ -273,6 +273,10 @@ static void __devexit unregister_hsi_devices(struct hsi_dev *hsi_ctrl)
 
 void hsi_set_pm_default(struct hsi_dev *hsi_ctrl)
 {
+	/* On OMAP5+, stop interfering with HWMOD mngmnt of SYSCONFIG */
+	if (cpu_is_omap54xx())
+		return;
+
 	/* Set default SYSCONFIG PM settings */
 	hsi_outl((HSI_AUTOIDLE | HSI_SIDLEMODE_SMART_WAKEUP |
 				 HSI_MIDLEMODE_SMART_WAKEUP),
@@ -284,6 +288,10 @@ void hsi_set_pm_default(struct hsi_dev *hsi_ctrl)
 
 void hsi_set_pm_force_hsi_on(struct hsi_dev *hsi_ctrl)
 {
+	/* On OMAP5+, stop interfering with HWMOD mngmnt of SYSCONFIG */
+	if (cpu_is_omap54xx())
+		return;
+
 	/* Force HSI to ON by never acknowledging a PRCM idle request */
 	/* SIdleAck and MStandby are never asserted */
 	hsi_outl((HSI_AUTOIDLE | HSI_SIDLEMODE_NO |
@@ -469,7 +477,6 @@ void hsi_softreset_driver(struct hsi_dev *hsi_ctrl)
 		hsi_p->reg_counters = pdata->ctx->pctx[i].hsr.counters;
 		hsi_p->wake_rx_3_wires_mode = 0; /* 4 wires */
 		hsi_p->cawake_status = -1; /* Unknown */
-		hsi_p->cawake_off_event = false;
 		hsi_p->acwake_status = 0;
 		hsi_port_channels_reset(&hsi_ctrl->hsi_port[i]);
 	}
@@ -589,7 +596,6 @@ static int __devinit hsi_ports_init(struct hsi_dev *hsi_ctrl)
 		hsi_p->irq = 0;
 		hsi_p->wake_rx_3_wires_mode = 0; /* 4 wires */
 		hsi_p->cawake_status = -1; /* Unknown */
-		hsi_p->cawake_off_event = false;
 		hsi_p->cawake_double_int = false;
 		hsi_p->acwake_status = 0;
 		hsi_p->in_int_tasklet = false;
@@ -672,16 +678,21 @@ static int __devinit hsi_init_gdd_chan_count(struct hsi_dev *hsi_ctrl)
 * @channel_number - channel number which requests clock to be disabled
 *		    0xFF means no particular channel
 *
+* Returns: pm_runtime_put_sync_suspend() or device_idle() errors
+*	   0 if clocks were previously inactive
+*
 * Note : there is no real HW clock management per HSI channel, this is only
 * virtual to keep track of active channels and ease debug
 *
 * Function to be called with lock
 */
-void hsi_clocks_disable_channel(struct device *dev, u8 channel_number,
+int hsi_clocks_disable_channel(struct device *dev, u8 channel_number,
 				const char *s)
 {
 	struct platform_device *pd = to_platform_device(dev);
 	struct hsi_dev *hsi_ctrl = platform_get_drvdata(pd);
+	struct hsi_platform_data *pdata = dev_get_platdata(dev);
+	int err = 0;
 
 	if (channel_number != HSI_CH_NUMBER_NONE)
 		dev_dbg(dev, "CLK: hsi_clocks_disable for channel %d: %s\n",
@@ -691,16 +702,16 @@ void hsi_clocks_disable_channel(struct device *dev, u8 channel_number,
 
 	if (hsi_ctrl->clock_forced_on) {
 		dev_dbg(dev, "Clocks in forced on mode, skipping...\n");
-		return;
+		return 0;
 	}
 
 	if (!hsi_ctrl->clock_enabled) {
 		dev_dbg(dev, "Clocks already disabled, skipping...\n");
-		return;
+		return 0;
 	}
 	if (hsi_is_hsi_controller_busy(hsi_ctrl)) {
 		dev_dbg(dev, "Cannot disable clocks, HSI port busy\n");
-		return;
+		return 0;
 	}
 
 	if (hsi_is_hst_controller_busy(hsi_ctrl))
@@ -712,7 +723,16 @@ void hsi_clocks_disable_channel(struct device *dev, u8 channel_number,
 		dev_warn(dev, "Error releasing DPLL cascading constraint\n");
 #endif
 
-	pm_runtime_put_sync_suspend(dev);
+	if (pm_runtime_enabled(dev))
+		err = pm_runtime_put_sync_suspend(dev);
+	else
+		err = pdata->runtime_suspend_helper(dev);
+
+	if (err)
+		dev_err(dev, "%s: error = %d\n",
+			__func__, err);
+
+	return err;
 }
 
 /**
@@ -723,6 +743,7 @@ void hsi_clocks_disable_channel(struct device *dev, u8 channel_number,
 *		    0xFF means no particular channel
 *
 * Returns: -EEXIST if clocks were already active
+*	   pm_runtime_get_sync() or device_enable() errors
 *	   0 if clocks were previously inactive
 *
 * Note : there is no real HW clock management per HSI channel, this is only
@@ -735,6 +756,8 @@ int hsi_clocks_enable_channel(struct device *dev, u8 channel_number,
 {
 	struct platform_device *pd = to_platform_device(dev);
 	struct hsi_dev *hsi_ctrl = platform_get_drvdata(pd);
+	struct hsi_platform_data *pdata = dev_get_platdata(dev);
+	int err = 0;
 
 	if (channel_number != HSI_CH_NUMBER_NONE)
 		dev_dbg(dev, "CLK: hsi_clocks_enable for channel %d: %s\n",
@@ -753,7 +776,17 @@ int hsi_clocks_enable_channel(struct device *dev, u8 channel_number,
 		dev_warn(dev, "Error holding DPLL cascading constraint\n");
 #endif
 
-	return pm_runtime_get_sync(dev);
+	if (pm_runtime_enabled(dev))
+		err = pm_runtime_get_sync(dev);
+	else
+		err = pdata->runtime_resume_helper(dev);
+
+	if (err < 0)
+		dev_err(dev, "%s: error = %d\n", __func__, err);
+	else if (err)
+		dev_dbg(dev, "%s: get clocks even if clocks active. error = %d\n",
+			__func__, err);
+	return err;
 }
 
 static int __devinit hsi_controller_init(struct hsi_dev *hsi_ctrl,
@@ -850,8 +883,9 @@ static int __devinit hsi_platform_device_probe(struct platform_device *pd)
 	}
 
 	/* Check if mandatory board functions are populated */
-	if (!pdata->device_scale) {
-		dev_err(&pd->dev, "Missing platform device_scale function\n");
+	if (!pdata->device_scale || !pdata->device_enable
+		    || !pdata->device_idle) {
+		dev_err(&pd->dev, "Missing platform functions\n");
 		return -ENOSYS;
 	}
 
@@ -909,26 +943,30 @@ static int __devinit hsi_platform_device_probe(struct platform_device *pd)
 	/* Allow HSI to wake up the platform */
 	device_init_wakeup(hsi_ctrl->dev, true);
 
+	err = 0;
 	/* Set the HSI FCLK to default. */
-	hsi_ctrl->hsi_fclk_req = pdata->default_hsi_fclk;
-	err = pdata->device_scale(hsi_ctrl->dev, pdata->default_hsi_fclk);
-	if (err == -EBUSY) {
-		/* PM framework init is late_initcall, so it may not yet be */
-		/* initialized, so be prepared to retry later on open. */
-		dev_warn(&pd->dev, "Cannot set HSI FClk to default value: %ld. Will retry on next open\n",
-			  pdata->default_hsi_fclk);
-	} else if (err) {
-		dev_err(&pd->dev, "%s: Error %d setting HSI FClk to %ld.\n",
-				__func__, err, pdata->default_hsi_fclk);
-		goto rollback3;
-	} else {
-		hsi_ctrl->hsi_fclk_current = pdata->default_hsi_fclk;
-	}
+	if (pdata->default_hsi_fclk == HSI_FCLK_LOW_SPEED)
+		err = hsi_pm_change_hsi_speed(hsi_ctrl, HSI_SPEED_LOW_SPEED);
+	else if (pdata->default_hsi_fclk == HSI_FCLK_HI_SPEED)
+		err = hsi_pm_change_hsi_speed(hsi_ctrl, HSI_SPEED_HI_SPEED);
+	else
+		dev_err(&pd->dev, "%s: Error invalid default HSI FClk %ld.\n",
+				__func__, pdata->default_hsi_fclk);
+	if ((err < 0) && (err != -EBUSY))
+		goto rollback4;
+
+	dev_pm_qos_add_request(hsi_ctrl->dev, &hsi_ctrl->dev_pm_qos,
+			       PM_QOS_DEFAULT_VALUE);
+	pm_qos_add_request(&hsi_ctrl->pm_qos, PM_QOS_CPU_DMA_LATENCY,
+			   PM_QOS_DEFAULT_VALUE);
+
 	/* From here no need for HSI HW access */
 	hsi_clocks_disable(hsi_ctrl->dev, __func__);
 
 	return 0;
 
+rollback4:
+	unregister_hsi_devices(hsi_ctrl);
 rollback3:
 	hsi_debug_remove_ctrl(hsi_ctrl);
 rollback2:
@@ -950,6 +988,9 @@ static int __devexit hsi_platform_device_remove(struct platform_device *pd)
 
 	if (!hsi_ctrl)
 		return 0;
+
+	dev_pm_qos_remove_request(&hsi_ctrl->dev_pm_qos);
+	pm_qos_remove_request(&hsi_ctrl->pm_qos);
 
 	unregister_hsi_devices(hsi_ctrl);
 

@@ -16,9 +16,10 @@
 
 #include <linux/notifier.h>
 #include <linux/err.h>
+#include <linux/spinlock.h>
 
 #include <mach/common.h>
-struct omap_volt_data;
+#include <plat/voltage.h>
 
 #include "vc.h"
 #include "vp.h"
@@ -37,8 +38,6 @@ struct powerdomain;
 #define OMAP3_VOLTOFFSET	0xff
 #define OMAP3_VOLTSETUP2	0xff
 
-struct omap_vdd_info;
-
 /**
  * struct omap_vfsm_instance - per-voltage manager FSM register/bitfield
  * data
@@ -54,6 +53,9 @@ struct omap_vfsm_instance {
 	u8 voltsetup_off_reg;
 };
 
+/* Dynamic nominal voltage margin common for OMAP3630 and OMAP4 */
+#define OMAP3PLUS_DYNAMIC_NOMINAL_MARGIN_UV	50000
+
 /**
  * struct voltagedomain - omap voltage domain global structure.
  * @name: Name of the voltage domain which can be used as a unique identifier.
@@ -62,15 +64,19 @@ struct omap_vfsm_instance {
  * @pwrdm_list: list_head linking all powerdomains in this voltagedomain
  * @vc: pointer to VC channel associated with this voltagedomain
  * @vp: pointer to VP associated with this voltagedomain
+ * @usecount: number of users for this voltagedomain
  * @read: read a VC/VP register
  * @write: write a VC/VP register
  * @read: read-modify-write a VC/VP register
  * @sys_clk: system clock name/frequency, used for various timing calculations
+ * @sleep: function to call once the domain enters idle
+ * @wakeup: function to call once the domain wakes up from idle
  * @scale: function used to scale the voltage of the voltagedomain
  * @nominal_volt: current nominal voltage for this voltage domain
  * @volt_data: voltage table having the distinct voltages supported
  *             by the domain and other associated per voltage data.
  * @change_notify_list: notifiers that need to be told on pre and post change
+ * @auto_ret: does voltage domain can use auto_ret feature
  */
 struct voltagedomain {
 	char *name;
@@ -84,6 +90,8 @@ struct voltagedomain {
 	struct omap_vp_param *vp_param;
 	struct omap_vc_param *vc_param;
 
+	int usecount;
+
 	/* VC/VP register access functions: SoC specific */
 	u32 (*read) (u8 offset);
 	void (*write) (u32 val, u8 offset);
@@ -94,32 +102,18 @@ struct voltagedomain {
 		u32 rate;
 	} sys_clk;
 
+	int (*sleep) (struct voltagedomain *voltdm, u8 target_state);
+	int (*wakeup) (struct voltagedomain *voltdm);
 	int (*scale) (struct voltagedomain *voltdm,
 				struct omap_volt_data *target_volt);
 	struct omap_volt_data *curr_volt;
 	struct omap_volt_data *volt_data;
-	struct omap_vdd_info *vdd;
+	struct omap_vdd_dep_info *dep_vdd_info;
 	struct srcu_notifier_head change_notify_list;
 	struct dentry *debug_dir;
-};
-
-/**
- * struct omap_volt_data - Omap voltage specific data.
- * @voltage_nominal:	The possible voltage value in uV
- * @sr_efuse_offs:	The offset of the efuse register(from system
- *			control module base address) from where to read
- *			the n-target value for the smartreflex module.
- * @sr_errminlimit:	Error min limit value for smartreflex. This value
- *			differs at differnet opp and thus is linked
- *			with voltage.
- * @vp_errorgain:	Error gain value for the voltage processor. This
- *			field also differs according to the voltage/opp.
- */
-struct omap_volt_data {
-	u32	volt_nominal;
-	u32	sr_efuse_offs;
-	u8	sr_errminlimit;
-	u8	vp_errgain;
+	/* spinlock for voltage usecount */
+	spinlock_t lock;
+	bool auto_ret;
 };
 
 /* Min and max voltages from OMAP perspective */
@@ -132,6 +126,11 @@ struct omap_volt_data {
 #define OMAP3630_VP1_VLIMITTO_VDDMAX	1350000
 #define OMAP3630_VP2_VLIMITTO_VDDMIN	900000
 #define OMAP3630_VP2_VLIMITTO_VDDMAX	1200000
+
+#define OMAP3_VP_CONFIG_ERROROFFSET	0x00
+#define OMAP3_VP_VSTEPMIN_VSTEPMIN	0x1
+#define OMAP3_VP_VSTEPMAX_VSTEPMAX	0x04
+#define OMAP3_VP_VLIMITTO_TIMEOUT_US	200
 
 #define OMAP4_VP_MPU_VLIMITTO_VDDMIN	830000
 #define OMAP4_VP_MPU_VLIMITTO_VDDMAX	1410000
@@ -243,19 +242,6 @@ struct omap_vdd_dep_info {
 	int nr_dep_entries;
 };
 
-/**
- * omap_vdd_info - Per Voltage Domain info
- *
- * @volt_data		: voltage table having the distinct voltages supported
- *			  by the domain and other associated per voltage data.
- * @dep_vdd_info	: Array ending with a 0 terminator for dependency
- *			  voltage information.
- */
-struct omap_vdd_info {
-	struct omap_volt_data *volt_data;
-	struct omap_vdd_dep_info *dep_vdd_info;
-};
-
 void omap_voltage_get_volttable(struct voltagedomain *voltdm,
 		struct omap_volt_data **volt_data);
 struct omap_volt_data *omap_voltage_get_curr_vdata(struct voltagedomain *voltdm);
@@ -275,13 +261,13 @@ extern void omap54xx_voltagedomains_init(void);
 
 void voltdm_init(struct voltagedomain **voltdm_list);
 int voltdm_add_pwrdm(struct voltagedomain *voltdm, struct powerdomain *pwrdm);
+void voltdm_pwrdm_enable(struct voltagedomain *voltdm);
+void voltdm_pwrdm_disable(struct voltagedomain *voltdm);
 int voltdm_for_each(int (*fn)(struct voltagedomain *voltdm, void *user),
 		    void *user);
 int voltdm_for_each_pwrdm(struct voltagedomain *voltdm,
 			  int (*fn)(struct voltagedomain *voltdm,
 				    struct powerdomain *pwrdm));
-int voltdm_scale(struct voltagedomain *voltdm,
-		 struct omap_volt_data *target_volt);
 void voltdm_reset(struct voltagedomain *voltdm);
 
 int __init __init_volt_domain_notifier_list(struct voltagedomain **voltdms);
@@ -292,8 +278,27 @@ static inline unsigned long omap_get_operation_voltage(
 {
 	if (!vdata)
 		return 0;
+	return (vdata->volt_calibrated) ? vdata->volt_calibrated :
+		(vdata->volt_dynamic_nominal) ? vdata->volt_dynamic_nominal :
+			vdata->volt_nominal;
+}
+
+/* what is my dynamic nominal? */
+static inline unsigned long omap_get_dyn_nominal(struct omap_volt_data *vdata)
+{
+	if (IS_ERR_OR_NULL(vdata))
+		return 0;
+	if (vdata->volt_calibrated) {
+		unsigned long v = vdata->volt_calibrated +
+			OMAP3PLUS_DYNAMIC_NOMINAL_MARGIN_UV;
+		if (v > vdata->volt_nominal)
+			return vdata->volt_nominal;
+		return v;
+	}
+
 	return vdata->volt_nominal;
 }
+
 static inline unsigned long omap_get_nominal_voltage(
 				struct omap_volt_data *vdata)
 {
@@ -301,5 +306,7 @@ static inline unsigned long omap_get_nominal_voltage(
 		return 0;
 	return vdata->volt_nominal;
 }
+
+int omap_voltage_calib_reset(struct voltagedomain *voltdm);
 
 #endif

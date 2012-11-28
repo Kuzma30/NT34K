@@ -103,6 +103,8 @@ struct fw_rsc_hdr {
  * @RSC_VDEV:       declare support for a virtio device, and serve as its
  *		    virtio header.
  * @RSC_SUSPD_TIME: suspend timeout used for autosuspend feature
+ * @RSC_CUSTOM:     a custom resource type that needs to be handled outside
+ *		    remoteproc core.
  * @RSC_LAST:       just keep this one at the end
  *
  * For more details regarding a specific resource type, please see its
@@ -119,7 +121,8 @@ enum fw_resource_type {
 	RSC_TRACE	= 2,
 	RSC_VDEV	= 3,
 	RSC_SUSPD_TIME	= 4,
-	RSC_LAST	= 5,
+	RSC_CUSTOM	= 5,
+	RSC_LAST	= 6,
 };
 
 #define FW_RSC_ADDR_ANY (0xFFFFFFFFFFFFFFFF)
@@ -130,7 +133,7 @@ enum fw_resource_type {
  * @pa: physical address
  * @len: length (in bytes)
  * @flags: iommu protection flags
- * @reserved: reserved (must be zero)
+ * @memregion: mem region
  * @name: human-readable name of the requested memory region
  *
  * This resource entry requests the host to allocate a physically contiguous
@@ -172,7 +175,7 @@ struct fw_rsc_carveout {
 	u32 pa;
 	u32 len;
 	u32 flags;
-	u32 reserved;
+	u32 memregion;
 	u8 name[32];
 } __packed;
 
@@ -182,7 +185,7 @@ struct fw_rsc_carveout {
  * @pa: physical address
  * @len: length (in bytes)
  * @flags: iommu protection flags
- * @reserved: reserved (must be zero)
+ * @memregion: mem region
  * @name: human-readable name of the requested region to be mapped
  *
  * This resource entry requests the host to iommu map a physically contiguous
@@ -210,7 +213,7 @@ struct fw_rsc_devmem {
 	u32 pa;
 	u32 len;
 	u32 flags;
-	u32 reserved;
+	u32 memregion;
 	u8 name[32];
 } __packed;
 
@@ -318,11 +321,24 @@ struct fw_rsc_suspd_time {
 } __packed;
 
 /**
+ * struct fw_rsc_custom - custom resource definition
+ * @sub_type: implementation specific type
+ * @size: size of the custom resource
+ * @data: label for the start of the resource
+ */
+struct fw_rsc_custom {
+	u32  sub_type;
+	u32  size;
+	u8   data[0];
+} __packed;
+
+/**
  * struct rproc_mem_entry - memory entry descriptor
  * @va:	virtual address
  * @dma: dma address
  * @len: length, in bytes
  * @da: device address
+ * @memregion: type of memory
  * @priv: associated data
  * @node: list node
  */
@@ -331,6 +347,7 @@ struct rproc_mem_entry {
 	dma_addr_t dma;
 	int len;
 	u32 da;
+	u32 memregion;
 	void *priv;
 	struct list_head node;
 };
@@ -347,6 +364,7 @@ struct rproc;
  * @set_latency		set latency on remote processor
  * @set_bandwidth	set bandwidth on remote processor
  * @set_frequency	set frequency of remote processor
+ * @handle_custom_rsc	hook to handle device specific resource table entries
  */
 struct rproc_ops {
 	int (*start)(struct rproc *rproc);
@@ -357,6 +375,8 @@ struct rproc_ops {
 	int (*set_latency)(struct device *dev, struct rproc *rproc, long v);
 	int (*set_bandwidth)(struct device *dev, struct rproc *rproc, long v);
 	int (*set_frequency)(struct device *dev, struct rproc *rproc, long v);
+	int (*handle_custom_rsc)(struct rproc *rproc,
+						struct fw_rsc_custom *rsc);
 };
 
 /**
@@ -471,6 +491,7 @@ struct rproc {
 	int auto_suspend_timeout;
 	bool need_resume;
 	bool system_suspended;
+	char *fw_version;
 };
 
 /* we currently support only two vrings per rvdev */
@@ -516,6 +537,7 @@ struct rproc_vdev {
 	unsigned long gfeatures;
 };
 
+int rproc_reload(const char *name);
 struct rproc *rproc_get_by_name(const char *name);
 void rproc_put(struct rproc *rproc);
 
@@ -531,6 +553,7 @@ void rproc_shutdown(struct rproc *rproc);
 void rproc_error_reporter(struct rproc *rproc, enum rproc_err type);
 int rproc_set_constraints(struct device *dev, struct rproc *rproc,
 			  enum rproc_constraint type, long v);
+void *rproc_da_to_va(struct rproc *rproc, u64 da, int len);
 int rproc_pa_to_da(struct rproc *rproc, phys_addr_t pa, u64 *da);
 
 static inline struct rproc_vdev *vdev_to_rvdev(struct virtio_device *vdev)

@@ -19,6 +19,7 @@
 #define __LINUX_THERMAL_FRAMEWORK_H__
 
 #include <linux/seq_file.h>
+#include <linux/dcache.h>
 
 struct thermal_dev;
 struct thermal_domain;
@@ -55,6 +56,8 @@ struct thermal_dev_ops {
 	/* Debugging interface */
 	int (*debug_report) (struct thermal_dev *, struct seq_file *s);
 	int (*register_debug_entries) (struct thermal_dev *, struct dentry *d);
+	/* copy of report_temp, while doing temperature injections */
+	int (*orig_report) (struct thermal_dev *);
 #endif
 };
 
@@ -94,9 +97,12 @@ struct thermal_dev {
 	struct list_head node;
 	int		current_temp;
 	int		slope;
-	int		constant_offset;
+	int		constant;
 	int		sen_id;
 	struct thermal_domain   *domain;
+	struct dentry *debug_dentry;
+	/* for serializing sensor.ops manipulations and temp injection */
+	struct mutex	mutex;
 };
 
 /**
@@ -148,6 +154,9 @@ struct thermal_dev {
 })
 
 #ifdef CONFIG_THERMAL_FRAMEWORK
+extern int thermal_insert_cooling_action(struct thermal_dev *tdev,
+					 unsigned int priority,
+					 unsigned int reduction);
 extern int thermal_request_temp(struct thermal_dev *tdev);
 extern int thermal_lookup_temp(const char *domain_name);
 extern int thermal_lookup_slope(const char *domain_name, const char *rel);
@@ -165,6 +174,12 @@ extern int thermal_governor_dev_register(struct thermal_dev *tdev);
 extern void thermal_governor_dev_unregister(struct thermal_dev *tdev);
 extern int thermal_check_domain(const char *domain_name);
 #else
+static inline int thermal_insert_cooling_action(struct thermal_dev *tdev,
+					 unsigned int priority,
+					 unsigned int reduction)
+{
+	return 0;
+}
 static inline int thermal_request_temp(struct thermal_dev *tdev)
 {
 	return 0;
@@ -222,6 +237,13 @@ static inline int thermal_check_domain(const char *domain_name)
 {
 	return -ENODEV;
 }
+#endif
+
+/* Specific to governors */
+#ifdef CONFIG_CASE_TEMP_GOVERNOR
+extern int case_subzone_number;
+#else
+#define case_subzone_number	-1
 #endif
 
 #endif /* __LINUX_THERMAL_FRAMEWORK_H__ */

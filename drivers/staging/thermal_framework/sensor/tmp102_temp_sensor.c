@@ -160,8 +160,8 @@ static int tmp102_read_current_temp(struct device *dev)
 
 static int tmp102_get_temp(struct thermal_dev *tdev)
 {
-	struct platform_device *pdev = to_platform_device(tdev->dev);
-	struct tmp102_temp_sensor *tmp102 = platform_get_drvdata(pdev);
+	struct i2c_client *client = to_i2c_client(tdev->dev);
+	struct tmp102_temp_sensor *tmp102 = i2c_get_clientdata(client);
 
 	tmp102->therm_fw->current_temp =
 			tmp102_read_current_temp(tdev->dev);
@@ -171,8 +171,8 @@ static int tmp102_get_temp(struct thermal_dev *tdev)
 
 static int tmp102_report_slope(struct thermal_dev *tdev, const char *dom_name)
 {
-	struct platform_device *pdev = to_platform_device(tdev->dev);
-	struct tmp102_temp_sensor *tmp102 = platform_get_drvdata(pdev);
+	struct i2c_client *client = to_i2c_client(tdev->dev);
+	struct tmp102_temp_sensor *tmp102 = i2c_get_clientdata(client);
 
 	if (!strcmp(dom_name, "cpu"))
 		return tmp102->slope;
@@ -182,8 +182,8 @@ static int tmp102_report_slope(struct thermal_dev *tdev, const char *dom_name)
 
 static int tmp102_report_offset(struct thermal_dev *tdev, const char *dom_name)
 {
-	struct platform_device *pdev = to_platform_device(tdev->dev);
-	struct tmp102_temp_sensor *tmp102 = platform_get_drvdata(pdev);
+	struct i2c_client *client = to_i2c_client(tdev->dev);
+	struct tmp102_temp_sensor *tmp102 = i2c_get_clientdata(client);
 
 	if (!strcmp(dom_name, "cpu"))
 		return tmp102->offset;
@@ -263,8 +263,14 @@ static int __devinit tmp102_temp_sensor_probe(
 
 	tmp102->therm_fw = kzalloc(sizeof(struct thermal_dev), GFP_KERNEL);
 	if (tmp102->therm_fw) {
-		tmp102->therm_fw->name = "tmp102_sensor";
-		tmp102->therm_fw->domain_name = "pcb";
+		char tmp[30];
+
+		snprintf(tmp, sizeof(tmp), "%s.%d", client->name,
+			 client->addr);
+		tmp102->therm_fw->name = kstrdup(tmp, GFP_KERNEL);
+		tmp102->therm_fw->domain_name =
+				kstrdup(tmp102_platform_data->domain,
+					GFP_KERNEL);
 
 		tmp102->therm_fw->dev = tmp102->dev;
 		tmp102->therm_fw->dev_ops = &tmp102_temp_sensor_ops;
@@ -315,6 +321,8 @@ static int __devexit tmp102_temp_sensor_remove(struct i2c_client *client)
 	}
 
 free_drv:
+	kfree(tmp102->therm_fw->name);
+	kfree(tmp102->therm_fw->domain);
 	kfree(tmp102->therm_fw);
 	kfree(tmp102);
 
@@ -380,9 +388,9 @@ MODULE_DEVICE_TABLE(i2c, tmp102_id);
 static struct i2c_driver tmp102_driver = {
 	.probe = tmp102_temp_sensor_probe,
 	.remove = tmp102_temp_sensor_remove,
-	.driver.pm = TMP102_DEV_PM_OPS,
 	.driver = {
 		.name = "tmp102_temp_sensor",
+		.pm = TMP102_DEV_PM_OPS,
 	},
 	.id_table = tmp102_id,
 };

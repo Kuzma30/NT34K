@@ -464,6 +464,7 @@ IS_OMAP_TYPE(3517, 0x3517)
 
 #define OMAP446X_CLASS		0x44600044
 #define OMAP4460_REV_ES1_0	(OMAP446X_CLASS | (0x10 << 8))
+#define OMAP4460_REV_ES1_1	(OMAP446X_CLASS | (0x11 << 8))
 
 #define OMAP447X_CLASS		0x44700044
 #define OMAP4470_REV_ES1_0	(OMAP447X_CLASS | (0x10 << 8))
@@ -472,6 +473,7 @@ IS_OMAP_TYPE(3517, 0x3517)
 #define OMAP5430_REV_ES1_0	(OMAP54XX_CLASS | (0x30 << 16) | (0x10 << 8))
 #define OMAP5430_REV_ES2_0	(OMAP54XX_CLASS | (0x30 << 16) | (0x20 << 8))
 #define OMAP5432_REV_ES1_0	(OMAP54XX_CLASS | (0x32 << 16) | (0x10 << 8))
+#define OMAP5432_REV_ES2_0	(OMAP54XX_CLASS | (0x32 << 16) | (0x20 << 8))
 
 void omap2xxx_check_revision(void);
 void omap3xxx_check_revision(void);
@@ -503,11 +505,10 @@ extern u32 omap_features;
 #define OMAP3_HAS_IO_WAKEUP		BIT(6)
 #define OMAP3_HAS_SDRC			BIT(7)
 #define OMAP3_HAS_IO_CHAIN_CTRL		BIT(8)
-#define OMAP4_HAS_MPU_1GHZ		BIT(9)
-#define OMAP4_HAS_MPU_1_2GHZ		BIT(10)
-#define OMAP4_HAS_MPU_1_5GHZ		BIT(11)
+#define OMAP4_HAS_PERF_SILICON		BIT(9)
 #define OMAP5_HAS_OPP_HIGH			BIT(12)
-
+#define OMAP5_HAS_AUTO_RET			BIT(13)
+#define OMAP5_HAS_AVS			BIT(14)
 
 #define OMAP3_HAS_FEATURE(feat,flag)			\
 static inline unsigned int omap3_has_ ##feat(void)	\
@@ -534,9 +535,7 @@ static inline unsigned int omap4_has_ ##feat(void)	\
 	return omap_features & OMAP4_HAS_ ##flag;	\
 }							\
 
-OMAP4_HAS_FEATURE(mpu_1ghz, MPU_1GHZ)
-OMAP4_HAS_FEATURE(mpu_1_2ghz, MPU_1_2GHZ)
-OMAP4_HAS_FEATURE(mpu_1_5ghz, MPU_1_5GHZ)
+OMAP4_HAS_FEATURE(perf_silicon, PERF_SILICON)
 
 /*
  * Runtime detection of OMAP5 features
@@ -548,5 +547,8 @@ static inline unsigned int omap5_has_ ##feat(void)	\
 }							\
 
 OMAP5_HAS_FEATURE(opp_high, OPP_HIGH)
+OMAP5_HAS_FEATURE(auto_ret, AUTO_RET)
+OMAP5_HAS_FEATURE(avs, AVS)
+
 
 #endif

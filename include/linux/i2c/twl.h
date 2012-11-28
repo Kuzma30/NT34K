@@ -108,6 +108,7 @@
 #define GASGAUGE_INTR_OFFSET	17
 #define USBOTG_INTR_OFFSET	4
 #define CHARGER_INTR_OFFSET	2
+#define GPADCSW_INTR_OFFSET	1
 #define RSV_INTR_OFFSET		0
 
 /* INT register offsets */
@@ -176,7 +177,7 @@ static inline int twl_class_is_ ##class(void)	\
 TWL_CLASS_IS(4030, TWL4030_CLASS_ID)
 TWL_CLASS_IS(6030, TWL6030_CLASS_ID)
 
-#define TWL6025_SUBCLASS	BIT(4)  /* TWL6025 has changed registers */
+#define TWL6032_SUBCLASS	BIT(4)  /* TWL6032 has changed registers */
 
 /*
  * Read and write single 8-bit registers
@@ -455,6 +456,10 @@ static inline int twl6030_mmc_card_detect(struct device *dev, int slot)
 
 #define TWL4030_PM_MASTER_GLOBAL_TST		0xb6
 
+#define TWL6030_PHOENIX_DEV_ON			0x06
+
+#define TWL6030_PM_MASTER_MSK_TRANSITION	0x01
+
 /*----------------------------------------------------------------------*/
 
 /* Power bus message definitions */
@@ -526,7 +531,28 @@ static inline int twl6030_mmc_card_detect(struct device *dev, int slot)
 /* Power Reference */
 #define RES_MAIN_REF            28
 
-#define TOTAL_RESOURCES		28
+/* 6030 extra resources */
+#define RES_V1V29		29
+#define RES_V1V8		30
+#define RES_V2V1		31
+#define RES_VDD3		32
+#define RES_VMEM		33
+#define RES_VANA		34
+#define RES_VUAX1		35
+#define RES_VCXIO		36
+#define RES_VPP			37
+#define RES_VRTC		38
+#define RES_REGEN2		39
+#define RES_32KCLKAO		40
+#define RES_32KCLKG		41
+#define RES_32KCLKAUDIO		42
+#define RES_BIAS		43
+#define RES_VBATMIN_HI		44
+#define RES_RC6MHZ		45
+#define RES_TEMP		46
+
+#define TOTAL_RESOURCES		46
+
 /*
  * Power Bus Message Format ... these can be sent individually by Linux,
  * but are usually part of downloaded scripts that are run when various
@@ -594,6 +620,7 @@ struct twl4030_gpio_platform_data {
 
 struct twl4030_madc_platform_data {
 	int		irq_line;
+	int		features;
 };
 
 /* Boards have unique mappings of {row, col} --> keycode.
@@ -646,23 +673,43 @@ struct twl4030_script {
 struct twl4030_resconfig {
 	u8 resource;
 	u8 devgroup;	/* Processor group that Power resource belongs to */
+	/* The following are used by TWL4030 only */
 	u8 type;	/* Power resource addressed, 6 / broadcast message */
 	u8 type2;	/* Power resource addressed, 3 / broadcast message */
 	u8 remap_off;	/* off state remapping */
 	u8 remap_sleep;	/* sleep state remapping */
 };
 
+struct twl4030_system_config {
+	char *name;
+	u8 group;
+};
+
 struct twl4030_power_data {
-	struct twl4030_script **scripts;
-	unsigned num;
+	struct twl4030_script **scripts;	/* used in TWL4030 only */
+	unsigned num;				/* used in TWL4030 only */
 	struct twl4030_resconfig *resource_config;
+	struct twl4030_system_config *sys_config; /*system resources*/
 #define TWL4030_RESCONFIG_UNDEF	((u8)-1)
 	bool use_poweroff;	/* Board is wired for TWL poweroff */
 };
 
+#ifdef CONFIG_TWL4030_POWER
 extern void twl4030_power_init(struct twl4030_power_data *triton2_scripts);
 extern int twl4030_remove_script(u8 flags);
 extern void twl4030_power_off(void);
+#else
+static inline
+void twl4030_power_init(struct twl4030_power_data *triton2_scripts) { }
+static inline int twl4030_remove_script(u8 flags) { return -EINVAL; }
+static inline void twl4030_power_off(void) { }
+#endif
+
+#ifdef CONFIG_TWL6030_POWER
+extern void twl6030_power_init(struct twl4030_power_data *power_data);
+#else
+extern inline void twl6030_power_init(struct twl4030_power_data *power_data) { }
+#endif
 
 struct twl4030_codec_data {
 	unsigned int digimic_delay; /* in ms */
@@ -727,9 +774,10 @@ struct twl4030_platform_data {
 	struct regulator_init_data              *vcxio;
 	struct regulator_init_data              *vusb;
 	struct regulator_init_data		*clk32kg;
+	struct regulator_init_data              *clk32kaudio;
 	struct regulator_init_data              *v1v8;
 	struct regulator_init_data              *v2v1;
-	/* TWL6025 LDO regulators */
+	/* TWL6032 LDO regulators */
 	struct regulator_init_data		*ldo1;
 	struct regulator_init_data		*ldo2;
 	struct regulator_init_data		*ldo3;
@@ -739,10 +787,17 @@ struct twl4030_platform_data {
 	struct regulator_init_data		*ldo7;
 	struct regulator_init_data		*ldoln;
 	struct regulator_init_data		*ldousb;
-	/* TWL6025 DCDC regulators */
+	/* TWL6032 DCDC regulators */
 	struct regulator_init_data		*smps3;
 	struct regulator_init_data		*smps4;
-	struct regulator_init_data		*vio6025;
+	struct regulator_init_data		*vio6032;
+
+	/* External control pins */
+	struct regulator_init_data		*sysen;
+	struct regulator_init_data		*regen1;
+
+	/* TWL6032 external SMPS regulators */
+	struct regulator_init_data		*ext_v2v1;
 };
 
 struct twl_regulator_driver_data {
@@ -831,21 +886,29 @@ static inline int twl4030charger_usb_en(int enable) { return 0; }
 #define TWL6030_REG_VRTC	47
 #define TWL6030_REG_CLK32KG	48
 
-/* LDOs on 6025 have different names */
-#define TWL6025_REG_LDO2	49
-#define TWL6025_REG_LDO4	50
-#define TWL6025_REG_LDO3	51
-#define TWL6025_REG_LDO5	52
-#define TWL6025_REG_LDO1	53
-#define TWL6025_REG_LDO7	54
-#define TWL6025_REG_LDO6	55
-#define TWL6025_REG_LDOLN	56
-#define TWL6025_REG_LDOUSB	57
+/* LDOs on 6032 have different names */
+#define TWL6032_REG_LDO2	49
+#define TWL6032_REG_LDO4	50
+#define TWL6032_REG_LDO3	51
+#define TWL6032_REG_LDO5	52
+#define TWL6032_REG_LDO1	53
+#define TWL6032_REG_LDO7	54
+#define TWL6032_REG_LDO6	55
+#define TWL6032_REG_LDOLN	56
+#define TWL6032_REG_LDOUSB	57
 
-/* 6025 DCDC supplies */
-#define TWL6025_REG_SMPS3	58
-#define TWL6025_REG_SMPS4	59
-#define TWL6025_REG_VIO		60
+/* 6032 DCDC supplies */
+#define TWL6032_REG_SMPS3	58
+#define TWL6032_REG_SMPS4	59
+#define TWL6032_REG_VIO		60
 
+#define TWL6030_REG_CLK32KAUDIO	61
+
+/* External control pins */
+#define TWL6030_REG_SYSEN	62
+#define TWL6030_REG_REGEN1	63
+
+/* 6032 external SMPSs */
+#define TWL6032_REG_EXT_V2V1	64
 
 #endif /* End of __TWL4030_H */

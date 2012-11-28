@@ -33,13 +33,20 @@
 #include <linux/power_supply.h>
 #include <linux/idr.h>
 #include <linux/i2c.h>
+#include <plat/mux.h>
+#include <linux/interrupt.h>
+#include <linux/gpio.h>
 #include <linux/slab.h>
+#include <linux/debugfs.h>
+#include <linux/thermal_framework.h>
 #include <asm/unaligned.h>
+#include <linux/mfd/palmas.h>
 
 #include <linux/power/bq27x00_battery.h>
 
 #define DRIVER_VERSION			"1.2.0"
 
+#define BQ27x00_REG_CONTL		0x00 /* Control Register */
 #define BQ27x00_REG_TEMP		0x06
 #define BQ27x00_REG_VOLT		0x08
 #define BQ27x00_REG_AI			0x14
@@ -51,6 +58,10 @@
 #define BQ27x00_REG_LMD			0x12 /* Last measured discharge */
 #define BQ27x00_REG_CYCT		0x2A /* Cycle count total */
 #define BQ27x00_REG_AE			0x22 /* Available energy */
+
+/* Control Commands */
+#define BQ27x00_CONTL_CMD_CHRG_EN	0x001A /* Enable charging */
+#define BQ27x00_CONTL_CMD_CHRG_DIS	0x001B /* Disable charging */
 
 #define BQ27000_REG_RSOC		0x0B /* Relative State-of-Charge */
 #define BQ27000_REG_ILMD		0x76 /* Initial last measured discharge */
@@ -69,9 +80,32 @@
 
 #define BQ27000_RS			20 /* Resistor sense */
 
+/*
+ * bq27530 controls bq24160 charger by its own dedicated i2c bus
+ * The charger registers are mapped to a series of single byte
+ * Charger Data Commands to enable system reading and writing of
+ * battery charger registers.
+ */
+#define BQ24160_CHRGR_CTL_STAT_REG      0x76
+#define BQ24160_CHRGR_CONTROL_REG	0x78
+
+#define IUSB_LIMIT_2			BIT(6)
+#define IUSB_LIMIT_1			BIT(5)
+#define IUSB_LIMIT_0			BIT(4)
+#define IUSB_LIMIT_MASK			(IUSB_LIMIT_2 | IUSB_LIMIT_1 | IUSB_LIMIT_0)
+
+#define STAT_2				BIT(6)
+#define STAT_1				BIT(5)
+#define STAT_0				BIT(4)
+#define STAT_MASK			(STAT_2 | STAT_1 | STAT_0)
+#define AC_CHARGING			(STAT_1 | STAT_0)
+#define AC_CHARGING_READY		STAT_0
+
 struct bq27x00_device_info;
 struct bq27x00_access_methods {
 	int (*read)(struct bq27x00_device_info *di, u8 reg, bool single);
+	int (*write)(struct bq27x00_device_info *di, u8 reg, u16 val,
+							bool single);
 };
 
 enum bq27x00_chip { BQ27000, BQ27500, BQ27530 };
@@ -91,6 +125,8 @@ struct bq27x00_reg_cache {
 struct bq27x00_device_info {
 	struct device 		*dev;
 	int			id;
+	int			gpio;
+	int			gpio_irq;
 	enum bq27x00_chip	chip;
 
 	struct bq27x00_reg_cache cache;
@@ -100,10 +136,19 @@ struct bq27x00_device_info {
 	struct delayed_work work;
 
 	struct power_supply	bat;
+	struct power_supply	ac;
+	struct power_supply	usb;
+	struct power_supply	bat_sim;
 
 	struct bq27x00_access_methods bus;
+	bool battery_present;
+	int			charger_type;
+	struct notifier_block   nb;
 
-	struct mutex lock;
+	struct	mutex lock;
+	/* reference to the cooling device */
+	struct	thermal_dev *tdev;
+	bool enable_charger;
 };
 
 static enum power_supply_property bq27x00_battery_props[] = {
@@ -125,7 +170,17 @@ static enum power_supply_property bq27x00_battery_props[] = {
 	POWER_SUPPLY_PROP_ENERGY_NOW,
 };
 
-static unsigned int poll_interval = 360;
+static unsigned int poll_interval = 1;
+
+static enum power_supply_property bq27x00_ac_props[] = {
+	POWER_SUPPLY_PROP_ONLINE,
+	POWER_SUPPLY_PROP_VOLTAGE_NOW,
+};
+
+static enum power_supply_property bq27x00_usb_props[] = {
+	POWER_SUPPLY_PROP_ONLINE,
+};
+
 module_param(poll_interval, uint, 0644);
 MODULE_PARM_DESC(poll_interval, "battery poll interval in seconds - " \
 				"0 disables polling");
@@ -138,6 +193,12 @@ static inline int bq27x00_read(struct bq27x00_device_info *di, u8 reg,
 		bool single)
 {
 	return di->bus.read(di, reg, single);
+}
+
+static inline int bq27x00_write(struct bq27x00_device_info *di, u8 reg,
+				u16 val, bool single)
+{
+	return di->bus.write(di, reg, val, single);
 }
 
 /*
@@ -559,6 +620,75 @@ static int bq27x00_battery_get_property(struct power_supply *psy,
 	return ret;
 }
 
+static int bq27x00_bat_sim_get_property(struct power_supply *psy,
+					enum power_supply_property psp,
+					union power_supply_propval *val)
+{
+	switch (psp) {
+	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
+		val->intval = 3800000;
+		break;
+	case POWER_SUPPLY_PROP_ONLINE:
+		val->intval = POWER_SUPPLY_TYPE_MAINS;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int bq27x00_ac_get_property(struct power_supply *psy,
+					enum power_supply_property psp,
+					union power_supply_propval *val)
+{
+	int ret = 0;
+	struct bq27x00_device_info *di =
+		container_of(psy, struct bq27x00_device_info, ac);
+	u8 value;
+
+	value = bq27x00_read(di, BQ24160_CHRGR_CTL_STAT_REG, false);
+	value &= STAT_MASK;
+
+	switch (psp) {
+	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
+		ret = bq27x00_battery_voltage(di, val);
+		break;
+	case POWER_SUPPLY_PROP_ONLINE:
+		ret = bq27x00_battery_status(di, val);
+		if (val->intval == POWER_SUPPLY_STATUS_CHARGING &&
+		    (value == AC_CHARGING || value == AC_CHARGING_READY))
+			val->intval = POWER_SUPPLY_TYPE_MAINS;
+		else
+			val->intval = POWER_SUPPLY_TYPE_UNKNOWN;
+
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return ret;
+}
+
+static int bq27x00_usb_get_property(struct power_supply *psy,
+					enum power_supply_property psp,
+					union power_supply_propval *val)
+{
+	int ret = 0;
+	struct bq27x00_device_info *di =
+		container_of(psy, struct bq27x00_device_info, usb);
+
+	switch (psp) {
+	case POWER_SUPPLY_PROP_ONLINE:
+		val->intval = di->charger_type;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return ret;
+}
+
 static void bq27x00_external_power_changed(struct power_supply *psy)
 {
 	struct bq27x00_device_info *di = to_bq27x00_device_info(psy);
@@ -567,41 +697,53 @@ static void bq27x00_external_power_changed(struct power_supply *psy)
 	schedule_delayed_work(&di->work, 0);
 }
 
+static irqreturn_t bq27x00_irq_handler(int irq, void *_priv)
+{
+	struct bq27x00_device_info *di = _priv;
+
+	power_supply_changed(&di->ac);
+	return IRQ_HANDLED;
+}
+
 static int bq27x00_powersupply_init(struct bq27x00_device_info *di)
 {
 	int ret;
 	union power_supply_propval volt_val;
 	union power_supply_propval curr_val;
-	bool battery_present;
+	int status;
 	/*
 	 * Get the current consumption by battery. If it is 0mA
-	 * either battery is not connected or battery is full
+	 * or a small leaking current of 100mA either battery is
+	 * not connected or battery is full
 	 */
 	ret = bq27x00_battery_current(di, &curr_val);
 	if (ret) {
 		dev_err(di->dev, "failed to get battery current: %d\n", ret);
 		return ret;
 	}
-	if (!curr_val.intval) {
+
+	if (abs(curr_val.intval) < 100000) {
 		/*
-		 * In case current is 0mA then check if voltage is more than
-		 * 3.9V in that case we are supplying from battery
-		 * as LDO is capable of supplying less than or equal to 3.7V
+		 * In case current is less than 100mA then check if
+		 * voltage is more than 3.9V in that case we are
+		 * supplying from battery as LDO is capable of
+		 * supplying less than or equal to 3.7V
 		 */
 		ret = bq27x00_battery_voltage(di, &volt_val);
 		if (ret) {
 			dev_err(di->dev, "failed to get voltage: %d\n", ret);
 			return ret;
 		}
+		/* Check if voltage is greater than 3.9v */
 		if (volt_val.intval > 3900000)
-			battery_present = true;
+			di->battery_present = true;
 		else
-			battery_present = false; /* Voltage is less than 4V */
+			di->battery_present = false;
 	} else {
-		battery_present = true; /* Current is non-zero value */
+		di->battery_present = true; /* Current is non-zero or no leak */
 	}
 
-	if (battery_present) {
+	if (di->battery_present) {
 		di->bat.type = POWER_SUPPLY_TYPE_BATTERY;
 		di->bat.properties = bq27x00_battery_props;
 		di->bat.num_properties = ARRAY_SIZE(bq27x00_battery_props);
@@ -619,9 +761,60 @@ static int bq27x00_powersupply_init(struct bq27x00_device_info *di)
 
 		dev_info(di->dev, "support ver. %s enabled\n", DRIVER_VERSION);
 
-		bq27x00_update(di);
-	}
+		di->ac.name = "ac-supply";
+		di->ac.type = POWER_SUPPLY_TYPE_MAINS;
+		di->ac.properties = bq27x00_ac_props;
+		di->ac.num_properties = ARRAY_SIZE(bq27x00_ac_props);
+		di->ac.get_property = bq27x00_ac_get_property;
 
+		ret = power_supply_register(di->dev, &di->ac);
+		if (ret) {
+			dev_err(di->dev, "fail to register AC: %d\n", ret);
+			power_supply_unregister(&di->bat);
+			return ret;
+		}
+
+		di->usb.name = "usb-supply";
+		di->usb.type = POWER_SUPPLY_TYPE_USB;
+		di->usb.properties = bq27x00_usb_props;
+		di->usb.num_properties = ARRAY_SIZE(bq27x00_usb_props);
+		di->usb.get_property = bq27x00_usb_get_property;
+
+		ret = power_supply_register(di->dev, &di->usb);
+		if (ret) {
+			dev_err(di->dev,
+				"fail to register USB power supply: %d\n", ret);
+			power_supply_unregister(&di->bat);
+			return ret;
+		}
+
+		status = request_threaded_irq(di->gpio_irq, NULL,
+				bq27x00_irq_handler,
+				IRQF_TRIGGER_LOW, "bq27x00_soc_int",
+				di);
+		if (status) {
+			dev_err(di->dev, "request irq failed for bq27x00_soc_int");
+			power_supply_unregister(&di->bat);
+			power_supply_unregister(&di->ac);
+			return status;
+		}
+
+		bq27x00_update(di);
+	} else {
+
+		di->bat_sim.name = "bat-sim";
+		di->bat_sim.type = POWER_SUPPLY_TYPE_MAINS;
+		di->bat_sim.properties = bq27x00_ac_props;
+		di->bat_sim.num_properties = ARRAY_SIZE(bq27x00_ac_props);
+		di->bat_sim.get_property = bq27x00_bat_sim_get_property;
+
+		ret = power_supply_register(di->dev, &di->bat_sim);
+		if (ret) {
+			dev_err(di->dev, "fail to register bat sim: %d\n", ret);
+			return ret;
+		}
+		dev_info(di->dev, "support ver. %s enabled\n", DRIVER_VERSION);
+	}
 	return 0;
 }
 
@@ -639,6 +832,8 @@ static void bq27x00_powersupply_unregister(struct bq27x00_device_info *di)
 
 	power_supply_unregister(&di->bat);
 
+	free_irq(di->gpio_irq, NULL);
+	gpio_free(di->gpio);
 	mutex_destroy(&di->lock);
 }
 
@@ -686,12 +881,177 @@ static int bq27x00_read_i2c(struct bq27x00_device_info *di, u8 reg, bool single)
 	return ret;
 }
 
+static int
+bq27x00_write_i2c(struct bq27x00_device_info *di, u8 reg, u16 val, bool single)
+{
+	struct i2c_client *client = to_i2c_client(di->dev);
+	struct i2c_msg msg[1];
+	unsigned char data[3];
+	int ret;
+
+	if (!client->adapter)
+		return -ENODEV;
+
+	msg[0].addr = client->addr;
+	msg[0].flags = 0;
+	data[0] = reg;
+	data[1] = val & 0x00FF;
+	if (!single) {
+		data[2] = (val & 0xFF00) >> 8;
+		msg[0].len = 3; /* 1 reg addr + 2 cmd bytes */
+	} else {
+		msg[0].len = 2; /* 1 reg addr + 1 cmd byte */
+	}
+	msg[0].buf = data;
+
+	ret = i2c_transfer(client->adapter, msg, ARRAY_SIZE(msg));
+
+	return ret;
+}
+
+static int bq27x00_usb_notifier_call(struct notifier_block *nb,
+		unsigned long event, void *data)
+{
+	struct bq27x00_device_info *di =
+		container_of(nb, struct bq27x00_device_info, nb);
+	u8 val;
+
+	di->charger_type = event;
+	val = bq27x00_read_i2c(di, BQ24160_CHRGR_CONTROL_REG, false);
+	val &= ~IUSB_LIMIT_MASK;
+
+	switch (event) {
+	case POWER_SUPPLY_TYPE_UNKNOWN:
+	case POWER_SUPPLY_TYPE_BATTERY:
+		/* on disconnect set safe minimal current - 100 mA */
+		bq27x00_write(di, BQ24160_CHRGR_CONTROL_REG, val, true);
+		break;
+	case POWER_SUPPLY_TYPE_USB:
+		/* USB2.0 host with 500 mA current limit */
+		val |= IUSB_LIMIT_1;
+		bq27x00_write(di, BQ24160_CHRGR_CONTROL_REG, val, true);
+		break;
+	case POWER_SUPPLY_TYPE_USB_DCP:
+	case POWER_SUPPLY_TYPE_USB_CDP:
+	case POWER_SUPPLY_TYPE_USB_ACA:
+		/* USB host/charger with 1500 mA current limit */
+		val |= IUSB_LIMIT_2 | IUSB_LIMIT_0;
+		bq27x00_write(di, BQ24160_CHRGR_CONTROL_REG, val, true);
+	default:
+		return NOTIFY_OK;
+	}
+
+	return NOTIFY_OK;
+}
+
+static int battery_apply_cooling(struct thermal_dev *dev,
+				int level)
+{
+	struct i2c_client *client = to_i2c_client(dev->dev);
+	struct bq27x00_device_info *di = i2c_get_clientdata(client);
+	unsigned long charge_level;
+	int percent;
+
+	/* transform into percentage */
+	percent = thermal_cooling_device_reduction_get(dev, level);
+	if (percent < 0 || percent > 100)
+		return -EINVAL;
+	/*
+	 * In the current design, only Charge ON/OFF is supported.
+	 * Need to update the logic once more levels are identified
+	 * for battery cooling device.
+	 */
+	dev_dbg(di->dev, "Cool levl %d percentage %d\n", level, percent);
+	mutex_lock(&battery_mutex);
+	if (percent) {
+		/* Set the Battery Charging to ON */
+		charge_level = 100;
+		/* Control command is 0x001A */
+		bq27x00_write(di, BQ27x00_REG_CONTL, BQ27x00_CONTL_CMD_CHRG_EN,
+									false);
+	} else {
+		/* Set the Battery Charging to OFF */
+		/* Control command is 0x001B */
+		bq27x00_write(di, BQ27x00_REG_CONTL, BQ27x00_CONTL_CMD_CHRG_DIS,
+									false);
+		charge_level = 0;
+	}
+	mutex_unlock(&battery_mutex);
+
+	return 0;
+}
+
+static int enable_charger_get(void *data, u64 *val)
+{
+	struct thermal_dev *tdev = data;
+	struct i2c_client *client = to_i2c_client(tdev->dev);
+	struct bq27x00_device_info *di = i2c_get_clientdata(client);
+
+	*val = di->enable_charger;
+
+	return 0;
+}
+
+static int enable_charger_set(void *data, u64 val)
+{
+	struct thermal_dev *tdev = data;
+	struct i2c_client *client = to_i2c_client(tdev->dev);
+	struct bq27x00_device_info *di = i2c_get_clientdata(client);
+
+	mutex_lock(&battery_mutex);
+	di->enable_charger = (int)val;
+
+	if (di->enable_charger) {
+		/* Set the Battery Charging to ON */
+		/* Control command is 0x001A */
+		bq27x00_write(di, BQ27x00_REG_CONTL, BQ27x00_CONTL_CMD_CHRG_EN,
+									false);
+	} else {
+		/* Set the Battery Charging to OFF */
+		/* Control command is 0x001B */
+		bq27x00_write(di, BQ27x00_REG_CONTL, BQ27x00_CONTL_CMD_CHRG_DIS,
+									false);
+	}
+	mutex_unlock(&battery_mutex);
+
+	return 0;
+}
+DEFINE_SIMPLE_ATTRIBUTE(enable_charger_fops, enable_charger_get,
+						enable_charger_set, "%llu\n");
+
+#ifdef CONFIG_THERMAL_FRAMEWORK_DEBUG
+static int battery_register_debug_entries(struct thermal_dev *tdev,
+					struct dentry *d)
+{
+	/* Read/Write - Debug properties of battery sensor */
+	(void) debugfs_create_file("enable_charger",
+			S_IRUGO | S_IWUSR, d, tdev,
+			&enable_charger_fops);
+	return 0;
+}
+#endif
+
+static struct thermal_dev_ops battery_cooling_ops = {
+	.cool_device = battery_apply_cooling,
+#ifdef CONFIG_THERMAL_FRAMEWORK_DEBUG
+	.register_debug_entries = battery_register_debug_entries,
+#endif
+};
+
+static struct thermal_dev battery_thermal_dev = {
+	.name		= "battery_cooling",
+	.domain_name	= "case",
+	.dev_ops	= &battery_cooling_ops,
+};
+
 static int bq27x00_battery_probe(struct i2c_client *client,
 				 const struct i2c_device_id *id)
 {
 	char *name;
 	struct bq27x00_device_info *di;
-	int num;
+	struct bq27x00_platform_data *bq_pdata;
+	struct thermal_dev *tdev;
+	int num, i;
 	int retval = 0;
 
 	/* Get new ID for the new battery device */
@@ -723,14 +1083,77 @@ static int bq27x00_battery_probe(struct i2c_client *client,
 	di->chip = id->driver_data;
 	di->bat.name = name;
 	di->bus.read = &bq27x00_read_i2c;
+	di->bus.write = &bq27x00_write_i2c;
+	di->gpio = client->irq;
+	retval = gpio_request_one(di->gpio, GPIOF_IN, "bq_gpio");
+	if (retval < 0) {
+		dev_err(di->dev, "Could not request for GPIO:%i\n",
+				di->gpio);
+		goto batt_failed_3;
+	}
+
+	di->enable_charger = true;
+	di->gpio_irq = gpio_to_irq(di->gpio);
 
 	if (bq27x00_powersupply_init(di))
-		goto batt_failed_3;
+		goto batt_failed_4;
 
 	i2c_set_clientdata(client, di);
 
+	di->nb.notifier_call = bq27x00_usb_notifier_call;
+	palmas_usb_register_notifier(&di->nb);
+
+	/* Register Battery as cooling device for Case domain */
+	if (di->battery_present) {
+		bq_pdata = dev_get_platdata(&client->dev);
+		/*
+		 * If there is no thermal cooling info for the battery, then
+		 * battery won't participate in the thermal policy as a cooling
+		 * device. But battery should be allowed to operate normally.
+		 * Hence skipping the thermal registration but allowing probe
+		 * function to succeed.
+		 */
+		if (!bq_pdata) {
+			dev_err(&client->dev, "%s: Invalid platform data\n",
+								__func__);
+			goto no_thermal_control;
+		}
+
+		tdev = kzalloc(sizeof(struct thermal_dev), GFP_KERNEL);
+		if (!tdev) {
+			dev_err(&client->dev, "failed to allocate thermal data\n");
+			retval = -ENOMEM;
+			goto batt_failed_4;
+		}
+
+		memcpy(tdev, &battery_thermal_dev, sizeof(struct thermal_dev));
+		tdev->dev = di->dev;
+		di->tdev = tdev;
+
+		retval = thermal_cooling_dev_register(tdev);
+		if (retval < 0) {
+			dev_err(&client->dev, "failed to register thermal device\n");
+			goto batt_failed_5;
+		}
+
+		/* Add the cooling actions for Battery cooling device */
+		for (i = 0; i < bq_pdata->number_actions; i++)
+			thermal_insert_cooling_action(di->tdev,
+				bq_pdata->cooling_actions[i].priority,
+				bq_pdata->cooling_actions[i].percentage);
+
+	} else {
+		dev_info(&client->dev, "Not in Battery mode\n");
+	}
+
+no_thermal_control:
+
 	return 0;
 
+batt_failed_5:
+	kfree(tdev);
+batt_failed_4:
+	gpio_free(di->gpio);
 batt_failed_3:
 	kfree(di);
 batt_failed_2:
@@ -748,6 +1171,11 @@ static int bq27x00_battery_remove(struct i2c_client *client)
 	struct bq27x00_device_info *di = i2c_get_clientdata(client);
 
 	bq27x00_powersupply_unregister(di);
+
+	if (di->tdev) {
+		thermal_cooling_dev_unregister(di->tdev);
+		kfree(di->tdev);
+	}
 
 	kfree(di->bat.name);
 

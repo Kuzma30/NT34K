@@ -253,6 +253,18 @@ config TWL4030_POWER
 	  and load scripts controlling which resources are switched off/on
 	  or reset when a sleep, wakeup or warm reset event occurs.
 
+config TWL6030_POWER
+	bool "Support power resources on TWL6030 family chips"
+	depends on TWL4030_CORE
+	help
+	  Say yes here if you want to use the power resources on the
+	  TWL6030 family chips.  Most of these resources are regulators,
+	  which have a separate driver; some are control signals, such
+	  as clock request handshaking.
+
+	  This driver defaults to assuming only APPs processor uses
+	  the resource, it can however be overridden by board file
+
 config MFD_TWL4030_AUDIO
 	bool
 	depends on TWL4030_CORE
@@ -267,6 +279,12 @@ config TWL6030_PWM
 	help
 	  Say yes here if you want support for TWL6030 PWM.
 	  This is used to control charging LED brightness.
+
+config TWL6030_POWEROFF
+	bool "TWL6030 device poweroff"
+	depends on TWL4030_CORE
+	help
+	  Say yes here to shutdown using TWL6030 power off feature
 
 config TWL6040_CORE
 	bool "Support for TWL6040 audio codec"
@@ -331,6 +349,14 @@ config MFD_TC3589X
 	  This driver provides common support for accessing the device,
 	  additional drivers must be enabled in order to use the
 	  functionality of the device.
+
+config TWL6030_GPADC
+	tristate "TWL6030 GPADC (General Purpose A/D Convertor) Support"
+	depends on TWL4030_CORE
+	default n
+	help
+	  Say yes here if you want support for the TWL6030 General Purpose
+	  A/D Convertor.
 
 config MFD_TMIO
 	bool
@@ -925,6 +951,13 @@ config MFD_PALMAS_PWM
 	depends on MFD_PALMAS
 	help
 	  If you say yes here you get support for the PWM on
+	  Palmas series of PMIC chips from Texas Instruments.
+
+config MFD_PALMAS_POWEROFF
+	bool "Support for poweroff using Palmas series of chips"
+	depends on MFD_PALMAS
+	help
+	  If you say yes here you get support for switching off with
 	  Palmas series of PMIC chips from Texas Instruments.
 
 endmenu

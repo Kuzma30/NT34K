@@ -618,12 +618,31 @@ static int palmas_set_voltage_ldo_sel(struct regulator_dev *dev,
 	int id = rdev_get_id(dev);
 	unsigned int reg = 0;
 	unsigned int addr;
+	bool enable_ldo9 = 0;
+
+	/*
+	 * Workaround for palmas bug when voltage transition
+	 * from 3.3V to 1.8V takes ~50-60 ms.
+	 * Disable voltage before switching to 1.8V and then enbable again
+	 * COBRA-1.0BUG00154: Palmas PMIC: LDO9 Ramp Time Issue.
+	 */
+	if (id == PALMAS_REG_LDO9) {
+		int voltage = palmas_list_voltage_ldo(dev, selector);
+
+		if (voltage == 1800000) {
+			palmas_disable_ldo(dev);
+			enable_ldo9 = 1;
+		}
+	}
 
 	addr = palmas_regs_info[id].vsel_addr;
 
 	reg = selector;
 
 	palmas_ldo_write(pmic->palmas, addr, reg);
+
+	if (enable_ldo9)
+		palmas_enable_ldo(dev);
 
 	return 0;
 }
@@ -857,16 +876,21 @@ static __devinit int palmas_probe(struct platform_device *pdev)
 	 * Errata Registration
 	 * TBD - Handle based on revision once we are sure of fix
 	 */
-	if (palmas->id == PALMAS_ID_TWL6035) {
+
+	if (palmas->id == PALMAS_ID_TWL6035 &&
+	    palmas->revision <= PALMAS_REV_ES2_0) {
 		set_palmas_erratum(palmas, SMPS_OUTPUT_VOLT_DROP);
 		dev_warn(&pdev->dev, "Erratum SMPS_OUTPUT_VOLT_DROP!");
 	}
 
-	if (palmas->id == PALMAS_ID_TWL6035) {
+	if (palmas->id == PALMAS_ID_TWL6035 &&
+	    palmas->revision <= PALMAS_REV_ES2_0) {
 		set_palmas_erratum(palmas, SMPS_MIXED_PHASE_ZERO_CROSS_DETECT);
 		dev_warn(&pdev->dev,
 			 "Erratum SMPS_MIXED_PHASE_ZERO_CROSS_DETECT!");
+	}
 
+	if (is_palmas_erratum(palmas, SMPS_MIXED_PHASE_ZERO_CROSS_DETECT)) {
 		ret = palmas_smps_read(palmas, PALMAS_SMPS_CTRL, &reg);
 		if (ret)
 			goto err_unregister_regulator;

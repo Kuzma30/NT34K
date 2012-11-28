@@ -99,6 +99,9 @@ u8 omap_get_sysboot_value(void)
 }
 EXPORT_SYMBOL(omap_get_sysboot_value);
 
+#define OMAP4_SILICON_TYPE_STANDARD	0x01
+#define OMAP4_SILICON_TYPE_PERFORMANCE	0x02
+
 /*----------------------------------------------------------------------------*/
 
 #define OMAP_TAP_IDCODE		0x0204
@@ -313,39 +316,35 @@ void __init omap4xxx_check_features(void)
 {
 	u32 si_type;
 
-	if (cpu_is_omap443x())
-		omap_features |= OMAP4_HAS_MPU_1GHZ;
+	si_type =
+	 (read_tap_reg(OMAP4_CTRL_MODULE_CORE_STD_FUSE_PROD_ID_1) >> 16) & 0x03;
 
-
-	if (cpu_is_omap446x()) {
-		si_type =
-			read_tap_reg(OMAP4_CTRL_MODULE_CORE_STD_FUSE_PROD_ID_1);
-		switch ((si_type & (3 << 16)) >> 16) {
-		case 2:
-			/* High performance device */
-			omap_features |= OMAP4_HAS_MPU_1_5GHZ;
-			break;
-		case 1:
-		default:
-			/* Standard device */
-			omap_features |= OMAP4_HAS_MPU_1_2GHZ;
-			break;
-		}
-	}
+	if (si_type == OMAP4_SILICON_TYPE_PERFORMANCE)
+		omap_features = OMAP4_HAS_PERF_SILICON;
 }
 
 void __init omap5xxx_check_features(void)
 {
-	if ((omap_rev() == OMAP5430_REV_ES1_0) &&
+	if (((omap_rev() == OMAP5430_REV_ES1_0) ||
+	     (omap_rev() == OMAP5432_REV_ES1_0)) &&
 	    ((omap_ctrl_readl(OMAP5_DIE_ID1_OFFSET) ==
 						OMAP5_ALL_OPP_ENABLED1) ||
 	     (omap_ctrl_readl(OMAP5_DIE_ID1_OFFSET) ==
 						OMAP5_ALL_OPP_ENABLED2) ||
 	     (omap_ctrl_readl(OMAP5_DIE_ID1_OFFSET) ==
 						OMAP5_ALL_OPP_ENABLED3) ||
-		 (omap_ctrl_readl(OMAP5_DIE_ID2_OFFSET) >=
-						OMAP5_ALL_OPP_ENABLED4)))
+		 (((omap_ctrl_readl(OMAP5_DIE_ID2_OFFSET) >> 8) & 0xff) >=
+				   OMAP5_ALL_OPP_ENABLED4)))
 		omap_features |= OMAP5_HAS_OPP_HIGH;
+
+	/* Enable Auto-ret support based on FT coverage. >=8 revision is good */
+	if (((omap_rev() == OMAP5430_REV_ES1_0) ||
+	     (omap_rev() == OMAP5432_REV_ES1_0)) &&
+	    ((omap_ctrl_readl(OMAP5_DIE_ID2_OFFSET) >> 8) & 0xff) >= 0x8) {
+		omap_features |= OMAP5_HAS_OPP_HIGH;
+		omap_features |= OMAP5_HAS_AUTO_RET;
+		omap_features |= OMAP5_HAS_AVS;
+	}
 }
 
 void __init ti81xx_check_features(void)
@@ -549,8 +548,11 @@ void __init omap4xxx_check_revision(void)
 	case 0xb94e:
 		switch (rev) {
 		case 0:
-		default:
 			omap_revision = OMAP4460_REV_ES1_0;
+			break;
+		case 2:
+		default:
+			omap_revision = OMAP4460_REV_ES1_1;
 			break;
 		}
 		break;
@@ -631,10 +633,10 @@ void __init omap5xxx_check_revision(void)
 			omap_revision = OMAP5430_REV_ES1_0;
 			break;
 		case 1:
+		/* FALLTHROUGH */
+		default:
 			omap_revision = OMAP5430_REV_ES2_0;
 			break;
-		default:
-			omap_revision = OMAP5430_REV_ES1_0;
 		}
 		break;
 
@@ -643,8 +645,11 @@ void __init omap5xxx_check_revision(void)
 		case 0:
 			omap_revision = OMAP5432_REV_ES1_0;
 			break;
+		case 1:
+		/* FALLTHROUGH */
 		default:
-			omap_revision = OMAP5432_REV_ES1_0;
+			omap_revision = OMAP5432_REV_ES2_0;
+			break;
 		}
 		break;
 

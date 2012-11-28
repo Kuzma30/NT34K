@@ -84,6 +84,9 @@ struct omap_device {
 
 int omap_device_enable(struct platform_device *pdev);
 int omap_device_idle(struct platform_device *pdev);
+int omap_device_runtime_resume_helper(struct device *dev);
+int omap_device_runtime_suspend_helper(struct device *dev);
+
 int omap_device_shutdown(struct platform_device *pdev);
 
 /* Core code interface */
@@ -167,5 +170,8 @@ void omap_device_disable_idle_on_suspend(struct platform_device *pdev)
 
 	od->flags |= OMAP_DEVICE_NO_IDLE_ON_SUSPEND;
 }
+
+int omap_device_runtime_suspend(struct device *dev);
+int omap_device_runtime_resume(struct device *dev);
 
 #endif

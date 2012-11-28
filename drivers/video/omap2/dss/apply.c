@@ -128,6 +128,7 @@ struct mgr_priv_data {
 static struct {
 	struct ovl_priv_data ovl_priv_data_array[MAX_DSS_OVERLAYS];
 	struct mgr_priv_data mgr_priv_data_array[MAX_DSS_MANAGERS];
+	struct writeback_cache_data writeback_cache;
 
 	bool fifo_merge_dirty;
 	bool fifo_merge;
@@ -583,11 +584,32 @@ static void dss_ovl_write_regs(struct omap_overlay *ovl)
 	u16 x_decim, y_decim;
 	bool five_taps = true;
 	int r;
+	struct writeback_cache_data *wbc;
+	bool m2m_with_ovl = false;
+	bool m2m_with_mgr = false;
 
 	DSSDBGF("%d", ovl->id);
 
 	if (!op->enabled || !op->info_dirty)
 		return;
+
+	if (dss_has_feature(FEAT_WB)) {
+		/* check if this overlay is source for wb, ignore mgr sources
+		 * here */
+		wbc = &dss_data.writeback_cache;
+		if (wbc->enabled && omap_dss_check_wb(wbc, ovl->id, -1)) {
+			DSSDBG("wb->enabled=%d for plane:%d\n",
+						wbc->enabled, ovl->id);
+			m2m_with_ovl = true;
+		}
+		/* check if this overlay is source for manager, which is source
+		 * for wb, ignore ovl sources */
+		if (wbc->enabled && omap_dss_check_wb(wbc, -1, op->channel)) {
+			DSSDBG("check wb mgr wb->enabled=%d for plane:%d\n",
+							wbc->enabled, ovl->id);
+			m2m_with_mgr = true;
+		}
+	}
 
 	oi = &op->info;
 
@@ -599,7 +621,8 @@ static void dss_ovl_write_regs(struct omap_overlay *ovl)
 						&x_decim, &y_decim, &five_taps);
 
 	r = r ? : dispc_ovl_setup(ovl->id, oi, ilace,
-			replication, x_decim, y_decim, five_taps);
+			replication, x_decim, y_decim, five_taps,
+						m2m_with_ovl || m2m_with_mgr);
 	if (r) {
 		/*
 		 * We can't do much here, as this function can be called from
@@ -627,17 +650,47 @@ static void dss_ovl_write_regs_extra(struct omap_overlay *ovl)
 {
 	struct ovl_priv_data *op = get_ovl_priv(ovl);
 	struct mgr_priv_data *mp;
+	struct writeback_cache_data *wbc;
+	bool m2m_with_ovl = false;
+	bool m2m_with_mgr = false;
 
 	DSSDBGF("%d", ovl->id);
 
 	if (!op->extra_info_dirty)
 		return;
 
+	if (dss_has_feature(FEAT_WB)) {
+		/*
+		 * Check, if this overlay is source for wb, then ignore mgr
+		 * sources here.
+		 */
+		wbc = &dss_data.writeback_cache;
+		if (wbc->enabled && omap_dss_check_wb(wbc, ovl->id, -1)) {
+			DSSDBG("wb->enabled=%d for plane:%d\n",
+						wbc->enabled, ovl->id);
+			m2m_with_ovl = true;
+		}
+		/*
+		 * Check, if this overlay is source for manager, which is
+		 * source for wb, then ignore ovl sources.
+		 */
+		if (wbc->enabled && omap_dss_check_wb(wbc, -1, op->channel)) {
+			DSSDBG("check wb mgr wb->enabled=%d for plane:%d\n",
+							wbc->enabled, ovl->id);
+			m2m_with_mgr = true;
+		}
+	}
+
 	/* note: write also when op->enabled == false, so that the ovl gets
 	 * disabled */
 
 	dispc_ovl_enable(ovl->id, op->enabled);
-	dispc_ovl_set_channel_out(ovl->id, op->channel);
+
+	if (!m2m_with_ovl)
+		dispc_ovl_set_channel_out(ovl->id, op->channel);
+	else
+		dispc_set_wb_channel_out(ovl->id);
+
 	dispc_ovl_set_fifo_threshold(ovl->id, op->fifo_low, op->fifo_high);
 
 	mp = get_mgr_priv(ovl->manager);
@@ -658,7 +711,7 @@ static void dss_mgr_write_regs(struct omap_overlay_manager *mgr)
 
 	DSSDBGF("%d", mgr->id);
 
-	if (!mp->enabled)
+	if (!mp->enabled && !mp->info.wb_only)
 		return;
 
 	WARN_ON(mp->busy);
@@ -725,7 +778,8 @@ static void dss_write_regs(void)
 		mp = get_mgr_priv(mgr);
 
 		if (!mp->enabled || mgr_manual_update(mgr) || mp->busy)
-			continue;
+			if (!mp->info.wb_only)
+				continue;
 
 		r = dss_check_settings(mgr, mgr->device);
 		if (r) {
@@ -764,6 +818,118 @@ static void dss_set_go_bits(void)
 		dispc_mgr_go(mgr->id);
 	}
 
+}
+
+static void dss_wb_write_regs(void)
+{
+	struct writeback_cache_data *wbc;
+	int r = 0;
+	if (dss_has_feature(FEAT_WB))
+		wbc = &dss_data.writeback_cache;
+	else
+		wbc = NULL;
+	/* setup WB for capture mode */
+	if (wbc && wbc->enabled && wbc->dirty) {
+		/* writeback is enabled for this plane - set accordingly */
+		r = dispc_setup_wb(wbc);
+		if (r)
+			DSSERR("dispc_setup_wb failed with error %d\n", r);
+		wbc->dirty = false;
+		wbc->shadow_dirty = true;
+	}
+}
+static void dss_wb_ovl_enable(void)
+{
+	struct writeback_cache_data *wbc;
+	struct ovl_priv_data *op = NULL;
+	struct omap_overlay *ovl;
+	const int num_ovls = dss_feat_get_num_ovls();
+	int i;
+
+	if (dss_has_feature(FEAT_WB))
+		wbc = &dss_data.writeback_cache;
+	else
+		wbc = NULL;
+	if (dss_has_feature(FEAT_WB)) {
+		/* Enable WB plane and source plane */
+		DSSDBG("configure manager wbc->shadow_dirty = %d",
+		wbc->shadow_dirty);
+		if (wbc->shadow_dirty && wbc->enabled) {
+			switch (wbc->source) {
+			case OMAP_WB_GFX:
+			case OMAP_WB_VID1:
+			case OMAP_WB_VID2:
+			case OMAP_WB_VID3:
+				wbc->shadow_dirty = false;
+				dispc_ovl_enable(OMAP_DSS_WB, true);
+				break;
+			case OMAP_WB_LCD1:
+			case OMAP_WB_LCD2:
+			case OMAP_WB_TV:
+				dispc_ovl_enable(OMAP_DSS_WB, true);
+				wbc->shadow_dirty = false;
+				break;
+			}
+		} else if (wbc->dirty && !wbc->enabled) {
+			if (wbc->mode == OMAP_WB_MEM2MEM_MODE &&
+				wbc->source >= OMAP_WB_GFX) {
+				/* This is a workaround. According to TRM
+				 * we should disable the manager but it will
+				 * cause blinking of panel. WA is to disable
+				 * pipe which was used as source of WB and do
+				 * dummy enable and disable of WB.
+				 */
+				dispc_ovl_enable(OMAP_DSS_WB, true);
+				dispc_ovl_enable(OMAP_DSS_WB, false);
+			} else if (wbc->mode == OMAP_WB_MEM2MEM_MODE &&
+					wbc->source < OMAP_WB_GFX) {
+				/* This is a workaround that prevents SYNC_LOST
+				 * on changing pipe channelout from manager
+				 * which was used as a source of wb to another
+				 * manager. Manager could free pipes after wb
+				 * will send SYNC message but that will start
+				 * wb capture. To prevent that we reconnect the
+				 * pipe from the manager to wb and do a dummy
+				 * enabling and disabling of wb - the pipe will
+				 * be freed and capture won't start because
+				 * source pipe is switched off. */
+				for (i = 0; i < num_ovls; ++i) {
+					ovl = omap_dss_get_overlay(i);
+					if (ovl)
+						op = get_ovl_priv(ovl);
+					if (op && (int)op->channel ==
+						(int)wbc->source &&
+						!op->enabled) {
+						dispc_setup_wb_source(
+							OMAP_DSS_GFX + i);
+						dispc_set_wb_channel_out(i);
+						dispc_ovl_enable(
+							OMAP_DSS_WB, true);
+						dispc_ovl_enable(
+							OMAP_DSS_WB, false);
+					}
+				}
+			} else
+				/* capture mode case */
+				dispc_ovl_enable(OMAP_DSS_WB, false);
+
+			wbc->dirty = false;
+		}
+	}
+}
+
+static void dss_wb_set_go_bits(void)
+{
+	struct writeback_cache_data *wbc;
+	if (dss_has_feature(FEAT_WB))
+		wbc = &dss_data.writeback_cache;
+	else
+		wbc = NULL;
+	/* WB GO bit has to be used only in case of
+	 * capture mode and not in memory mode
+	 */
+	if (wbc && wbc->mode != OMAP_WB_MEM2MEM_MODE)
+		dispc_go_wb();
 }
 
 static void mgr_clear_shadow_dirty(struct omap_overlay_manager *mgr)
@@ -905,8 +1071,14 @@ void dss_mgr_start_update(struct omap_overlay_manager *mgr)
 
 	dispc_mgr_enable(mgr->id, true);
 
-	mgr_clear_shadow_dirty(mgr);
+	/* for manually updated displays invoke dsscomp callbacks manually,
+	 * as logic that relays on shadow_dirty flag can't correctly release
+	 * previous composition
+	*/
+	dss_ovl_configure_cb(&mp->cb, mgr->id, true);
+	dss_ovl_program_cb(&mp->cb, mgr->id);
 
+	mgr_clear_shadow_dirty(mgr);
 	spin_unlock_irqrestore(&data_lock, flags);
 }
 
@@ -1177,37 +1349,139 @@ int omap_dss_mgr_apply(struct omap_overlay_manager *mgr)
 {
 	unsigned long flags;
 	struct omap_overlay *ovl;
+	struct omap_overlay_manager_info info;
 	int r;
 
 	DSSDBG("omap_dss_mgr_apply(%s)\n", mgr->name);
 
+	mgr->get_manager_info(mgr, &info);
+
 	spin_lock_irqsave(&data_lock, flags);
-#if 0
-	/* TODO: FIXME: Check why this causes spin lock crash */
-	if (!mgr->device || mgr->device->state != OMAP_DSS_DISPLAY_ACTIVE) {
-		pr_info_ratelimited("cannot apply mgr(%s) on inactive device\n",
+
+	if (!mgr->device) {
+		pr_info_ratelimited("cannot aply mgr(%s)--invalid device\n",
 				mgr->name);
 		r = -ENODEV;
-		spin_unlock_irqrestore(&data_lock, flags);
-		return r;
+		goto done;
 	}
-#endif
+
 	r = dss_check_settings_apply(mgr, mgr->device);
 	if (r) {
-		spin_unlock_irqrestore(&data_lock, flags);
 		DSSERR("failed to apply settings: illegal configuration.\n");
-		return r;
+		goto done;
 	}
 
 	/* Configure overlays */
 	list_for_each_entry(ovl, &mgr->overlays, list)
 		omap_dss_mgr_apply_ovl(ovl);
 
+	if (mgr->device->state != OMAP_DSS_DISPLAY_ACTIVE && !info.wb_only) {
+		struct writeback_cache_data *wbc;
+
+		if (dss_has_feature(FEAT_WB))
+			wbc = &dss_data.writeback_cache;
+		else
+			wbc = NULL;
+
+		/* in case, if WB was configured with MEM2MEM with manager
+		 * mode, but manager, which is source for WB, is not marked as
+		 * wb_only, then skip apply operation. We have such case, when
+		 * composition was sent to disable pipes, which are sources for
+		 * WB.
+		 */
+		if (wbc && wbc->mode == OMAP_WB_MEM2MEM_MODE &&
+			(int)wbc->source == (int)mgr->id && mgr->device &&
+			mgr->device->state != OMAP_DSS_DISPLAY_ACTIVE) {
+			r = 0;
+			goto done;
+		}
+
+		pr_info_ratelimited("cannot apply mgr(%s) on inactive device\n",
+				mgr->name);
+		r = -ENODEV;
+		goto done;
+	}
+
 	/* Configure manager */
 	omap_dss_mgr_apply_mgr(mgr);
-
+done:
 	spin_unlock_irqrestore(&data_lock, flags);
 
+	return r;
+}
+
+int omap_dss_wb_mgr_apply(struct omap_overlay_manager *mgr,
+		struct omap_writeback *wb)
+{
+	struct writeback_cache_data *wbc;
+	unsigned long flags;
+
+	DSSDBG("omap_dss_wb_mgr_apply(%s)\n", mgr->name);
+	if (!wb) {
+		printk(KERN_ERR "[%s][%d] No WB!\n", __FILE__, __LINE__);
+		return -EINVAL;
+	}
+
+	/* skip composition, if manager is enabled. It happens when HDMI/TV
+	 * physical layer is activated in the time, when MEM2MEM with manager
+	 * mode is used.
+	 */
+	if (wb->info.source == OMAP_WB_TV &&
+			dispc_mgr_is_enabled(OMAP_DSS_CHANNEL_DIGIT) &&
+				wb->info.mode == OMAP_WB_MEM2MEM_MODE) {
+		DSSERR("manager %d busy, dropping\n", mgr->id);
+		return -EBUSY;
+	}
+
+	spin_lock_irqsave(&data_lock, flags);
+	wbc = &dss_data.writeback_cache;
+
+	if (wb && wb->info.enabled) {
+		/* if source is an overlay, mode cannot be capture */
+		if ((wb->info.source >= OMAP_WB_GFX) &&
+			(wb->info.mode != OMAP_WB_MEM2MEM_MODE))
+			return -EINVAL;
+		wbc->enabled = true;
+		wbc->mode = wb->info.mode;
+		wbc->color_mode = wb->info.dss_mode;
+		wbc->out_width = wb->info.out_width;
+		wbc->out_height = wb->info.out_height;
+		wbc->width = wb->info.width;
+		wbc->height = wb->info.height;
+
+		wbc->paddr = wb->info.paddr;
+		wbc->p_uv_addr = wb->info.p_uv_addr;
+
+		wbc->capturemode = wb->info.capturemode;
+		wbc->burst_size = BURST_SIZE_X8;
+
+		/*
+		 * only these FIFO values work in WB capture mode for all
+		 * downscale scenarios. Other FIFO values cause a SYNC_LOST
+		 * on LCD due to b/w issues.
+		 */
+		wbc->fifo_high = 0x10;
+		wbc->fifo_low = 0x8;
+		wbc->source = wb->info.source;
+		wbc->force_1d = wb->info.force_1d;
+
+		wbc->rotation = wb->info.rotation;
+		wbc->rotation_type = wb->info.rotation_type;
+
+		wbc->dirty = true;
+		wbc->shadow_dirty = false;
+	} else if (wb && (wbc->enabled != wb->info.enabled)) {
+		/* disable WB if not disabled already*/
+		wbc->enabled = wb->info.enabled;
+		wbc->dirty = true;
+		wbc->shadow_dirty = false;
+	}
+
+	dss_wb_write_regs();
+	dss_wb_ovl_enable();
+	dss_wb_set_go_bits();
+
+	spin_unlock_irqrestore(&data_lock, flags);
 	return 0;
 }
 

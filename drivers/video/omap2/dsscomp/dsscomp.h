@@ -61,6 +61,7 @@ struct dsscomp_dev {
 	/* cached DSS objects */
 	u32 num_ovls;
 	struct omap_overlay *ovls[MAX_OVERLAYS];
+	struct omap_writeback *wb_ovl;
 	u32 num_mgrs;
 	struct omap_overlay_manager *mgrs[MAX_MANAGERS];
 	u32 num_displays;
@@ -143,7 +144,9 @@ int dsscomp_state_notifier(struct notifier_block *nb,
 
 /* basic operation - if not using queues */
 int set_dss_ovl_info(struct dss2_ovl_info *oi);
-int set_dss_mgr_info(struct dss2_mgr_info *mi, struct omapdss_ovl_cb *cb);
+int set_dss_wb_info(struct dss2_ovl_info *oi);
+int set_dss_mgr_info(struct dss2_mgr_info *mi, struct omapdss_ovl_cb *cb,
+								bool m2m_mode);
 struct omap_overlay_manager *find_dss_mgr(int display_ix);
 void swap_rb_in_ovl_info(struct dss2_ovl_info *oi);
 void swap_rb_in_mgr_info(struct dss2_mgr_info *mi);
@@ -191,10 +194,10 @@ extern struct dbg_event_t {
 	const char *fmt;
 } dbg_events[128];
 extern u32 dbg_event_ix;
-extern bool alpha_only;
 
 void dsscomp_dbg_events(struct seq_file *s);
 #endif
+extern bool alpha_only;
 
 static inline
 void __log_event(u32 ix, u32 ms, void *data, const char *fmt, u32 a1, u32 a2)

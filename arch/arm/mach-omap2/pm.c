@@ -18,16 +18,17 @@
 #include <linux/suspend.h>
 #include <linux/pm_qos.h>
 #include <linux/ratelimit.h>
+#include <linux/regulator/machine.h>
 
 #include <asm/system_misc.h>
 
 #include <plat/omap-pm.h>
 #include <plat/omap_device.h>
 #include <plat/dvfs.h>
+#include <plat/voltage.h>
 #include "common.h"
 
 #include "prcm-common.h"
-#include "voltage.h"
 #include "powerdomain.h"
 #include "clockdomain.h"
 #include "pm.h"
@@ -66,6 +67,22 @@ static struct omap2_oscillator oscillator = {
 	 * have variances in implementation */
 	.voltage_setup_time = 0,
 	.voltage_shutdown_time = 0,
+};
+
+/**
+ * struct omap_pm - Describe the board PM parameters
+ * @rsttime_latency: board global reset latency
+ *
+ * This information tends to be specific to every board, because boards
+ * can contain different types of HW (like PMIC) with different timing
+ * characteristics and etc.
+ */
+struct omap_pm {
+	u32 rsttime_latency;
+};
+
+static struct omap_pm omap_pm = {
+	.rsttime_latency = 0,	/* Explicit declaration to be readable */
 };
 
 bool omap_pm_is_ready_status;
@@ -139,6 +156,30 @@ void omap_pm_get_oscillator_voltage_ramp_time(u32 *tstart, u32 *tshut)
 	*tshut = oscillator.voltage_shutdown_time;
 }
 
+/**
+ * omap_pm_setup_rsttime_latency() -
+ *	setup the board global reset latency
+ * @rsttime_latency:	reset latency time rounded up to uSec
+ *
+ * Store the board global reset latency.
+ *
+ * This function is meant to be used at boot-time configuration.
+ */
+void __init omap_pm_setup_rsttime_latency(u32 rsttime_latency)
+{
+	omap_pm.rsttime_latency = rsttime_latency;
+}
+
+/**
+ * omap_pm_get_rsttime_latency() -
+ *	retrieve the board global reset latency
+ *
+ * Returns latency for reset if registered, else returns 0
+ */
+u32 omap_pm_get_rsttime_latency(void)
+{
+	return omap_pm.rsttime_latency;
+}
 
 static struct omap_device_pm_latency iva_pm_lats[] = {
 	{
@@ -185,7 +226,6 @@ static void __init omap2_init_processor_devices(void)
 
 	if (cpu_is_omap44xx() || cpu_is_omap54xx()) {
 		_init_omap_device("l3_main_1");
-#ifndef CONFIG_OMAP_PM_STANDALONE
 		_init_omap_device("dsp");
 		_init_omap_device_lats("iva", iva_pm_lats,
 						ARRAY_SIZE(iva_pm_lats));
@@ -193,7 +233,6 @@ static void __init omap2_init_processor_devices(void)
 						ARRAY_SIZE(iva_pm_lats));
 		_init_omap_device_lats("iva_seq1", iva_pm_lats,
 						ARRAY_SIZE(iva_pm_lats));
-#endif
 	} else {
 		_init_omap_device("l3_main");
 	}
@@ -354,6 +393,8 @@ static int omap_pm_enter(suspend_state_t suspend_state)
 
 static int omap_pm_begin(suspend_state_t state)
 {
+	int ret = 0;
+
 	disable_hlt();
 
 	/*
@@ -370,6 +411,13 @@ static int omap_pm_begin(suspend_state_t state)
 	if (cpu_is_omap34xx())
 		omap_prcm_irq_prepare();
 
+	ret = regulator_suspend_prepare(state);
+	if (ret) {
+		pr_err("%s: Regulator suspend prepare failed (%d)!\n",
+		       __func__, ret);
+		return ret;
+	}
+
 	/* Enable DEV OFF */
 	if (off_mode_enabled && (cpu_is_omap44xx() || cpu_is_omap54xx()))
 		pwrdm_enable_off_mode(true);
@@ -379,9 +427,17 @@ static int omap_pm_begin(suspend_state_t state)
 
 static void omap_pm_end(void)
 {
+	int ret = 0;
+
 	/* Disable DEV OFF */
 	if (off_mode_enabled && (cpu_is_omap44xx() || cpu_is_omap54xx()))
 		pwrdm_enable_off_mode(false);
+
+	ret = regulator_suspend_finish();
+	if (ret) {
+		pr_err("%s: resume regulators from suspend failed (%d)!\n",
+		       __func__, ret);
+	}
 
 	enable_hlt();
 	return;
@@ -419,11 +475,11 @@ static void __init omap4_init_voltages(void)
 
 	if (cpu_is_omap443x())
 		omap_set_init_opp("mpu", "dpll_mpu_ck", "mpu");
-	else if (cpu_is_omap446x())
+	else if (cpu_is_omap446x() | cpu_is_omap447x())
 		omap_set_init_opp("mpu", "virt_dpll_mpu_ck", "mpu");
 
 	omap_set_init_opp("core", "virt_l3_ck", "l3_main_1");
-	omap_set_init_opp("iva", "dpll_iva_m5x2_ck", "iva");
+	omap_set_init_opp("iva", "virt_dpll_iva_ck", "iva");
 }
 
 static void __init omap5_init_voltages(void)

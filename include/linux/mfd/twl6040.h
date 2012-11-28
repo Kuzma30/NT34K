@@ -93,6 +93,7 @@
 
 #define TWL6040_NCPENA			0x01
 #define TWL6040_NCPOPEN			0x40
+#define TWL6040_TSHUTENA		0x80
 
 /* LDOCTL (0x06) fields */
 
@@ -165,9 +166,13 @@
 
 #define TWL6040_CELLS			2
 
+#define TWL6040_POWER_UP_TIME		16 /* ms */
+
 #define TWL6040_REV_ES1_0		0x00
 #define TWL6040_REV_ES1_1		0x01
 #define TWL6040_REV_ES1_2		0x02
+#define TWL6041_REV_ES2_0		0x10
+#define TWL6041_REV_ES2_2		0x12
 
 #define TWL6040_IRQ_TH			0
 #define TWL6040_IRQ_PLUG		1
@@ -195,11 +200,20 @@ struct twl6040_vibra_data {
 	unsigned int vibrmotor_res;	/* right motor resistance */
 	int vddvibl_uV;			/* VDDVIBL volt, set 0 for fixed reg */
 	int vddvibr_uV;			/* VDDVIBR volt, set 0 for fixed reg */
+
+	/* timed-output based implementations */
+	int max_timeout;
+	int initial_vibrate;
+	int (*init)(void);
+	void (*exit)(void);
+	u8 voltage_raise_speed;
 };
 
 struct twl6040_platform_data {
 	int audpwron_gpio;	/* audio power-on gpio */
 	unsigned int irq_base;
+	int (*set_pll_input)(int pll_id, int enable);
+	int (*pdm_ul_errata)(void);
 
 	struct twl6040_codec_data *codec;
 	struct twl6040_vibra_data *vibra;
@@ -226,6 +240,7 @@ struct twl6040 {
 	int pll;
 	unsigned int sysclk;
 	unsigned int mclk;
+	int (*set_pll_input)(int pll_id, int enable);
 
 	unsigned int irq;
 	unsigned int irq_base;

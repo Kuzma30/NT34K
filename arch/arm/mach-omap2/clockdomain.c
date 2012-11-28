@@ -767,7 +767,10 @@ int clkdm_sleep(struct clockdomain *clkdm)
 
 	spin_lock_irqsave(&clkdm->lock, flags);
 	clkdm->_flags &= ~_CLKDM_FLAG_HWSUP_ENABLED;
+	clkdm->_flags &= ~_CLKDM_FLAG_FORCE_NO_SLEEP;
 	ret = arch_clkdm->clkdm_sleep(clkdm);
+	pwrdm_wait_transition(clkdm->pwrdm.ptr);
+	pwrdm_state_high2low_counter_update(clkdm->pwrdm.ptr);
 	spin_unlock_irqrestore(&clkdm->lock, flags);
 	return ret;
 }
@@ -802,8 +805,10 @@ int clkdm_wakeup(struct clockdomain *clkdm)
 
 	spin_lock_irqsave(&clkdm->lock, flags);
 	clkdm->_flags &= ~_CLKDM_FLAG_HWSUP_ENABLED;
+	clkdm->_flags |= _CLKDM_FLAG_FORCE_NO_SLEEP;
 	ret = arch_clkdm->clkdm_wakeup(clkdm);
-	ret |= pwrdm_state_switch(clkdm->pwrdm.ptr);
+	pwrdm_wait_transition(clkdm->pwrdm.ptr);
+	pwrdm_state_low2high_counter_update(clkdm->pwrdm.ptr);
 	spin_unlock_irqrestore(&clkdm->lock, flags);
 	return ret;
 }
@@ -839,8 +844,11 @@ void clkdm_allow_idle(struct clockdomain *clkdm)
 
 	spin_lock_irqsave(&clkdm->lock, flags);
 	clkdm->_flags |= _CLKDM_FLAG_HWSUP_ENABLED;
+	clkdm->_flags &= ~_CLKDM_FLAG_FORCE_NO_SLEEP;
+
 	arch_clkdm->clkdm_allow_idle(clkdm);
-	pwrdm_clkdm_state_switch(clkdm);
+	pwrdm_wait_transition(clkdm->pwrdm.ptr);
+	pwrdm_state_high2low_counter_update(clkdm->pwrdm.ptr);
 	spin_unlock_irqrestore(&clkdm->lock, flags);
 }
 
@@ -874,8 +882,10 @@ void clkdm_deny_idle(struct clockdomain *clkdm)
 
 	spin_lock_irqsave(&clkdm->lock, flags);
 	clkdm->_flags &= ~_CLKDM_FLAG_HWSUP_ENABLED;
+	clkdm->_flags |= _CLKDM_FLAG_FORCE_NO_SLEEP;
 	arch_clkdm->clkdm_deny_idle(clkdm);
-	pwrdm_state_switch(clkdm->pwrdm.ptr);
+	pwrdm_wait_transition(clkdm->pwrdm.ptr);
+	pwrdm_state_low2high_counter_update(clkdm->pwrdm.ptr);
 	spin_unlock_irqrestore(&clkdm->lock, flags);
 }
 
@@ -907,19 +917,80 @@ bool clkdm_in_hwsup(struct clockdomain *clkdm)
 
 /* Clockdomain-to-clock/hwmod framework interface code */
 
-static int _clkdm_clk_hwmod_enable(struct clockdomain *clkdm)
+/**
+ * clkdm_usecount_inc - increment clockdomain usecount
+ * @clkdm: struct clockdomain *
+ *
+ * Increments clockdomain usecount, intended to be used from either
+ * clock or hwmod code once a clock / hwmod is enabled within this
+ * domain. If changes from 0 to 1, this will call pwrdm_clkdm_enable
+ * to indicate that a clockdomain has been woken up. Returns
+ * the new usecount value within the domain. Only usecount operations
+ * are protected and not the entire function as no critical configuration
+ * that are prone for race are expected to be done from this function.
+ */
+static int clkdm_usecount_inc(struct clockdomain *clkdm)
 {
-	unsigned long flags;
+	int usecount;
+
+	usecount = atomic_inc_return(&clkdm->usecount);
+
+	if (usecount == 1)
+		pwrdm_usecount_inc(clkdm->pwrdm.ptr);
+
+	return usecount;
+}
+
+/**
+ * clkdm_usecount_dec - decrease clockdomain usecount
+ * @clkdm: struct clockdomain *
+ *
+ * Decreases clockdomain usecount, intended to be used from either
+ * clock or hwmod code once a clock / hwmod is disabled within this
+ * domain. If new usecount for the domain is zero (meaning no
+ * activity within the domain), will call pwrdm_clkdm_disable to
+ * indicate that a clockdomain is ready to enter idle. Returns the
+ * new usecount value within the domain. Only usecount operations
+ * are protected and not the entire function as no critical configuration
+ * that are prone for race are expected to be done from this function.
+ */
+static int clkdm_usecount_dec(struct clockdomain *clkdm)
+{
+	int usecount, ret;
+
+	ret = atomic_add_unless(&clkdm->usecount, -1, 0);
+
+	if (!ret) {
+		pr_warn("%s: clkdm %s usecount already 0\n",
+			__func__, clkdm->name);
+		return -EPERM;
+	}
+
+	usecount = atomic_read(&clkdm->usecount);
+	if (usecount == 0)
+		pwrdm_usecount_dec(clkdm->pwrdm.ptr);
+
+	return usecount;
+}
+
+static int _clkdm_clk_hwmod_enable(struct clockdomain *clkdm,
+					struct omap_hwmod *oh)
+{
+	unsigned long flags, usecount = 0;
 
 	if (!clkdm || !arch_clkdm || !arch_clkdm->clkdm_clk_enable)
 		return -EINVAL;
+
+	if ((oh && oh->prcm.omap4.modulemode == MODULEMODE_SWCTRL) ||
+	    (clkdm->flags && !(clkdm->flags & CLKDM_CAN_ENABLE_AUTO)))
+		usecount = clkdm_usecount_inc(clkdm);
 
 	/*
 	 * For arch's with no autodeps, clkcm_clk_enable
 	 * should be called for every clock instance or hwmod that is
 	 * enabled, so the clkdm can be force woken up.
 	 */
-	if ((atomic_inc_return(&clkdm->usecount) > 1) && autodeps)
+	if (usecount > 1 && autodeps)
 		return 0;
 
 	if (clkdm->flags & CLKDM_SKIP_MANUAL_TRANS)
@@ -928,7 +999,7 @@ static int _clkdm_clk_hwmod_enable(struct clockdomain *clkdm)
 	spin_lock_irqsave(&clkdm->lock, flags);
 	arch_clkdm->clkdm_clk_enable(clkdm);
 	pwrdm_wait_transition(clkdm->pwrdm.ptr);
-	pwrdm_clkdm_state_switch(clkdm);
+	pwrdm_state_low2high_counter_update(clkdm->pwrdm.ptr);
 	spin_unlock_irqrestore(&clkdm->lock, flags);
 
 	pr_debug("clockdomain: clkdm %s: enabled\n", clkdm->name);
@@ -936,29 +1007,35 @@ static int _clkdm_clk_hwmod_enable(struct clockdomain *clkdm)
 	return 0;
 }
 
-static int _clkdm_clk_hwmod_disable(struct clockdomain *clkdm)
+static int _clkdm_clk_hwmod_disable(struct clockdomain *clkdm,
+					struct omap_hwmod *oh)
 {
 	unsigned long flags;
 
 	if (!clkdm || !arch_clkdm || !arch_clkdm->clkdm_clk_disable)
 		return -EINVAL;
 
-	if (atomic_read(&clkdm->usecount) == 0) {
-		WARN_ON(1); /* underflow */
-		return -ERANGE;
-	}
+	if ((oh && oh->prcm.omap4.modulemode == MODULEMODE_SWCTRL) ||
+	    (clkdm->flags && !(clkdm->flags & CLKDM_CAN_ENABLE_AUTO))) {
+		if (atomic_read(&clkdm->usecount) == 0) {
+			WARN_ON(1); /* underflow */
+			return -ERANGE;
+		}
 
-	if (atomic_dec_return(&clkdm->usecount) > 0)
-		return 0;
+		if (clkdm_usecount_dec(clkdm) > 0)
+			return 0;
+	}
 
 	if (clkdm->flags & CLKDM_SKIP_MANUAL_TRANS)
 		return 0;
 
 	spin_lock_irqsave(&clkdm->lock, flags);
-	arch_clkdm->clkdm_clk_disable(clkdm);
-	pwrdm_clkdm_state_switch(clkdm);
+	if (!(clkdm->_flags & _CLKDM_FLAG_FORCE_NO_SLEEP)) {
+		arch_clkdm->clkdm_clk_disable(clkdm);
+		pwrdm_wait_transition(clkdm->pwrdm.ptr);
+		pwrdm_state_high2low_counter_update(clkdm->pwrdm.ptr);
+	}
 	spin_unlock_irqrestore(&clkdm->lock, flags);
-
 	pr_debug("clockdomain: clkdm %s: disabled\n", clkdm->name);
 
 	return 0;
@@ -988,7 +1065,7 @@ int clkdm_clk_enable(struct clockdomain *clkdm, struct clk *clk)
 	if (!clk)
 		return -EINVAL;
 
-	return _clkdm_clk_hwmod_enable(clkdm);
+	return _clkdm_clk_hwmod_enable(clkdm, NULL);
 }
 
 /**
@@ -1014,7 +1091,7 @@ int clkdm_clk_disable(struct clockdomain *clkdm, struct clk *clk)
 	if (!clk)
 		return -EINVAL;
 
-	return _clkdm_clk_hwmod_disable(clkdm);
+	return _clkdm_clk_hwmod_disable(clkdm, NULL);
 }
 
 /**
@@ -1046,7 +1123,7 @@ int clkdm_hwmod_enable(struct clockdomain *clkdm, struct omap_hwmod *oh)
 	if (!oh)
 		return -EINVAL;
 
-	return _clkdm_clk_hwmod_enable(clkdm);
+	return _clkdm_clk_hwmod_enable(clkdm, oh);
 }
 
 /**
@@ -1077,6 +1154,6 @@ int clkdm_hwmod_disable(struct clockdomain *clkdm, struct omap_hwmod *oh)
 	if (!oh)
 		return -EINVAL;
 
-	return _clkdm_clk_hwmod_disable(clkdm);
+	return _clkdm_clk_hwmod_disable(clkdm, oh);
 }
 

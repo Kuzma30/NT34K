@@ -28,6 +28,7 @@
 #include <linux/platform_device.h>
 #include <linux/i2c/pca953x.h>
 #include <linux/i2c/tmp102.h>
+#include <linux/i2c/tmp006.h>
 #include <linux/i2c/twl.h>
 #include <linux/input/matrix_keypad.h>
 #include <linux/platform_data/omap-abe-twl6040.h>
@@ -36,9 +37,12 @@
 #include <linux/mfd/twl6040.h>
 #include <linux/regulator/machine.h>
 #include <linux/regulator/fixed.h>
+#include <linux/power/bq27x00_battery.h>
 
 #include <mach/hardware.h>
-
+#include <mach/omap-secure.h>
+#include "common.h"
+#include <asm/hardware/gic.h>
 #include <plat/common.h>
 #include <plat/i2c.h>
 #include <plat/gpio.h>
@@ -59,6 +63,10 @@
 #include "mux.h"
 #include "omap5_ion.h"
 #include "omap_ram_console.h"
+#include "control.h"
+
+#include <video/omapdss.h>
+#include <video/omap-panel-lg4591.h>
 
 /* USBB3 to SMSC LAN9730 */
 #define GPIO_ETH_NRESET	172
@@ -68,6 +76,11 @@
 
 /* MSECURE GPIO */
 #define GPIO_MSECURE 234
+
+/* CHARGER INTERRUPT */
+#define GPIO_CHRGR_INT 163
+
+#define GPIO1_WKOUT5 5
 
 static const uint32_t evm5430_keymap[] = {
 	KEY(2, 2, KEY_VOLUMEUP),
@@ -126,8 +139,17 @@ static struct platform_device sevm_leds_gpio = {
 	},
 };
 
+static struct platform_device evm_user_cooling_device = {
+	.name	= "user_cooling_device",
+	.id	= -1,
+	.dev	= {
+		.platform_data = "case",
+	},
+};
+
 #ifdef CONFIG_OMAP_MUX
 static struct omap_board_mux board_mux[] __initdata = {
+	OMAP5_MUX(ABESLIMBUS1_DATA, OMAP_PIN_INPUT_PULLDOWN | OMAP_MUX_MODE1),
 	{ .reg_offset = OMAP_MUX_TERMINATOR },
 };
 #else
@@ -169,6 +191,7 @@ static struct omap2_hsmmc_info mmc[] = {
 		.gpio_cd        = -EINVAL,
 		.gpio_wp        = -EINVAL,
 		.ocr_mask       = MMC_VDD_165_195,
+		.built_in	= 1,
 		.nonremovable   = true,
 	},
 	{}	/* Terminator */
@@ -661,19 +684,30 @@ static struct twl6040_codec_data twl6040_codec = {
 	.amic_bias_settle_ms = 0xeb, /* 235 ms */
 };
 
-static struct twl6040_vibra_data twl6040_vibra = {
-	.vibldrv_res = 8,
-	.vibrdrv_res = 3,
-	.viblmotor_res = 10,
-	.vibrmotor_res = 10,
-	.vddvibl_uV = 0,	/* fixed volt supply - VBAT */
-	.vddvibr_uV = 0,	/* fixed volt supply - VBAT */
-};
+static int omap5evm_twl6040_set_pll_input(int pll_id, int on)
+{
+	u32 reg_offset = OMAP5_CTRL_MODULE_WKUP_PAD_CONTROL_CKOBUFFER;
+	void __iomem *reg = OMAP5_CTRL_MODULE_WKUP_PAD_REGADDR(reg_offset);
+	u32 val = __raw_readl(reg);
+
+	/* nothing to do for clk32k */
+	if (pll_id == TWL6040_SYSCLK_SEL_LPPLL)
+		return 0;
+
+	if (on)
+		val |= OMAP5_CKOBUFFER_CLK_EN_MASK;
+	else
+		val &= ~OMAP5_CKOBUFFER_CLK_EN_MASK;
+
+	writel(val, reg);
+
+	return 0;
+}
 
 static struct twl6040_platform_data twl6040_data = {
 	.codec		= &twl6040_codec,
-	.vibra		= &twl6040_vibra,
 	.audpwron_gpio	= 145,
+	.set_pll_input	= omap5evm_twl6040_set_pll_input,
 };
 
 #ifdef CONFIG_OMAP5_SEVM_PALMAS
@@ -744,6 +778,7 @@ static struct platform_device *omap5evm_devices[] __initdata = {
 	&omap5evm_hdmi_audio_codec,
 	&omap5evm_abe_audio,
 	&sevm_leds_gpio,
+	&evm_user_cooling_device,
 };
 
 static struct regulator_consumer_supply omap5_evm_vmmc1_supply[] = {
@@ -793,27 +828,54 @@ static struct i2c_board_info __initdata omap5evm_i2c_5_boardinfo[] = {
 	},
 };
 
-static struct i2c_board_info __initdata omap5evm_i2c_1_boardinfo[] = {
-	{
-		I2C_BOARD_INFO("bq27530", 0x55),
+static struct bq27x00_platform_data bq27x00_plat_data = {
+	.number_actions = 2,
+	.cooling_actions = {
+		{ .priority = 0, .percentage = 100, }, /* Full Charging Cur */
+		{ .priority = 1, .percentage = 0, }, /* Charging OFF */
 	},
 };
 
-/* TMP102 PCB Temperature sensor */
-static struct tmp102_platform_data tmp102_slope_offset_info = {
+static struct i2c_board_info __initdata omap5evm_i2c_1_boardinfo[] = {
+	{
+		I2C_BOARD_INFO("bq27530", 0x55),
+		.irq = GPIO_CHRGR_INT,
+		.platform_data = &bq27x00_plat_data,
+	},
+};
+
+/* TMP102 PCB Temperature sensor close to OMAP */
+static struct tmp102_platform_data tmp102_omap_info = {
 	.slope = 470,
 	.slope_cpu = 378,
 	.offset = -1272,
 	.offset_cpu = -154,
+	.domain = "pcb", /* for hotspot extrapolation */
+};
+
+/* TMP102 PCB Temperature sensor close to Battery */
+static struct tmp102_platform_data tmp102_battery_info = {
+	.domain = "pcb_battery",
+};
+
+/* TMP006 IR Case Temperature sensor */
+static struct tmp006_platform_data tmp006_update_rate = {
+/* Period in milliseconds, temperature report sent to TI-TFW */
+	.update_period = 5000,
 };
 
 static struct i2c_board_info __initdata omap5evm_i2c_4_boardinfo[] = {
 	{
 		I2C_BOARD_INFO("tmp102_temp_sensor", 0x48),
-		.platform_data = &tmp102_slope_offset_info,
+		.platform_data = &tmp102_omap_info,
+	},
+	{
+		I2C_BOARD_INFO("tmp102_temp_sensor", 0x49),
+		.platform_data = &tmp102_battery_info,
 	},
 	{
 		I2C_BOARD_INFO("tmp006_temp_sensor", 0x40),
+		.platform_data = &tmp006_update_rate,
 	},
 };
 
@@ -854,6 +916,15 @@ static int __init omap_5430evm_i2c_init(void)
 	omap_register_i2c_bus_board_data(3, &omap5_i2c_3_bus_pdata);
 	omap_register_i2c_bus_board_data(4, &omap5_i2c_4_bus_pdata);
 	omap_register_i2c_bus_board_data(5, &omap5_i2c_5_bus_pdata);
+
+	/*
+	 * WA for OMAP5430-1.0BUG01477: I2C1 and I2C_SR weak and strong
+	 * pull-up are both activated by default. It affects I2C1 and
+	 * hence disable weak pull for it. This is for ES1.0 and fixed
+	 * in ES2.0
+	 */
+	if (omap_rev() == OMAP5430_REV_ES1_0)
+		omap5_i2c_weak_pullup(1, false);
 
 	/* Enable internal pull-ups for SCL, SDA lines. OMAP5 sEVM platform
 	 * does not have external pull-ups for any of the I2C buses hence
@@ -898,8 +969,9 @@ static const struct usbhs_omap_board_data usbhs_bdata __initconst = {
 
 static void __init omap_ehci_ohci_init(void)
 {
-	omap_mux_init_signal("gpio6_172", OMAP_PIN_OUTPUT | OMAP_PIN_OFF_NONE);
-	omap_mux_init_signal("gpio6_173", OMAP_PIN_OUTPUT | OMAP_PIN_OFF_NONE);
+	omap_mux_init_gpio(172, OMAP_PIN_OUTPUT | OMAP_PIN_INPUT_PULLUP);
+	omap_mux_init_gpio(173, OMAP_PIN_OUTPUT | OMAP_PIN_INPUT_PULLUP);
+
 	usbhs_init(&usbhs_bdata);
 	return;
 }
@@ -913,6 +985,15 @@ static void __init omap_msecure_init(void)
 	if (err < 0)
 		pr_err("Failed to request GPIO %d, error %d\n",
 			GPIO_MSECURE, err);
+}
+
+static void __init sevm_battery_init(void)
+{
+	/* To turn on U44 (emu/gpio mux) as gpio pins have gpio5 pulled low */
+	omap_mux_init_gpio(GPIO1_WKOUT5, OMAP_PIN_OUTPUT);
+	gpio_set_value(GPIO1_WKOUT5, 0);
+	/* Pull up gpio163 and as input pin */
+	omap_mux_init_gpio(GPIO_CHRGR_INT, OMAP_PIN_INPUT_PULLUP);
 }
 
 static void __init omap_5430evm_init(void)
@@ -962,7 +1043,7 @@ static void __init omap_5430evm_init(void)
 	/* TODO: Once the board identification is passed in from the
 	 * bootloader pass in the HACK board ID to the conn board file
 	*/
-	omap5_connectivity_init(OMAP5_SEVM_BOARD_ID);
+	omap4plus_connectivity_init(OMAP5_SEVM_BOARD_ID);
 	omap_hsmmc_init(mmc);
 	usb_dwc3_init();
 	platform_add_devices(omap5evm_devices, ARRAY_SIZE(omap5evm_devices));
@@ -970,6 +1051,7 @@ static void __init omap_5430evm_init(void)
 	omap_init_dmm_tiler();
 	omap5_register_ion();
 	sevm_panel_init();
+	sevm_battery_init();
 	omap_rprm_regulator_init(omap5evm_rprm_regulators,
 					ARRAY_SIZE(omap5evm_rprm_regulators));
 
@@ -981,9 +1063,9 @@ static void __init omap_5430evm_reserve(void)
 			OMAP_RAM_CONSOLE_SIZE_DEFAULT);
 
 	omap_rproc_reserve_cma(RPROC_CMA_OMAP5);
-
+	sevm_android_display_setup();
 	omap5_ion_init();
-
+	omap5_secure_workspace_addr_default();
 	omap_reserve();
 }
 
@@ -996,5 +1078,6 @@ MACHINE_START(OMAP5_SEVM, "OMAP5 sevm board")
 	.init_irq	= gic_init_irq,
 	.handle_irq	= gic_handle_irq,
 	.init_machine	= omap_5430evm_init,
+	.restart	= omap_prcm_restart,
 	.timer		= &omap5_timer,
 MACHINE_END
