@@ -83,6 +83,7 @@
 #include <mach/omap4_ion.h>
 #include "omap_ram_console.h"
 #include "mux.h"
+#include "mux44xx.h"
 #include "hsmmc.h"
 //#include "timer-gp.h"
 #include "control.h"
@@ -287,8 +288,8 @@ static struct ft5x06_platform_data ft5x06_platform_data = {
 	.use_trk_id = 1,
 	.use_sleep = FT_USE_SLEEP,
 	.use_gestures = 1,
-	.platform_suspend = ft5x06_platform_suspend,
-	.platform_resume = ft5x06_platform_resume,
+//	.platform_suspend = ft5x06_platform_suspend,
+//	.platform_resume = ft5x06_platform_resume,
 };
 
 #ifdef CONFIG_CHARGER_MAX8903
@@ -639,6 +640,7 @@ static struct platform_device btwilink_device = {
 	.id = -1,
 };
 #endif
+#if 0
 /*******************************************************/
 static struct regulator_consumer_supply tp_supply[] = {
 	REGULATOR_SUPPLY("vdds_dsi", "omapdss_dss"),
@@ -706,7 +708,39 @@ static struct platform_device lcd_regulator_device = {
 	.platform_data = &lcd_reg_data,
 	},
 };
-
+#endif
+/*******************************************************/
+static struct regulator_consumer_supply acclaim_lcd_supply[] = {
+        REGULATOR_SUPPLY("vdds_dsi", "omapdss_dss"),
+        REGULATOR_SUPPLY("vdds_dsi", "omapdss_dsi1"),
+        REGULATOR_SUPPLY("vdds_dsi", "omapdss_dsi2"),
+        };
+                        
+static struct regulator_init_data acclaim_lcd_vinit = {
+        .constraints = {
+        .min_uV = 3300000,
+        .max_uV = 3300000,
+        .valid_modes_mask = REGULATOR_MODE_NORMAL,
+        .valid_ops_mask = REGULATOR_CHANGE_STATUS,
+        },
+        .num_consumer_supplies = ARRAY_SIZE(acclaim_lcd_supply),
+        .consumer_supplies = acclaim_lcd_supply,
+        };
+static struct fixed_voltage_config acclaim_lcd_reg = {
+        .supply_name = "lcd",
+        .microvolts = 3300000,
+        .gpio = -EINVAL,
+        .enable_high = 1,
+        .enabled_at_boot = 1,
+        .init_data = &acclaim_lcd_vinit,
+        };
+static struct platform_device acclaim_lcd_regulator = {
+        .name   = "reg-fixed-voltage",
+        .id     = 0,
+        .dev    = {
+        .platform_data = &acclaim_lcd_reg,
+        },
+        };
 /***************************************************************/
 static struct platform_device *sdp4430_devices[] __initdata = {
 	//&sdp4430_leds_gpio,
@@ -715,8 +749,9 @@ static struct platform_device *sdp4430_devices[] __initdata = {
 	&acclaim_keys_gpio,
 //	&wl128x_device,
 //	&btwilink_device,
-	&lcd_regulator_device,
-	&touch_regulator_device,
+	&acclaim_lcd_regulator,
+//	&lcd_regulator_device,
+//	&touch_regulator_device,
 };
 
 static struct omap_board_config_kernel sdp4430_config[] __initdata = {
@@ -733,14 +768,8 @@ static struct omap_board_config_kernel sdp4430_config[] __initdata = {
 
 static struct omap_musb_board_data musb_board_data = {
 	.interface_type		= MUSB_INTERFACE_UTMI,
-#ifdef CONFIG_USB_MUSB_OTG
 	.mode			= MUSB_OTG,
-#elif defined(CONFIG_USB_MUSB_HDRC_HCD)
-	.mode			= MUSB_HOST,
-#elif defined(CONFIG_USB_GADGET_MUSB_HDRC)
-	.mode			= MUSB_PERIPHERAL,
-#endif
-	.power			= 100,
+	.power			= 500,
 };
 
 static struct twl4030_usb_data omap4_usbphy_data = {
@@ -828,7 +857,7 @@ static int wl12xx_set_power(struct device *dev, int slot, int on, int vdd)
 
 static struct regulator_consumer_supply omap4_sdp4430_vwlan_supply = {
 	.supply = "vwlan",
-	.dev_name = "omap_hsmmc.2", // previous 5
+	.dev_name = "omap_hsmmc.2", // previous 56
 };
 
 static struct regulator_init_data sdp4430_vwlan = {
@@ -1190,7 +1219,7 @@ static struct i2c_board_info __initdata sdp4430_i2c_1_boardinfo[] = {
 
 static struct i2c_board_info __initdata sdp4430_i2c_2_boardinfo[] = {
 	{
- 		I2C_BOARD_INFO(FT_I2C_NAME, FT5x06_I2C_SLAVEADDRESS),
+ 		I2C_BOARD_INFO(FT_DEVICE_5x06_NAME, FT5x06_I2C_SLAVEADDRESS),
  		.platform_data = &ft5x06_platform_data,
 		.irq = OMAP_GPIO_IRQ(OMAP_FT5x06_GPIO),
 	},
@@ -1651,6 +1680,7 @@ static void omap4_sdp4430_wifi_mux_init(void)
 static struct wl12xx_platform_data omap4_sdp4430_wlan_data __initdata = {
 	.irq = OMAP_GPIO_IRQ(GPIO_WIFI_IRQ),
 	.board_ref_clock = WL12XX_REFCLOCK_38,
+	
 };
 
 void config_wlan_mux(void)
@@ -1936,15 +1966,17 @@ static inline void ramconsole_reserve_sdram(void) {}
 #endif
 
 
-#include <linux/temphack.h>
+#include <plat/android-display.h>
 
 #define LCD_RST_DELAY		100
 #define LCD_INIT_DELAY		200
 
+#define LCD_CABC0_GPIO 44
+#define LCD_CABC1_GPIO 45
+#define LCD_BL_PWR_EN_GPIO      	38
 #define DEFAULT_BACKLIGHT_BRIGHTNESS	105
-static void acclaim4430_init_display_led(void)
+static void acclaim_init_display_led(void)
 {
-#ifndef TEMP_HACK
  	if (acclaim_board_type() >= EVT2) {
   		printk(KERN_INFO "init_display_led: evt2 hardware\n");
   		omap_mux_init_signal("abe_dmic_din2.dmtimer11_pwm_evt", OMAP_MUX_MODE5);
@@ -1959,36 +1991,27 @@ static void acclaim4430_init_display_led(void)
 		else
 			gpio_direction_output(92, 0);
 	}
-#else
-	printk(KERN_INFO "Temporary Hack for LCD PWM LED\n");
-	printk(KERN_INFO "WARNING: brigthness control disabled now\n");
-	/* mux the brightness control pin as gpio, because on EVT1 it is connected to
-	   timer8 and we cannot use timer8 because of audio conflicts causing crash */
-	omap_mux_init_signal("abe_dmic_din2.gpio_121", OMAP_MUX_MODE3);
-//	if (gpio_request(121, "EVT1 BACKLIGHT"))
-//		printk(KERN_ERR "ERROR: failed to request backlight gpio\n");
-//	else
-//		gpio_direction_output(121, 0);
-#endif
 }
 
 static void acclaim4430_disp_backlight_setpower(struct omap_pwm_led_platform_data *pdata, int on_off)
 {
-	printk(KERN_INFO "Backlight set power, on_off = %d\n",on_off);
-	if (on_off) {
-		msleep(500);
-		gpio_direction_output(38, (acclaim_board_type() >= EVT2) ? 1 : 0);
-	} else {
-		gpio_direction_output(38, (acclaim_board_type() >= EVT2) ? 0 : 1);
-	}
-	gpio_direction_output(44, 0);
-	gpio_direction_output(45, 0);
-	pr_debug("%s: on_off:%d\n", __func__, on_off);
-
-	printk(KERN_INFO "Backlight set power end\n");
+    printk(KERN_INFO "Backlight set power, on_off = %d\n",on_off);
+    if (on_off) {
+    msleep (350); // give the boxer resume some time do spi init
+    gpio_direction_output(LCD_BL_PWR_EN_GPIO,
+    (acclaim_board_type() >= EVT2) ? 1 : 0);
+    } else {
+    msleep (100); // give the pwm led driver some time do dim
+    gpio_direction_output(LCD_BL_PWR_EN_GPIO,
+    (acclaim_board_type() >= EVT2) ? 0 : 1);
+    }
+    
+    gpio_direction_output(LCD_CABC0_GPIO, 0);
+    gpio_direction_output(LCD_CABC0_GPIO, 0);
+    
+    pr_debug("%s: on_off:%d\n", __func__, on_off);
 }
 
-#ifndef TEMP_HACK
 static struct omap_pwm_led_platform_data acclaim4430_disp_backlight_data = {
 	.name 		 = "lcd-backlight",
 	.default_trigger  = "backlight",
@@ -2012,25 +2035,24 @@ static struct platform_device sdp4430_disp_led = {
 static struct platform_device *sdp4430_panel_devices[] __initdata = {
 	&sdp4430_disp_led,
 };
-#endif
-static void sdp4430_panel_get_resource(void)
+static void acclaim_panel_get_resource(void)
 {
-	int ret_val = 0;
-
-	pr_info("sdp4430_panel_get_resource\n");
-	ret_val = gpio_request(38, "BOXER BL PWR EN");
-
-	if ( ret_val ) {
-		printk("%s : Could not request bl pwr en\n",__FUNCTION__);
-	}
-	ret_val = gpio_request(44, "BOXER CABC0");
-	if ( ret_val ){
-		printk( "%s : could not request CABC0\n",__FUNCTION__);
-	}
-	ret_val = gpio_request(45, "BOXER CABC1");
-	if ( ret_val ) {
-		printk("%s: could not request CABC1\n",__FUNCTION__);
-	}
+    int ret_val = 0;
+    
+    pr_info("acclaim_panel_get_resource\n");
+    ret_val = gpio_request(LCD_BL_PWR_EN_GPIO, "BOXER BL PWR EN");
+    
+    if ( ret_val ) {
+    printk("%s : Could not request bl pwr en\n",__FUNCTION__);
+    }
+    ret_val = gpio_request(LCD_CABC0_GPIO, "BOXER CABC0");
+    if ( ret_val ){
+    printk( "%s : could not request CABC0\n",__FUNCTION__);
+    }
+    ret_val = gpio_request(LCD_CABC1_GPIO, "BOXER CABC1");
+    if ( ret_val ) {
+    printk("%s: could not request CABC1\n",__FUNCTION__);
+    }
 }
 
 static struct boxer_panel_data boxer_panel;
@@ -2039,21 +2061,6 @@ static inline struct boxer_panel_data * get_panel_data(struct omap_dss_device *d
 {
 	return dssdev->data;
 }
-
-#ifdef TEMP_HACK
-static int nooktablet_panel_enable_lcd(struct omap_dss_device *dssdev)
-{
-	acclaim4430_disp_backlight_setpower(NULL,1);
-	pr_info("NookTablet LCD enable!\n");
-	return 0;
-}
-
-static void nooktablet_panel_disable_lcd(struct omap_dss_device *dssdev)
-{
-	acclaim4430_disp_backlight_setpower(NULL,0);
-	pr_info("NookTablet LCD disable!\n");
-}
-#endif
 
 static struct omap_dss_device sdp4430_boxer_device = {
 	.phy		= {
@@ -2106,10 +2113,6 @@ static struct omap_dss_device sdp4430_boxer_device = {
 	.driver_name		= "boxer_panel",
 	.type			= OMAP_DISPLAY_TYPE_DPI,
 	.channel		= OMAP_DSS_CHANNEL_LCD2,
-#ifdef TEMP_HACK
-	.platform_enable  = nooktablet_panel_enable_lcd,
-	.platform_disable  = nooktablet_panel_disable_lcd,
-#endif
 };
 
 static struct omap_dss_device *sdp4430_dss_devices[] = {
@@ -2131,20 +2134,51 @@ static struct spi_board_info tablet_spi_board_info[] __initdata = {
 	},
 };
 
-// #define BLAZE_FB_RAM_SIZE                SZ_16M /* 1920×1080*4 * 2 */
-// static struct omapfb_platform_data blaze_fb_pdata = {
-// 	.mem_desc = {
-// 		.region_cnt = 1,
-// 		.region = {
-// 			[0] = {
-// 				.size = BLAZE_FB_RAM_SIZE,
-// 			},
-// 		},
-// 	},
-// };
+#define BLAZE_FB_RAM_SIZE                SZ_16M + SZ_4M/* 1920×1080*4 * 2 */
+static struct omapfb_platform_data acclaim_fb_data = {
+	.mem_desc = {
+		.region_cnt = 1,
+		.region = {
+			[0] = {
+				.size = BLAZE_FB_RAM_SIZE,
+			},
+		},
+	},
+};
 
+void __init omap4_acclaim_display_setup(struct omap_ion_platform_data *ion)
+{
+	omap_android_display_setup(&sdp4430_dss_data,
+						NULL,
+						NULL,
+					&acclaim_fb_data,
+					ion);
+}
 static void __init acclaim_panel_init(void)
 {	
+    int ret;
+    
+    acclaim_panel_get_resource();
+    acclaim_init_display_led();
+    struct sgx_omaplfb_config data = {
+    .tiler2d_buffers = 0,
+    .swap_chain_length = 2,
+    .vram_buffers = 2,
+    };
+    
+    omapfb_set_platform_data(&acclaim_fb_data);
+#ifdef CONFIG_OMAPLFB
+    sgx_omaplfb_set(0, &data);
+#endif
+    
+    spi_register_board_info(tablet_spi_board_info, ARRAY_SIZE(tablet_spi_board_info));
+    
+//    omap_mux_enable_wkup("sys_nirq1");
+//    omap_mux_enable_wkup("sys_nirq2");
+    
+    platform_add_devices(sdp4430_panel_devices, ARRAY_SIZE(sdp4430_panel_devices));
+    omap_display_init(&sdp4430_dss_data);
+#if 0
 	omap_vram_set_sdram_vram(SZ_16M, 0);
 	sdp4430_panel_get_resource();
 	acclaim4430_init_display_led();
@@ -2154,10 +2188,6 @@ static void __init acclaim_panel_init(void)
 	
 	spi_register_board_info(tablet_spi_board_info,ARRAY_SIZE(tablet_spi_board_info));
 
-//	omap_mux_enable_wkup("sys_nirq1");
-//	omap_mux_enable_wkup("sys_nirq2");
-#ifndef TEMP_HACK
-	platform_add_devices(sdp4430_panel_devices, ARRAY_SIZE(sdp4430_panel_devices));
 #endif
 }
 

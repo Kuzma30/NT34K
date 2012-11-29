@@ -27,35 +27,14 @@
 #include <asm/mach-types.h>
 #include <video/omapdss.h>
 #include <linux/gpio.h>
-#include <linux/regulator/consumer.h>
-#include <plat/usb.h>
-#define	OMAP_LCD_PWM_PIN	121
-#define	OMAP_LCD_ENABLE_PIN	38
+#include <asm/io.h>
 //#define DEBUG
 /* Delay between Panel configuration and Panel enabling */
 #define LCD_RST_DELAY		100
-#define LCD_INIT_DELAY		200
+#define OMAP_FT5x06_POWER_GPIO  36
 
-static struct workqueue_struct *boxer_panel_wq;
-static struct omap_dss_device *boxer_panel_dssdev;
-static struct regulator *boxer_panel_regulator;
+static bool first_boot = true;
 static struct spi_device *boxer_spi_device;
-static atomic_t boxer_panel_is_enabled = ATOMIC_INIT(0);
-
-extern u8 quanta_get_mbid(void);
-
-/* Get FT i2c adapter for lock/unlock it */
-struct i2c_adapter *g_ft_i2c_adapter = NULL;
-
-extern void register_ft_i2c_adapter(struct i2c_adapter *adapter)
-{
-	g_ft_i2c_adapter = adapter;
-}
-
-extern void unregister_ft_i2c_adapter(struct i2c_adapter *adapter)
-{
-	g_ft_i2c_adapter = NULL;
-}
 
 static int spi_send(struct spi_device *spi,
 		    unsigned char reg_addr, unsigned char reg_data)
@@ -114,173 +93,58 @@ static struct attribute_group otter1_panel_attribute_group = {
 	.attrs = otter1_panel_attributes
 };
 
-static void boxer_init_panel(void)
+static void boxer_panel_spi_init (void)
 {
-	int vendor0 = 1, vendor1 = 1;
-	int result = 0;
-	mdelay(1);
-#ifndef CONFIG_MACH_OMAP4_NOOKTABLET
-	vendor1 = gpio_get_value(175);	//LCD_ID PIN#17(Vendor[1])
-	vendor0 = gpio_get_value(176);	//LCD_ID PIN#15(Vendor[0])
+	printk	("%s\n", __FUNCTION__);
 
-	//Before DVT
-	if (quanta_get_mbid() < 4) {
-#endif
-		if ((vendor1 == 0) && (vendor0 == 0)) {
-			printk
-			    ("***************************************************\n");
-			printk
-			    ("******************  Panel of LG  ******************\n");
-			printk
-			    ("***************************************************\n");
-			result |= spi_send(boxer_spi_device, 0x00, 0x21);
-			result |= spi_send(boxer_spi_device, 0x00, 0xa5);
-			result |= spi_send(boxer_spi_device, 0x01, 0x30);
-			result |= spi_send(boxer_spi_device, 0x02, 0x40);
-			result |= spi_send(boxer_spi_device, 0x0e, 0x5f);
-			result |= spi_send(boxer_spi_device, 0x0f, 0xa4);
-			result |= spi_send(boxer_spi_device, 0x0d, 0x00);
-			result |= spi_send(boxer_spi_device, 0x02, 0x43);
-			result |= spi_send(boxer_spi_device, 0x0a, 0x28);
-			result |= spi_send(boxer_spi_device, 0x10, 0x41);
-			result |= spi_send(boxer_spi_device, 0x00, 0xad);
-		} else if ((vendor1 == 1) && (vendor0 == 0)) {
-			printk
-			    ("***************************************************\n");
-			printk
-			    ("******************  Panel of HYDIS  ***************\n");
-			printk
-			    ("***************************************************\n");
-			result |= spi_send(boxer_spi_device, 0x00, 0x29);
-			result |= spi_send(boxer_spi_device, 0x00, 0x25);
-			result |= spi_send(boxer_spi_device, 0x01, 0x30);
-			result |= spi_send(boxer_spi_device, 0x02, 0x40);
-			result |= spi_send(boxer_spi_device, 0x0e, 0x5f);
-			result |= spi_send(boxer_spi_device, 0x0f, 0xa4);
-			result |= spi_send(boxer_spi_device, 0x0d, 0x01);
-			result |= spi_send(boxer_spi_device, 0x00, 0x2d);
-		} else if ((vendor1 == 0) && (vendor0 == 1)) {
-			printk
-			    ("****************************************************\n");
-			printk
-			    ("******************  Panel of CMO  ******************\n");
-			printk
-			    ("****************************************************\n");
-			result |= spi_send(boxer_spi_device, 0x00, 0xad);
-			result |= spi_send(boxer_spi_device, 0x01, 0x10);
-			result |= spi_send(boxer_spi_device, 0x02, 0x40);
-			result |= spi_send(boxer_spi_device, 0x03, 0x04);
-		} else {
-			printk
-			    ("********************************************************************************\n");
-			printk
-			    ("******************  undefined panel, use default LGD settings ******************\n");
-			printk
-			    ("********************************************************************************\n");
-			result |= spi_send(boxer_spi_device, 0x00, 0x21);
-			result |= spi_send(boxer_spi_device, 0x00, 0xa5);
-			result |= spi_send(boxer_spi_device, 0x01, 0x30);
-			result |= spi_send(boxer_spi_device, 0x02, 0x40);
-			result |= spi_send(boxer_spi_device, 0x0e, 0x5f);
-			result |= spi_send(boxer_spi_device, 0x0f, 0xa4);
-			result |= spi_send(boxer_spi_device, 0x0d, 0x00);
-			result |= spi_send(boxer_spi_device, 0x02, 0x43);
-			result |= spi_send(boxer_spi_device, 0x0a, 0x28);
-			result |= spi_send(boxer_spi_device, 0x10, 0x41);
-			result |= spi_send(boxer_spi_device, 0x00, 0xad);
-		}
-#ifndef CONFIG_MACH_OMAP4_NOOKTABLET
-	} else {
-		//After DVT
-		if ((vendor1 == 0) && (vendor0 == 0)) {
-			printk
-			    ("***************************************************\n");
-			printk
-			    ("******************  Panel of LG  ******************\n");
-			printk
-			    ("***************************************************\n");
-			result |= spi_send(boxer_spi_device, 0x00, 0x21);
-			result |= spi_send(boxer_spi_device, 0x00, 0xa5);
-			result |= spi_send(boxer_spi_device, 0x01, 0x30);
-			result |= spi_send(boxer_spi_device, 0x02, 0x40);
-			result |= spi_send(boxer_spi_device, 0x0e, 0x5f);
-			result |= spi_send(boxer_spi_device, 0x0f, 0xa4);
-			result |= spi_send(boxer_spi_device, 0x0d, 0x00);
-			result |= spi_send(boxer_spi_device, 0x02, 0x43);
-			result |= spi_send(boxer_spi_device, 0x0a, 0x28);
-			result |= spi_send(boxer_spi_device, 0x10, 0x41);
-			result |= spi_send(boxer_spi_device, 0x00, 0xad);
-		} else if ((vendor1 == 0) && (vendor0 == 1)) {
-			printk
-			    ("***************************************************\n");
-			printk
-			    ("******************  Panel of HYDIS  ***************\n");
-			printk
-			    ("***************************************************\n");
-			result |= spi_send(boxer_spi_device, 0x00, 0x29);
-			result |= spi_send(boxer_spi_device, 0x00, 0x25);
-			result |= spi_send(boxer_spi_device, 0x01, 0x30);
-			result |= spi_send(boxer_spi_device, 0x02, 0x40);
-			result |= spi_send(boxer_spi_device, 0x0e, 0x5f);
-			result |= spi_send(boxer_spi_device, 0x0f, 0xa4);
-			result |= spi_send(boxer_spi_device, 0x0d, 0x01);
-			result |= spi_send(boxer_spi_device, 0x00, 0x2d);
-		} else {
-			printk
-			    ("********************************************************************************\n");
-			printk
-			    ("******************  undefined panel, use default LGD settings ******************\n");
-			printk
-			    ("********************************************************************************\n");
-			result |= spi_send(boxer_spi_device, 0x00, 0x21);
-			result |= spi_send(boxer_spi_device, 0x00, 0xa5);
-			result |= spi_send(boxer_spi_device, 0x01, 0x30);
-			result |= spi_send(boxer_spi_device, 0x02, 0x40);
-			result |= spi_send(boxer_spi_device, 0x0e, 0x5f);
-			result |= spi_send(boxer_spi_device, 0x0f, 0xa4);
-			result |= spi_send(boxer_spi_device, 0x0d, 0x00);
-			result |= spi_send(boxer_spi_device, 0x02, 0x43);
-			result |= spi_send(boxer_spi_device, 0x0a, 0x28);
-			result |= spi_send(boxer_spi_device, 0x10, 0x41);
-			result |= spi_send(boxer_spi_device, 0x00, 0xad);
-		}
-	}
-#endif
-}
-
-static void boxer_panel_work_func(struct work_struct *work)
-{
+	gpio_direction_output (OMAP_FT5x06_POWER_GPIO, 1);
 	msleep(LCD_RST_DELAY);
-
-	boxer_init_panel();
-
-	msleep(LCD_INIT_DELAY);
-
-	if (boxer_panel_dssdev->platform_enable) {
-		boxer_panel_dssdev->platform_enable(boxer_panel_dssdev);
-	}
+	spi_send(boxer_spi_device, 0x00, 0x21);
+	spi_send(boxer_spi_device, 0x00, 0xa5);
+	spi_send(boxer_spi_device, 0x01, 0x30);
+	spi_send(boxer_spi_device, 0x02, 0x40);
+	spi_send(boxer_spi_device, 0x0e, 0x5f);
+	spi_send(boxer_spi_device, 0x0f, 0xa4);
+	spi_send(boxer_spi_device, 0x0d, 0x00);
+	spi_send(boxer_spi_device, 0x02, 0x43);
+	spi_send(boxer_spi_device, 0x0a, 0x28);
+	spi_send(boxer_spi_device, 0x10, 0x41);
+	spi_send(boxer_spi_device, 0x00, 0xad);
 }
-
-static DECLARE_WORK(boxer_panel_work, boxer_panel_work_func);
 
 static void boxer_get_resolution(struct omap_dss_device *dssdev,
 				 u16 * xres, u16 * yres)
 {
-
 	*xres = dssdev->panel.timings.x_res;
 	*yres = dssdev->panel.timings.y_res;
+}
+
+#define OMAP2_L4_IO_OFFSET      0xb2000000
+#define OMAP2_L4_IO_ADDRESS(pa) IOMEM((pa) + OMAP2_L4_IO_OFFSET)
+
+static inline void omap_writel(u32 v, u32 pa)
+{
+        __raw_writel(v, OMAP2_L4_IO_ADDRESS(pa));
+}
+
+static inline void omap_writew(u16 v, u32 pa)
+{
+        __raw_writew(v, OMAP2_L4_IO_ADDRESS(pa));
 }
 
 static int boxer_panel_probe(struct omap_dss_device *dssdev)
 {
 	printk(KERN_INFO " boxer : %s called , line %d\n", __FUNCTION__,
 	       __LINE__);
+
 	omap_writel(0x00020000, 0x4a1005cc);	//PCLK impedance
 	return 0;
 }
 
 static void boxer_panel_remove(struct omap_dss_device *dssdev)
 {
+	printk(KERN_INFO " boxer : %s called , line %d\n",
+	       __FUNCTION__ , __LINE__);
 }
 
 static int boxer_panel_start(struct omap_dss_device *dssdev)
@@ -298,11 +162,6 @@ static int boxer_panel_start(struct omap_dss_device *dssdev)
 	if (r)
 		goto err0;
 
-	if (atomic_add_unless(&boxer_panel_is_enabled, 1, 1)) {
-		boxer_panel_dssdev = dssdev;
-		queue_work(boxer_panel_wq, &boxer_panel_work);
-	}
-
 	return 0;
 err0:
 	return r;
@@ -316,17 +175,8 @@ static void boxer_panel_stop(struct omap_dss_device *dssdev)
 	if (dssdev->state != OMAP_DSS_DISPLAY_ACTIVE)
 		return;
 
-	if (atomic_dec_and_test(&boxer_panel_is_enabled)) {
-		cancel_work_sync(&boxer_panel_work);
-
-		if (dssdev->platform_disable) {
-			dssdev->platform_disable(dssdev);
-		}
-	} else {
-		printk(KERN_WARNING "%s: attempting to disable panel twice!\n",
-		       __func__);
-		WARN_ON(1);
-	}
+	msleep(350);
+	gpio_direction_output (OMAP_FT5x06_POWER_GPIO, 0);
 
 	omapdss_dpi_display_disable(dssdev);
 }
@@ -354,12 +204,16 @@ static void boxer_panel_disable(struct omap_dss_device *dssdev)
 	dssdev->state = OMAP_DSS_DISPLAY_DISABLED;
 }
 
-extern int Light_Sensor_Exist;
-
 static int boxer_panel_suspend(struct omap_dss_device *dssdev)
 {
 	printk(KERN_INFO " boxer : %s called , line %d\n", __FUNCTION__,
 	       __LINE__);
+
+	if (first_boot) {
+		first_boot = false;
+		return 0;
+	}
+
 	boxer_panel_stop(dssdev);
 	dssdev->state = OMAP_DSS_DISPLAY_SUSPENDED;
 	return 0;
@@ -367,13 +221,20 @@ static int boxer_panel_suspend(struct omap_dss_device *dssdev)
 
 static int boxer_panel_resume(struct omap_dss_device *dssdev)
 {
-	int r = 0;
 	printk(KERN_INFO " boxer : %s called , line %d\n", __FUNCTION__,
 	       __LINE__);
 
+	if (first_boot) {
+		first_boot = false;
+		return;
+	}
+	else {
+		boxer_panel_spi_init ();
+	}
+
 	boxer_panel_start(dssdev);
 	dssdev->state = OMAP_DSS_DISPLAY_ACTIVE;
-	return r;
+	return 0;
 }
 
 static void boxer_panel_set_timings(struct omap_dss_device *dssdev,
@@ -412,31 +273,31 @@ static struct omap_dss_driver boxer_driver = {
 	.check_timings = boxer_panel_check_timings,
 
 	.driver = {
-#ifndef CONFIG_MACH_OMAP4_NOOKTABLET
-		   .name = "otter1_panel_drv",
-#else
 		   .name = "boxer_panel",
-#endif
 		   .owner = THIS_MODULE,
 		   },
 };
 
 static int boxer_spi_probe(struct spi_device *spi)
 {
-	int ret = 0;
-
 	spi->mode = SPI_MODE_0;
 	spi->bits_per_word = 16;
 	spi->chip_select = 0;
 	boxer_spi_device = spi;
 	spi_setup(boxer_spi_device);
-	boxer_init_panel();
 
-	sysfs_create_group(&spi->dev.kobj, &otter1_panel_attribute_group);
+	if (sysfs_create_group(&spi->dev.kobj, &otter1_panel_attribute_group))
+		printk ("%s problem creating sysfs group\n", __FUNCTION__);
+
+	if (gpio_request(OMAP_FT5x06_POWER_GPIO,
+			 "ft5x06_touch_power") < 0) {
+		printk(KERN_ERR "can't get ft5x06 power GPIO\n");
+		return -1;
+	}
+
+	boxer_panel_spi_init ();
 
 	return omap_dss_register_driver(&boxer_driver);
-out:
-	return ret;
 }
 
 static int boxer_spi_remove(struct spi_device *spi)
@@ -465,13 +326,7 @@ static struct spi_driver boxer_spi_driver = {
 
 static int __init boxer_lcd_init(void)
 {
-	int ret = 0;
-
-	boxer_panel_wq = create_singlethread_workqueue("boxer-panel-wq");
-
 	return spi_register_driver(&boxer_spi_driver);
-out:
-	return ret;
 }
 
 static void __exit boxer_lcd_exit(void)
