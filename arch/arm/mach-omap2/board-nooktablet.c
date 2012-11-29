@@ -644,8 +644,8 @@ static struct platform_device btwilink_device = {
 /*******************************************************/
 static struct regulator_consumer_supply tp_supply[] = {
 	REGULATOR_SUPPLY("vdds_dsi", "omapdss_dss"),
-	REGULATOR_SUPPLY("vdds_dsi", "omapdss_dsi1"),
-	REGULATOR_SUPPLY("vdds_dsi", "omapdss_dsi2"),
+	REGULATOR_SUPPLY("vdds_dsi", "omapdss_dsi.0"),
+	REGULATOR_SUPPLY("vdds_dsi", "omapdss_dsi.1"),
 };
 
 static struct regulator_init_data tp_vinit = {
@@ -712,8 +712,8 @@ static struct platform_device lcd_regulator_device = {
 /*******************************************************/
 static struct regulator_consumer_supply acclaim_lcd_supply[] = {
         REGULATOR_SUPPLY("vdds_dsi", "omapdss_dss"),
-        REGULATOR_SUPPLY("vdds_dsi", "omapdss_dsi1"),
-        REGULATOR_SUPPLY("vdds_dsi", "omapdss_dsi2"),
+        REGULATOR_SUPPLY("vdds_dsi", "omapdss_dsi.0"),
+        REGULATOR_SUPPLY("vdds_dsi", "omapdss_dsi.1"),
         };
                         
 static struct regulator_init_data acclaim_lcd_vinit = {
@@ -2193,8 +2193,19 @@ static void __init acclaim_panel_init(void)
 
 static void __init omap_4430sdp_reserve(void)
 {
+	omap_init_ram_size();
+    
+	omap_ram_console_init(OMAP_RAM_CONSOLE_START_DEFAULT, OMAP_RAM_CONSOLE_SIZE_DEFAULT);
 	omap_rproc_reserve_cma(RPROC_CMA_OMAP4);
+
+#ifdef CONFIG_ION_OMAP
+	omap4_acclaim_display_setup(get_omap_ion_platform_data());
 	omap4_ion_init();
+#else
+	omap4_acclaim_display_setup(NULL);
+#endif
+	/* do the static reservations first */
+	memblock_remove(PHYS_ADDR_SMC_MEM, PHYS_ADDR_SMC_SIZE);
 	omap_reserve();
 }
 #if 0
