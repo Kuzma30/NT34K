@@ -1307,10 +1307,11 @@ static int __init omap4_i2c_init(void)
 //                        TWL_COMMON_REGULATOR_VPP |
 //                        TWL_COMMON_REGULATOR_VANA |
 //                        TWL_COMMON_REGULATOR_VCXIO |
-                        TWL_COMMON_REGULATOR_VUSB );
+                        TWL_COMMON_REGULATOR_VUSB|
+                        TWL_COMMON_REGULATOR_CLK32KG );
 //                        TWL_COMMON_REGULATOR_CLK32KG );
-	omap4_pmic_init("twl6030", &sdp4430_twldata,
-			NULL, 0);
+	omap_pmic_init(1, 400, "twl6030", OMAP44XX_IRQ_SYS_1N, &sdp4430_twldata);
+//	("twl6030", &sdp4430_twldata,NULL, 0);
 	omap_register_i2c_bus(2, 400, sdp4430_i2c_2_boardinfo, 
 				ARRAY_SIZE(sdp4430_i2c_2_boardinfo));
 	omap_register_i2c_bus(3, 400, NULL, 0);
