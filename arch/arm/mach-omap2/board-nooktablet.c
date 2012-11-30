@@ -1661,153 +1661,15 @@ static inline void board_serial_init(void)
 
 /************************UART end ***************************************/
 
-#if 0
-static void omap4_sdp4430_wifi_mux_init(void)
-{
-	omap_mux_init_gpio(GPIO_WIFI_IRQ, OMAP_PIN_INPUT |
-				OMAP_PIN_OFF_WAKEUPENABLE);
-	omap_mux_init_gpio(GPIO_WIFI_PMENA, OMAP_PIN_OUTPUT);
-
-	omap_mux_init_signal("sdmmc5_cmd.sdmmc5_cmd",
-				OMAP_MUX_MODE0 | OMAP_PIN_INPUT_PULLUP);
-	omap_mux_init_signal("sdmmc5_clk.sdmmc5_clk",
-				OMAP_MUX_MODE0 | OMAP_PIN_INPUT_PULLUP);
-	omap_mux_init_signal("sdmmc5_dat0.sdmmc5_dat0",
-				OMAP_MUX_MODE0 | OMAP_PIN_INPUT_PULLUP);
-	omap_mux_init_signal("sdmmc5_dat1.sdmmc5_dat1",
-				OMAP_MUX_MODE0 | OMAP_PIN_INPUT_PULLUP);
-	omap_mux_init_signal("sdmmc5_dat2.sdmmc5_dat2",
-				OMAP_MUX_MODE0 | OMAP_PIN_INPUT_PULLUP);
-	omap_mux_init_signal("sdmmc5_dat3.sdmmc5_dat3",
-				OMAP_MUX_MODE0 | OMAP_PIN_INPUT_PULLUP);
-}
-
-static struct wl12xx_platform_data omap4_sdp4430_wlan_data __initdata = {
-	.irq = OMAP_GPIO_IRQ(GPIO_WIFI_IRQ),
-	.board_ref_clock = WL12XX_REFCLOCK_38,
-	
-};
-
-void config_wlan_mux(void)
-{
-	omap_mux_init_gpio(GPIO_WIFI_IRQ, 
-			   OMAP_PIN_INPUT | OMAP_PIN_OFF_WAKEUPENABLE);
-	omap_mux_init_gpio(GPIO_WIFI_PMENA, OMAP_PIN_OUTPUT);
-}
-
-
-static void omap4_sdp4430_wifi_init(void)
-{
-      struct device *dev;
-      struct omap_mmc_platform_data *pdata;
-      int ret;
-      printk(KERN_WARNING"%s: start\n", __func__);
-
-      ret = gpio_request(GPIO_WIFI_PMENA, "wifi_pmena");
-	if (ret < 0) {
-		pr_err("%s: can't reserve GPIO: %d\n", __func__,
-			GPIO_WIFI_PMENA);
-		goto out;
-	}
-	gpio_direction_output(GPIO_WIFI_PMENA, 0);
-  
-	ret = gpio_request(GPIO_WIFI_PWEN, "wifi_pwen");
-	if (ret < 0) {
-		pr_err("%s: can't reserve GPIO: %d\n", __func__,
-			GPIO_WIFI_PWEN);
-	goto out;
-	}
-	gpio_direction_output(GPIO_WIFI_PWEN, 0);
-  
-	ret = gpio_request(GPIO_WIFI_IRQ, "wifi_irq");
-	if (ret < 0) {
-		printk(KERN_ERR "%s: can't reserve GPIO: %d\n", __func__,
-			GPIO_WIFI_IRQ);
-	goto out;
-	}
-	gpio_direction_input(GPIO_WIFI_IRQ);
-
-//	dev = mmc[2].dev;
-//	if (!dev) {
-//		pr_err("wl12xx mmc device initialization failed\n");
-//		goto out;
-//	}
- 
-//	pdata = dev->platform_data;
-//	if (!pdata) {
-//		pr_err("Platfrom data of wl12xx device not set\n");
-//		goto out;
-//	}
-   
-//	pdata->slots[0].set_power = wl12xx_set_power;
-	config_wlan_mux ();
-
-	if (wl12xx_set_platform_data(&omap4_sdp4430_wlan_data))
-		pr_err("Error setting wl12xx data\n");
-//	platform_device_register(&omap_vwlan_device);
-
- out:
-	return;
-
-}
-#endif
 static void enable_rtc_gpio(void){
         /* To access twl registers we enable gpio6
          * we need this so the RTC driver can work.
          */
-//        gpio_request(TWL6030_RTC_GPIO, "h_SYS_DRM_MSEC");
-//        gpio_direction_output(TWL6030_RTC_GPIO, 1);
-
-//        omap_mux_init_signal("fref_clk0_out.gpio_wk6", \
-//                OMAP_PIN_OUTPUT | OMAP_PIN_OFF_NONE);
 	gpio_request(6, "msecure");
 	gpio_direction_output(6, 1);
 
         return;
 }
-
-// #if defined(CONFIG_USB_EHCI_HCD_OMAP) || defined(CONFIG_USB_OHCI_HCD_OMAP3)
-// struct usbhs_omap_board_data usbhs_bdata __initdata = {
-// 	.port_mode[0] = OMAP_EHCI_PORT_MODE_PHY,
-// 	.port_mode[1] = OMAP_OHCI_PORT_MODE_PHY_6PIN_DATSE0,
-// 	.port_mode[2] = OMAP_USBHS_PORT_MODE_UNUSED,
-// 	.phy_reset  = false,
-// 	.reset_gpio_port[0]  = -EINVAL,
-// 	.reset_gpio_port[1]  = -EINVAL,
-// 	.reset_gpio_port[2]  = -EINVAL
-// };
-// 
-// static void __init omap4_ehci_ohci_init(void)
-// {
-// 
-// 	omap_mux_init_signal("usbb2_ulpitll_clk.gpio_157", \
-// 		OMAP_PIN_OUTPUT | \
-// 		OMAP_PIN_OFF_NONE);
-// // 
-// // 	Power on the ULPI PHY
-// 	if (gpio_is_valid(BLAZE_MDM_PWR_EN_GPIO)) {
-// 		gpio_request(BLAZE_MDM_PWR_EN_GPIO, "USBB1 PHY VMDM_3V3");
-// 		gpio_direction_output(BLAZE_MDM_PWR_EN_GPIO, 1);
-// 	}
-// 
-// 	usbhs_init(&usbhs_bdata);
-// 
-// 	return;
-// 
-// }
-// #else
-// static void __init omap4_ehci_ohci_init(void){}
-// #endif
-
-// static void blaze_set_osc_timings(void)
-// {
-// 	/* Device Oscilator
-// 	 * tstart = 2ms + 2ms = 4ms.
-// 	 * tshut = Not defined in oscillator data sheet so setting to 1us
-// 	 */
-// 	omap_pm_set_osc_lp_time(4000, 1);
-// }
-// 
 
 static void omap4_tablet_wifi_mux_init(void)
 {
@@ -2173,8 +2035,8 @@ static void __init acclaim_panel_init(void)
     
     spi_register_board_info(tablet_spi_board_info, ARRAY_SIZE(tablet_spi_board_info));
     
-//    omap_mux_enable_wkup("sys_nirq1");
-//    omap_mux_enable_wkup("sys_nirq2");
+    omap_mux_enable_wkup("sys_nirq1");
+    omap_mux_enable_wkup("sys_nirq2");
     
     platform_add_devices(sdp4430_panel_devices, ARRAY_SIZE(sdp4430_panel_devices));
     omap_display_init(&sdp4430_dss_data);
