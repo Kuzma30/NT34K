@@ -1207,29 +1207,12 @@ static inline void board_serial_init(void)
 
 	omap_serial_init_port(&bdata, NULL);
 	printk("Serial port 1 init - DONE\n");
-
-/*	bdata.id	= 1;
-	bdata.pads = serial2_pads;
-	bdata.pads_cnt = ARRAY_SIZE(serial2_pads);
-	omap_serial_init_port(&bdata, NULL);
-	printk("Serial port 2 init - DONE\n");
-
-	bdata.id	= 2;
-	bdata.pads = serial3_pads;
-	bdata.pads_cnt = ARRAY_SIZE(serial3_pads);
- 	omap_serial_init_port(&bdata, NULL);
- 	printk("Serial port 3 init - DONE\n");
-
-	bdata.id	= 3;
-	bdata.pads = serial4_pads;
-	bdata.pads_cnt = ARRAY_SIZE(serial4_pads);
-	omap_serial_init_port(&bdata, NULL);
-	printk("Serial port 4 init - DONE\n");*/
 }
 
 /************************UART end ***************************************/
 
-static void enable_rtc_gpio(void){
+static void enable_rtc_gpio(void)
+{
         /* To access twl registers we enable gpio6
          * we need this so the RTC driver can work.
          */
@@ -1361,7 +1344,7 @@ static void __init omap_4430sdp_init(void)
 
 	usb_musb_init(&musb_board_data);
 
-//  	keyboard_mux_init();
+//	keyboard_mux_init();
 	status = omap4_keyboard_init(&sdp4430_keypad_data, &keypad_data);
 	if (status)
 		pr_err("Keypad initialization failed: %d\n", status);
@@ -1490,67 +1473,53 @@ static inline struct boxer_panel_data * get_panel_data(struct omap_dss_device *d
 	return dssdev->data;
 }
 
-static struct omap_dss_device sdp4430_boxer_device = {
-	.phy		= {
-		.dpi	= {
-			.data_lines	= 24,
-		},
-	},
-	.clocks		= {
-		.dispc	= {
-			.channel	= {
-				.lck_div        = 1,
-				.pck_div        = 4,
-				.lcd_clk_src    = OMAP_DSS_CLK_SRC_DSI2_PLL_HSDIV_DISPC,
-			},
-			.dispc_fclk_src = OMAP_DSS_CLK_SRC_DSI2_PLL_HSDIV_DISPC,
-		},
-#if 0
-		.dsi	= {
-			.regn		= 16, /*it is (N+1)*/
-			.regm		= 115,
-			.regm_dispc	= 3,
-			.regm_dsi	= 3,
-			.dsi_fclk_src   = OMAP_DSS_CLK_SRC_DSI2_PLL_HSDIV_DSI,
-		},
-#endif
-	},
-        .panel          = {
-		.config		= OMAP_DSS_LCD_TFT | OMAP_DSS_LCD_IVS |
-				  OMAP_DSS_LCD_IHS,
-		.timings	= {
-			.x_res          = 1024,
-			.y_res          = 600,
-			.pixel_clock    = 46000, /* in kHz */
-			.hfp            = 160,   /* HFP fix 160 */
-			.hsw            = 10,    /* HSW = 1~140 */
-			.hbp            = 150,   /* HSW + HBP = 160 */
-			.vfp            = 12,    /* VFP fix 12 */
-			.vsw            = 3,     /* VSW = 1~20 */
-			.vbp            = 20,    /* VSW + VBP = 23 */
-		},
-        	.width_in_um = 158000,
-        	.height_in_um = 92000,
-        },
-#if 0
-	.ctrl = {
-		.pixel_size = 24,
-	},
-#endif
-	.name			= "lcd2",
-	.driver_name		= "boxer_panel",
-	.type			= OMAP_DISPLAY_TYPE_DPI,
-	.channel		= OMAP_DSS_CHANNEL_LCD2,
+static struct omap_dss_device acclaim_boxer_device = {
+.phy	= {
+.dpi	= {
+.data_lines	= 24,
+},
+},
+.clocks	= {
+.dispc	= {
+.channel	= {
+.lck_div = 1,
+.pck_div = 4,
+.lcd_clk_src =
+OMAP_DSS_CLK_SRC_DSI2_PLL_HSDIV_DISPC,
+},
+.dispc_fclk_src = OMAP_DSS_CLK_SRC_DSI2_PLL_HSDIV_DISPC,
+},
+},
+.panel = {
+.config	= OMAP_DSS_LCD_TFT | OMAP_DSS_LCD_IVS |
+OMAP_DSS_LCD_IHS | OMAP_DSS_LCD_IPC,
+.timings	= {
+.x_res = 1024,
+.y_res = 600,
+.pixel_clock = 46000, /* in kHz */
+.hfp = 160, /* HFP fix 160 */
+.hsw = 10, /* HSW = 1~140 */
+.hbp = 160, /* HSW + HBP = 160 */
+.vfp = 10, /* VFP fix 12 */
+.vsw = 2, /* VSW = 1~20 */
+.vbp = 23, /* VSW + VBP = 23 */
+},
+.width_in_um = 153000,
+.height_in_um = 90000,
+},
+.name	= "lcd2",
+.driver_name	= "boxer_panel",
+.type	= OMAP_DISPLAY_TYPE_DPI,
+.channel	= OMAP_DSS_CHANNEL_LCD2,
 };
-
 static struct omap_dss_device *sdp4430_dss_devices[] = {
- 	&sdp4430_boxer_device,
+ 	&acclaim_boxer_device,
 };
  
 static struct omap_dss_board_info sdp4430_dss_data = {
 	.num_devices	= ARRAY_SIZE(sdp4430_dss_devices),
 	.devices	= sdp4430_dss_devices,
-	.default_device	= &sdp4430_boxer_device,
+	.default_device	= &acclaim_boxer_device,
 };
 
 static struct spi_board_info tablet_spi_board_info[] __initdata = {
