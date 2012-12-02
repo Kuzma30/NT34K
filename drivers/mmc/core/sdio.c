@@ -67,10 +67,13 @@ static int sdio_init_func(struct mmc_card *card, unsigned int fn)
 {
 	int ret;
 	struct sdio_func *func;
+	
+
 
 	BUG_ON(fn > SDIO_MAX_FUNCS);
 
 	func = sdio_alloc_func(card);
+	printk("SDIO init function\n");	
 	if (IS_ERR(func))
 		return PTR_ERR(func);
 
@@ -88,6 +91,7 @@ static int sdio_init_func(struct mmc_card *card, unsigned int fn)
 		func->vendor = func->card->cis.vendor;
 		func->device = func->card->cis.device;
 		func->max_blksize = func->card->cis.blksize;
+		printk("Vendor= %i, device=%i, bklsize =%i\n",func->vendor, func->device, func->max_blksize);
 	}
 
 	card->sdio_func[fn - 1] = func;

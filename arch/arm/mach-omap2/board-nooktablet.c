@@ -241,7 +241,7 @@ struct kxtj9_platform_data kxtj9_platform_data_here = {
 };
 #endif
 
-int ft5x06_dev_init(int resource)
+int __init ft5x06_dev_init(int resource)
 {
 	if (resource){
 		omap_mux_init_signal("gpmc_ad13.gpio_37", OMAP_PIN_INPUT | OMAP_PIN_OFF_WAKEUPENABLE);
@@ -265,19 +265,7 @@ int ft5x06_dev_init(int resource)
  
 	return 0;
 }
- 
-static void ft5x06_platform_suspend(void)
-{
-	printk("----------------ft5x06 platform suspend-----------\n");
-	//omap_mux_init_signal("gpmc_ad13.gpio_37", OMAP_PIN_INPUT );
-}
- 
-static void ft5x06_platform_resume(void)
-{
-	printk("-----------------ft5x06 platform resume-------------\n");
-	//omap_mux_init_signal("gpmc_ad13.gpio_37", OMAP_PIN_INPUT | OMAP_PIN_OFF_WAKEUPENABLE);
-}
- 
+
 static struct ft5x06_platform_data ft5x06_platform_data = {
 	.maxx = 600,
 	.maxy = 1024,
@@ -595,9 +583,6 @@ static struct omap2_hsmmc_info mmc[] = {
 		.gpio_wp	= -EINVAL,
 		.ocr_mask	= MMC_VDD_165_195,
 		.nonremovable   = true,
-#ifdef CONFIG_PM_RUNTIME
-		.power_saving	= true,
-#endif
 	},
 	{
 		.mmc		= 1,
@@ -606,12 +591,8 @@ static struct omap2_hsmmc_info mmc[] = {
 		.gpio_wp	= -EINVAL,
 		.nonremovable 	= false,
 	//	.no_off_init	= true,
-#ifdef CONFIG_PM_RUNTIME
-		.power_saving	= true,
-#endif
 	},
 	{
-//		.name           = "wl1271",
 		.mmc		= 3,
 		.caps		= MMC_CAP_4_BIT_DATA | MMC_CAP_POWER_OFF_CARD,
 //		.pm_caps	= MMC_PM_KEEP_POWER,
@@ -1620,8 +1601,8 @@ static void __init acclaim_panel_init(void)
     
     spi_register_board_info(tablet_spi_board_info, ARRAY_SIZE(tablet_spi_board_info));
     
-    omap_mux_enable_wkup("sys_nirq1");
-    omap_mux_enable_wkup("sys_nirq2");
+//    omap_mux_enable_wkup("sys_nirq1");
+//    omap_mux_enable_wkup("sys_nirq2");
     
     platform_add_devices(sdp4430_panel_devices, ARRAY_SIZE(sdp4430_panel_devices));
     omap_display_init(&sdp4430_dss_data);
@@ -1630,7 +1611,8 @@ static void __init acclaim_panel_init(void)
 static void __init omap_4430sdp_reserve(void)
 {
 	omap_init_ram_size();
-	ramconsole_reserve_sdram();
+	omap_ram_console_init(OMAP_RAM_CONSOLE_START_DEFAULT, OMAP_RAM_CONSOLE_SIZE_DEFAULT);
+	//ramconsole_reserve_sdram();
 	omap_rproc_reserve_cma(RPROC_CMA_OMAP4);
 
 #ifdef CONFIG_ION_OMAP

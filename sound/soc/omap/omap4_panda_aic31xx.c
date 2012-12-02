@@ -69,6 +69,7 @@
 #include <plat/board.h>
 
 #include "omap-mcbsp.h"
+#include "mcbsp.h"
 #include "omap-pcm.h"
 #include "omap-abe-priv.h"
 #include "omap-dmic.h"
