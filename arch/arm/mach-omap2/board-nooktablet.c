@@ -431,7 +431,6 @@ struct max17042_platform_data max17042_platform_data_here = {
 
 };
 #endif
-
 static const uint32_t sdp4430_keymap[] = {
 	KEY(0, 0, KEY_VOLUMEUP),
 	KEY(1, 0, KEY_VOLUMEDOWN),
@@ -474,7 +473,7 @@ static struct gpio_keys_button acclaim_gpio_buttons[] = {
 		.desc 		= "POWER",
 		.active_low 	= 0,
 		.wakeup 	= 1,
-	},
+	}, // We use twl6030 PWR Button driver Can we disable it?
 	{
 
 		.code 		= KEY_HOME,
@@ -583,19 +582,18 @@ static struct omap2_hsmmc_info mmc[] = {
 		.gpio_wp	= -EINVAL,
 		.ocr_mask	= MMC_VDD_165_195,
 		.nonremovable   = true,
+		.no_off_init	= true,
 	},
 	{
 		.mmc		= 1,
 		.caps		= MMC_CAP_4_BIT_DATA | MMC_CAP_8_BIT_DATA | MMC_CAP_1_8V_DDR,
-	//	.gpio_cd	= -EINVAL,
+		.gpio_cd	= -EINVAL,
 		.gpio_wp	= -EINVAL,
 		.nonremovable 	= false,
-	//	.no_off_init	= true,
 	},
 	{
 		.mmc		= 3,
 		.caps		= MMC_CAP_4_BIT_DATA | MMC_CAP_POWER_OFF_CARD,
-//		.pm_caps	= MMC_PM_KEEP_POWER,
 		.gpio_cd	= -EINVAL,
  		.gpio_wp        = -EINVAL,
 		.ocr_mask	= MMC_VDD_165_195,
@@ -1031,15 +1029,20 @@ static void __init blaze_pmic_mux_init(void)
 						OMAP_WAKEUP_EN);
 }
 
-/*static void __init omap_i2c_hwspinlock_init(int bus_id, int spinlock_id,
-				struct omap_i2c_bus_board_data *pdata)
-{
-	// spinlock_id should be -1 for a generic lock request 
-	if (spinlock_id < 0)
-		pdata->handle = hwspin_lock_request();
-	else
-		pdata->handle = hwspin_lock_request_specific(spinlock_id);
+static struct omap_i2c_bus_board_data __initdata sdp4430_i2c_1_bus_pdata;
+static struct omap_i2c_bus_board_data __initdata sdp4430_i2c_2_bus_pdata;
+static struct omap_i2c_bus_board_data __initdata sdp4430_i2c_3_bus_pdata;
+static struct omap_i2c_bus_board_data __initdata sdp4430_i2c_4_bus_pdata;
 
+static void __init omap_i2c_hwspinlock_init(int bus_id, int spinlock_id,
+					struct omap_i2c_bus_board_data *pdata)
+{
+/* spinlock_id should be -1 for a generic lock request */
+	if (spinlock_id < 0)
+		pdata->handle = hwspin_lock_request(USE_MUTEX_LOCK);
+	else
+		pdata->handle = hwspin_lock_request_specific(spinlock_id,
+							USE_MUTEX_LOCK);
 	if (pdata->handle != NULL) {
 		pdata->hwspin_lock_timeout = hwspin_lock_timeout;
 		pdata->hwspin_unlock = hwspin_unlock;
@@ -1047,26 +1050,20 @@ static void __init blaze_pmic_mux_init(void)
 		pr_err("I2C hwspinlock request failed for bus %d\n", \
 								bus_id);
 	}
-}*/
-
-// static struct omap_i2c_bus_board_data __initdata sdp4430_i2c_1_bus_pdata;
-// static struct omap_i2c_bus_board_data __initdata sdp4430_i2c_2_bus_pdata;
-// static struct omap_i2c_bus_board_data __initdata sdp4430_i2c_3_bus_pdata;
-// static struct omap_i2c_bus_board_data __initdata sdp4430_i2c_4_bus_pdata;
+}
 
 static int __init omap4_i2c_init(void)
 {
-// 	int err;
-// 
-// 	omap_i2c_hwspinlock_init(1, 0, &sdp4430_i2c_1_bus_pdata);
-// 	omap_i2c_hwspinlock_init(2, 1, &sdp4430_i2c_2_bus_pdata);
-// 	omap_i2c_hwspinlock_init(3, 2, &sdp4430_i2c_3_bus_pdata);
-// 	omap_i2c_hwspinlock_init(4, 3, &sdp4430_i2c_4_bus_pdata);
-// 
-// 	omap_register_i2c_bus_board_data(1, &sdp4430_i2c_1_bus_pdata);
-// 	omap_register_i2c_bus_board_data(2, &sdp4430_i2c_2_bus_pdata);
-// 	omap_register_i2c_bus_board_data(3, &sdp4430_i2c_3_bus_pdata);
-// 	omap_register_i2c_bus_board_data(4, &sdp4430_i2c_4_bus_pdata);
+	int err;
+	omap_i2c_hwspinlock_init(1, 0, &sdp4430_i2c_1_bus_pdata);
+	omap_i2c_hwspinlock_init(2, 1, &sdp4430_i2c_2_bus_pdata);
+	omap_i2c_hwspinlock_init(3, 2, &sdp4430_i2c_3_bus_pdata);
+	omap_i2c_hwspinlock_init(4, 3, &sdp4430_i2c_4_bus_pdata);
+ 
+	omap_register_i2c_bus_board_data(1, &sdp4430_i2c_1_bus_pdata);
+	omap_register_i2c_bus_board_data(2, &sdp4430_i2c_2_bus_pdata);
+	omap_register_i2c_bus_board_data(3, &sdp4430_i2c_3_bus_pdata);
+	omap_register_i2c_bus_board_data(4, &sdp4430_i2c_4_bus_pdata);
 // 
 // 	omap4_pmic_init("twl6030", &sdp4430_twldata);
 // 	
@@ -1098,6 +1095,9 @@ static int __init omap4_i2c_init(void)
 //                        TWL_COMMON_REGULATOR_CLK32KG );
 	omap_pmic_init(1, 400, "twl6030", OMAP44XX_IRQ_SYS_1N, &sdp4430_twldata);
 //	("twl6030", &sdp4430_twldata,NULL, 0);
+	err = i2c_register_board_info(1, sdp4430_i2c_1_boardinfo, ARRAY_SIZE(sdp4430_i2c_1_boardinfo));
+	if (err)
+		return err;
 	omap_register_i2c_bus(2, 400, sdp4430_i2c_2_boardinfo, 
 				ARRAY_SIZE(sdp4430_i2c_2_boardinfo));
 	omap_register_i2c_bus(3, 400, NULL, 0);
@@ -1274,7 +1274,6 @@ pr_err("Error setting wl12xx data\n");
 platform_device_register(&omap_vwlan_device);
 }
 
-
 static void __init omap_4430sdp_init(void)
 {
 	int status;
@@ -1345,10 +1344,11 @@ static void __init omap_4430sdp_init(void)
 	usb_musb_init(&musb_board_data);
 
 //	keyboard_mux_init();
+#if 1
 	status = omap4_keyboard_init(&sdp4430_keypad_data, &keypad_data);
 	if (status)
 		pr_err("Keypad initialization failed: %d\n", status);
-
+#endif
 /*	spi_register_board_info(sdp4430_spi_board_info,
 			ARRAY_SIZE(sdp4430_spi_board_info));*/
 	
