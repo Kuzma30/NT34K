@@ -67,7 +67,10 @@ struct usb_otg {
 	struct usb_bus		*host;
 	struct usb_gadget	*gadget;
 
-	/* bind/unbind the host controller */
+	/* for notification of usb_xceiv_events */
+	struct atomic_notifier_head     notifier;
+	
+		/* bind/unbind the host controller */
 	int	(*set_host)(struct usb_otg *otg, struct usb_bus *host);
 
 	/* bind/unbind the peripheral controller */
@@ -82,6 +85,9 @@ struct usb_otg {
 
 	/* start or continue HNP role switch */
 	int	(*start_hnp)(struct usb_otg *otg);
+	
+	/* start or continue HNP role switch */
+	int     (*get_link_status)(struct usb_otg *otg);
 
 };
 
@@ -307,4 +313,44 @@ static inline const char *usb_phy_type_string(enum usb_phy_type type)
 		return "UNKNOWN PHY TYPE";
 	}
 }
+
+/* notifiers */
+static inline int
+otg_register_notifier(struct usb_otg *otg, struct notifier_block *nb)
+{
+	return atomic_notifier_chain_register(&otg->notifier, nb);
+}
+static inline void
+otg_unregister_notifier(struct usb_otg *otg, struct notifier_block *nb)
+{
+	atomic_notifier_chain_unregister(&otg->notifier, nb);
+}
+
+/* for usb host and peripheral controller drivers */
+#ifdef CONFIG_USB_OTG_UTILS
+extern struct usb_phy *otg_get_transceiver(void);
+extern void otg_put_transceiver(struct usb_phy *);
+extern const char *otg_state_string(enum usb_otg_state state);
+#else
+static inline struct usb_otg *otg_get_transceiver(void)
+{
+	return NULL;
+}
+static inline void otg_put_transceiver(struct usb_otg *x)
+{
+}
+static inline const char *otg_state_string(enum usb_otg_state state)
+{
+	return NULL;
+}
+#endif
+static inline int
+otg_get_link_status(struct usb_otg *otg)
+{
+	if (otg->get_link_status != NULL)
+		return otg->get_link_status(otg);
+	else
+		return 0;
+}
+                                                
 #endif /* __LINUX_USB_OTG_H */

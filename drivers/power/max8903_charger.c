@@ -72,7 +72,7 @@ DEFINE_MUTEX(charger_mutex);
 struct max8903_charger
 {
 	struct notifier_block nb;
-	struct otg_transceiver *otg;
+	struct usb_otg *otg;
 	spinlock_t charger_current_lock;
 	unsigned int detected_charger_current;
 	unsigned int detected_charger;

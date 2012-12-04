@@ -156,4 +156,18 @@ const char *otg_state_string(enum usb_otg_state state)
 		return "UNDEFINED";
 	}
 }
-EXPORT_SYMBOL(otg_state_string);
+
+static struct usb_phy *xceiv;
+struct usb_phy *otg_get_transceiver(void)
+{
+	if (xceiv)
+		get_device(xceiv->dev);
+        return xceiv;
+}
+EXPORT_SYMBOL(otg_get_transceiver);
+void otg_put_transceiver(struct usb_phy *x)
+{
+	if (x)
+		put_device(x->dev);
+}
+EXPORT_SYMBOL(otg_put_transceiver);
