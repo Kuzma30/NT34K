@@ -43,7 +43,7 @@
 #include <linux/firmware.h>
 #include <linux/regulator/consumer.h>
 #include <linux/input/ft5x06.h>
-
+#include <linux/io.h>
 #if defined(CONFIG_DEBUG_FS)
 #include <linux/debugfs.h>
 #endif /* defined(CONFIG_DEBUG_FS) */
@@ -2924,17 +2924,17 @@ error_return:
 	return size;
 }
 
-static inline int irq_to_gpio(unsigned irq)
+/*static inline int irq_to_gpio(unsigned irq)
 {
-        /* irq can never have been returned from gpio_to_irq() */
+        // irq can never have been returned from gpio_to_irq()
         WARN_ON(1);
         return -EINVAL;
-}
+}*/
 static ssize_t ft5x06_interrupttest_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct i2c_client *client = container_of(dev, struct i2c_client, dev);
 	struct ft5x06     *ts     = (struct ft5x06 *)i2c_get_clientdata(client);
-	const int gpio_num = irq_to_gpio(ts->client->irq);
+	const int gpio_num = 37;//irq_to_gpio(ts->client->irq);
 	int test_result = 0;
 	int retval   = 0;
 	u8  regval   = 0x00;
