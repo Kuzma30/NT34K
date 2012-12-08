@@ -1472,6 +1472,11 @@ static struct omap_hwmod_opt_clk dss_opt_clks[] = {
 	{ .role = "hdmi_clk", .clk = "dss_48mhz_clk" },
 };
 
+static struct omap_hwmod_opt_clk dsi2_opt_clks[] = {
+	{ .role = "dss_clk", .clk = "dss_dss_clk" },
+	{ .role = "sys_clk", .clk = "dss_sys_clk" },
+};
+
 static struct omap_hwmod omap44xx_dss_hwmod = {
 	.name		= "dss_core",
 	.flags		= HWMOD_CONTROL_OPT_CLKS_IN_RESET,
@@ -1746,6 +1751,7 @@ static struct omap_hwmod_ocp_if *omap44xx_dss_dsi2_slaves[] = {
 };
 
 static struct omap_hwmod_opt_clk dss_dsi2_opt_clks[] = {
+	{ .role = "dss_clk", .clk = "dss_dss_clk" },
 	{ .role = "sys_clk", .clk = "dss_sys_clk" },
 };
 
