@@ -25,6 +25,7 @@
 #include "omap_opp_data.h"
 #include "vc.h"
 #include "vp.h"
+#include "abb.h"
 
 static const struct omap_vfsm_instance omap5_vdd_mpu_vfsm = {
 	.voltsetup_reg = OMAP54XX_PRM_VOLTSETUP_MPU_RET_SLEEP_OFFSET,
@@ -51,6 +52,7 @@ static struct voltagedomain omap5_voltdm_mpu = {
 	.vfsm = &omap5_vdd_mpu_vfsm,
 	.vp = &omap5_vp_mpu,
 	.auto_ret = true,
+	.abb = &omap5_abb_mpu,
 };
 
 static struct voltagedomain omap5_voltdm_mm = {
@@ -64,6 +66,7 @@ static struct voltagedomain omap5_voltdm_mm = {
 	.vp = &omap5_vp_mm,
 	/* disable auto_ret for mm domain due to known issues */
 	.auto_ret = false,
+	.abb = &omap5_abb_mm,
 };
 
 static struct voltagedomain omap5_voltdm_core = {
@@ -131,7 +134,8 @@ void __init omap54xx_voltagedomains_init(void)
 		omap5_voltdm_mpu.vc_param = &omap5_es1_mpu_vc_data;
 		omap5_voltdm_mm.vc_param = &omap5_es1_mm_vc_data;
 		omap5_voltdm_core.vc_param = &omap5_es1_core_vc_data;
-	} else if (omap_rev() == OMAP5432_REV_ES2_0) {
+	} else if (omap_rev() == OMAP5430_REV_ES2_0 ||
+		   omap_rev() == OMAP5432_REV_ES2_0) {
 		omap5_voltdm_mpu.vc_param = &omap5_mpu_vc_data;
 		omap5_voltdm_mm.vc_param = &omap5_mm_vc_data;
 		omap5_voltdm_core.vc_param = &omap5_core_vc_data;
