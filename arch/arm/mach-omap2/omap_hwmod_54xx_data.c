@@ -75,6 +75,7 @@ static struct omap_hwmod omap54xx_mpu_private_hwmod;
 static struct omap_hwmod omap54xx_sata_hwmod;
 static struct omap_hwmod omap54xx_usb_host_hs_hwmod;
 static struct omap_hwmod omap54xx_usb_otg_ss_hwmod;
+static struct omap_hwmod omap54xx_sl2if_hwmod;
 
 /*
  * Interconnects omap_hwmod structures
@@ -1101,6 +1102,13 @@ static struct omap_mmu_dev_attr omap54xx_dsp_mmu_dev_attr = {
 	.da_end = 0xfffff000,
 	.nr_tlb_entries = 32,
 	.has_bus_err_back = 0,
+	/*
+	 * A value of 10 keeps the corresponding power domain in
+	 * ON/INACTIVE state as long as iommu is being used, to
+	 * prevent loss of IOMMU register context during CPU-idle path.
+	 * TODO: Modify value to allow a lower CSWR state.
+	 */
+	.pm_constraint = 10,
 };
 
 static struct omap_hwmod_class omap54xx_dsp_hwmod_class = {
@@ -1121,11 +1129,22 @@ static struct omap_hwmod_rst_info omap54xx_dsp_c0_resets[] = {
 	{ .name = "dsp", .rst_shift = 0 },
 };
 
+/* dsp cfg address space */
+static struct omap_hwmod_addr_space omap54xx_dsp_addrs[] = {
+	{
+		.pa_start	= 0x4A066000,
+		.pa_end		= 0x4A0660ff,
+		.flags		= ADDR_TYPE_RT
+	},
+	{}
+};
+
 /* l4_cfg -> dsp */
 static struct omap_hwmod_ocp_if omap54xx_l4_cfg__dsp = {
 	.master		= &omap54xx_l4_cfg_hwmod,
 	.slave		= &omap54xx_dsp_hwmod,
 	.clk		= "l4_root_clk_div",
+	.addr		= omap54xx_dsp_addrs,
 	.user		= OCP_USER_MPU | OCP_USER_SDMA,
 };
 
@@ -1195,45 +1214,6 @@ static struct omap_hwmod_class_sysconfig omap54xx_mmu_sysc = {
 static struct omap_hwmod_class omap54xx_mmu_hwmod_class = {
 	.name	= "mmu",
 	.sysc	= &omap54xx_mmu_sysc,
-};
-
-/* mmu_dsp */
-static struct omap_hwmod omap54xx_mmu_dsp_hwmod;
-static struct omap_hwmod_addr_space omap54xx_mmu_dsp_addrs[] = {
-	{
-		.pa_start	= 0x4a066000,
-		.pa_end		= 0x4a0660ff,
-		.flags		= ADDR_TYPE_RT
-	},
-	{ }
-};
-
-/* l4_cfg -> mmu_dsp */
-static struct omap_hwmod_ocp_if omap54xx_l4_cfg__mmu_dsp = {
-	.master		= &omap54xx_l4_cfg_hwmod,
-	.slave		= &omap54xx_mmu_dsp_hwmod,
-	.clk		= "l4_root_clk_div",
-	.addr		= omap54xx_mmu_dsp_addrs,
-	.user		= OCP_USER_MPU | OCP_USER_SDMA,
-};
-
-/* mmu_dsp slave ports */
-static struct omap_hwmod_ocp_if *omap54xx_mmu_dsp_slaves[] = {
-	&omap54xx_l4_cfg__mmu_dsp,
-};
-
-static struct omap_hwmod omap54xx_mmu_dsp_hwmod = {
-	.name		= "mmu_dsp",
-	.class		= &omap54xx_mmu_hwmod_class,
-	.clkdm_name	= "dsp_clkdm",
-	.main_clk	= "dpll_iva_h11x2_ck",
-	.prcm = {
-		.omap4 = {
-			.context_offs = USHRT_MAX,
-		},
-	},
-	.slaves		= omap54xx_mmu_dsp_slaves,
-	.slaves_cnt	= ARRAY_SIZE(omap54xx_mmu_dsp_slaves),
 };
 
 /*
@@ -2820,6 +2800,13 @@ static struct omap_mmu_dev_attr omap54xx_ipu_mmu_dev_attr = {
 	.da_end = 0xfffff000,
 	.nr_tlb_entries = 32,
 	.has_bus_err_back = 1,
+	/*
+	 * A value of 10 keeps the corresponding power domain in
+	 * ON/INACTIVE state as long as iommu is being used, to
+	 * prevent loss of IOMMU register context during CPU-idle path.
+	 * TODO: Modify value to allow a lower CSWR state.
+	 */
+	.pm_constraint = 10,
 };
 
 static struct omap_hwmod_class omap54xx_ipu_hwmod_class = {
@@ -3004,49 +2991,6 @@ static struct omap_hwmod omap54xx_intc_ipu_c1_hwmod = {
 };
 
 /*
- * 'mmu' class
- * ipu unicache and mmu controllers
- */
-
-/* mmu_ipu */
-static struct omap_hwmod omap54xx_mmu_ipu_hwmod;
-static struct omap_hwmod_addr_space omap54xx_mmu_ipu_addrs[] = {
-	{
-		.pa_start	= 0x55080800,
-		.pa_end		= 0x55080fff,
-	},
-	{ }
-};
-
-/* l3_main_2 -> mmu_ipu */
-static struct omap_hwmod_ocp_if omap54xx_l3_main_2__mmu_ipu = {
-	.master		= &omap54xx_l3_main_2_hwmod,
-	.slave		= &omap54xx_mmu_ipu_hwmod,
-	.clk		= "l3_iclk_div",
-	.addr		= omap54xx_mmu_ipu_addrs,
-	.user		= OCP_USER_MPU | OCP_USER_SDMA,
-};
-
-/* mmu_ipu slave ports */
-static struct omap_hwmod_ocp_if *omap54xx_mmu_ipu_slaves[] = {
-	&omap54xx_l3_main_2__mmu_ipu,
-};
-
-static struct omap_hwmod omap54xx_mmu_ipu_hwmod = {
-	.name		= "mmu_ipu",
-	.class		= &omap54xx_mmu_hwmod_class,
-	.clkdm_name	= "ipu_clkdm",
-	.main_clk	= "dpll_core_h22x2_ck",
-	.prcm = {
-		.omap4 = {
-			.context_offs = USHRT_MAX,
-		},
-	},
-	.slaves		= omap54xx_mmu_ipu_slaves,
-	.slaves_cnt	= ARRAY_SIZE(omap54xx_mmu_ipu_slaves),
-};
-
-/*
  * 'iss' class
  * external images sensor pixel data processor
  */
@@ -3161,6 +3105,10 @@ static struct omap_hwmod_class omap54xx_iva_hwmod_class = {
 	.sysc	= &omap54xx_iva_sysc,
 };
 
+static struct omap_hwmod_class omap54xx_iva_seq_hwmod_class = {
+	.name	= "iva-seq",
+};
+
 /* iva */
 static struct omap_hwmod_irq_info omap54xx_iva_irqs[] = {
 	{ .name = "sync_1", .irq = 103 + OMAP54XX_IRQ_GIC_START },
@@ -3207,7 +3155,7 @@ static struct omap_hwmod_ocp_if *omap54xx_iva_slaves[] = {
 /* Pseudo hwmod for reset control purpose only */
 static struct omap_hwmod omap54xx_iva_seq0_hwmod = {
 	.name		= "iva_seq0",
-	.class		= &omap54xx_iva_hwmod_class,
+	.class		= &omap54xx_iva_seq_hwmod_class,
 	.clkdm_name	= "iva_clkdm",
 #ifndef CONFIG_OMAP_PM_STANDALONE
 	.flags		= HWMOD_INIT_NO_RESET,
@@ -3224,7 +3172,7 @@ static struct omap_hwmod omap54xx_iva_seq0_hwmod = {
 /* Pseudo hwmod for reset control purpose only */
 static struct omap_hwmod omap54xx_iva_seq1_hwmod = {
 	.name		= "iva_seq1",
-	.class		= &omap54xx_iva_hwmod_class,
+	.class		= &omap54xx_iva_seq_hwmod_class,
 	.clkdm_name	= "iva_clkdm",
 #ifndef CONFIG_OMAP_PM_STANDALONE
 	.flags		= HWMOD_INIT_NO_RESET,
@@ -4434,6 +4382,45 @@ static struct omap_hwmod omap54xx_mmc5_hwmod = {
 	},
 	.slaves		= omap54xx_mmc5_slaves,
 	.slaves_cnt	= ARRAY_SIZE(omap54xx_mmc5_slaves),
+};
+
+/*
+ * 'sl2if' class
+ * shared level 2 memory interface
+ */
+
+static struct omap_hwmod_class omap54xx_sl2if_hwmod_class = {
+	.name = "sl2if",
+};
+
+/* sl2if */
+/* l3_main_2 -> sl2if */
+static struct omap_hwmod_ocp_if omap54xx_l3_main_2__sl2if = {
+	.master		= &omap54xx_l3_main_2_hwmod,
+	.slave		= &omap54xx_sl2if_hwmod,
+	.clk		= "dpll_iva_h12x2_ck",
+	.user		= OCP_USER_MPU | OCP_USER_SDMA,
+};
+
+/* sl2if slave ports */
+static struct omap_hwmod_ocp_if *omap54xx_sl2if_slaves[] = {
+	&omap54xx_l3_main_2__sl2if,
+};
+
+static struct omap_hwmod omap54xx_sl2if_hwmod = {
+	.name		= "sl2if",
+	.class		= &omap54xx_sl2if_hwmod_class,
+	.clkdm_name	= "iva_clkdm",
+	.main_clk	= "dpll_iva_h12x2_ck",
+	.prcm = {
+		.omap4 = {
+			.clkctrl_offs = OMAP54XX_CM_IVA_SL2_CLKCTRL_OFFSET,
+			.context_offs = OMAP54XX_RM_IVA_SL2_CONTEXT_OFFSET,
+			.modulemode   = MODULEMODE_HWCTRL,
+		},
+	},
+	.slaves		= omap54xx_sl2if_slaves,
+	.slaves_cnt	= ARRAY_SIZE(omap54xx_sl2if_slaves),
 };
 
 /*
@@ -6391,7 +6378,6 @@ static __initdata struct omap_hwmod *omap54xx_hwmods[] = {
 	&omap54xx_dsp_hwmod,
 	&omap54xx_dsp_c0_hwmod,
 #endif
-	&omap54xx_mmu_dsp_hwmod,
 
 	/* dss class */
 	&omap54xx_dss_hwmod,
@@ -6440,7 +6426,6 @@ static __initdata struct omap_hwmod *omap54xx_hwmods[] = {
 	&omap54xx_ipu_c1_hwmod,
 	&omap54xx_intc_ipu_c0_hwmod,
 	&omap54xx_intc_ipu_c1_hwmod,
-	&omap54xx_mmu_ipu_hwmod,
 #endif
 
 	/* iss class */
@@ -6493,6 +6478,8 @@ static __initdata struct omap_hwmod *omap54xx_hwmods[] = {
 	/* sata class */
 	&omap54xx_sata_hwmod,
 #endif
+
+	&omap54xx_sl2if_hwmod,
 
 	/* smartreflex class */
 	&omap54xx_smartreflex_core_hwmod,
