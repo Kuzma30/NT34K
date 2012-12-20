@@ -1888,10 +1888,13 @@ static int mmc_blk_resume(struct mmc_card *card)
 
 	if (md) {
 		/*
-		 * Resume involves the card going into idle state,
+		 * In case if card doesn't support Sleep state
+		 * resume involves the card going into idle state,
 		 * so current partition is always the main one.
+		 * Otherwise keep it as is.
 		 */
-		md->part_curr = md->part_type;
+		if (!mmc_card_can_sleep(card->host))
+			md->part_curr = md->part_type;
 		mmc_queue_resume(&md->queue);
 		list_for_each_entry(part_md, &md->part, part) {
 			mmc_queue_resume(&part_md->queue);
