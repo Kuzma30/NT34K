@@ -1211,7 +1211,8 @@ void mmc_power_off(struct mmc_host *host)
 	 * eMMC 4.5 devices respond to only RESET and AWAKE cmd
 	 */
 	if (host->card && mmc_card_is_sleep(host->card) &&
-	    host->bus_ops->resume) {
+	    host->bus_ops->resume && (host->caps2 & MMC_CAP2_POWEROFF_NOTIFY) &&
+	    (host->card->ext_csd.rev >= 6)) {
 		err = host->bus_ops->resume(host);
 
 		if (!err)
