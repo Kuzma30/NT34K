@@ -241,7 +241,7 @@ void dss_apply_init(void)
 
 void omap_dss_overlay_ensure_bw(void)
 {
-	long unsigned total_area;
+	long unsigned total_area, ovl_area;
 	unsigned long flags;
 	const int num_ovls = dss_feat_get_num_ovls();
 	int i;
@@ -262,7 +262,14 @@ void omap_dss_overlay_ensure_bw(void)
 			struct omap_overlay_info info;
 
 			info = op->user_info;
-			total_area += info.width * info.height;
+			ovl_area = info.width * info.height;
+
+			/* Check if one of the ovls has FullHD resolution */
+			if (ovl_area >= 1920*1080) {
+				total_area = OVERLAY_AREA_BW_THRESHOLD + 1;
+				break;
+			} else
+				total_area += ovl_area;
 		}
 	}
 
@@ -271,10 +278,12 @@ void omap_dss_overlay_ensure_bw(void)
 	if (!overlay_bw_requested &&
 			(total_area > OVERLAY_AREA_BW_THRESHOLD)) {
 		omap_dss_request_high_bandwidth(&dummy_overlay_dev);
+		dss_request_opp(DSS_OPP100);
 		overlay_bw_requested = true;
 	} else if (overlay_bw_requested &&
 			(total_area <= OVERLAY_AREA_BW_THRESHOLD)) {
 		omap_dss_reset_high_bandwidth(&dummy_overlay_dev);
+		dss_request_opp(DSS_OPP50);
 		overlay_bw_requested = false;
 	}
 
@@ -1183,6 +1192,8 @@ static void dss_apply_irq_handler(void *data, u32 mask)
 	bool extra_updating;
 
 	spin_lock(&data_lock);
+
+	dispc_process_divider();
 
 	/* clear busy, updating flags, shadow_dirty flags */
 	for (i = 0; i < num_mgrs; i++) {

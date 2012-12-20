@@ -754,6 +754,29 @@ static struct clk virt_dpll_dsp_ck = {
 	.round_rate	= &omap_virt_dsp_round_rate,
 };
 
+/*
+ * Dummy functions used for virtual dummy clocks
+ */
+long clk_dummy_round_rate(struct clk *clk, unsigned long rate)
+{
+	return rate;
+};
+
+int clk_dummy_set_rate(struct clk *clk, unsigned long rate)
+{
+	clk->rate = rate;
+	return 0;
+};
+
+
+static struct clk virt_lcd_pclk = {
+	.name		= "virt_lcd_pclk",
+	.parent		= NULL,
+	.ops		= &clkops_null,
+	.round_rate	= &clk_dummy_round_rate,
+	.set_rate	= &clk_dummy_set_rate,
+};
+
 /* DPLL_MPU */
 static struct dpll_data dpll_mpu_dd = {
 	.mult_div1_reg	= OMAP4430_CM_CLKSEL_DPLL_MPU,
@@ -3268,6 +3291,7 @@ static struct clk_lookup omap44xx_clks[] = {
 	CLKDEV_INIT(NULL,	"dpll_iva_m5x2_ck",		&dpll_iva_m5x2_ck),
 	CLKDEV_INIT(NULL,       "virt_dpll_iva_ck",             &virt_dpll_iva_ck),
 	CLKDEV_INIT(NULL,       "virt_dsp_ck",                  &virt_dpll_dsp_ck),
+	CLKDEV_INIT(NULL,	"virt_lcd_pclk",		&virt_lcd_pclk),
 	CLKDEV_INIT(NULL,	"dpll_mpu_ck",			&dpll_mpu_ck),
 	CLKDEV_INIT(NULL,	"dpll_mpu_m2_ck",		&dpll_mpu_m2_ck),
 	CLKDEV_INIT(NULL,	"per_hs_clk_div_ck",		&per_hs_clk_div_ck),
