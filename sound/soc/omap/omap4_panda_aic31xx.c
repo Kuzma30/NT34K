@@ -295,6 +295,7 @@ static int omap4_aic31xx_init(struct snd_soc_pcm_runtime *rtd)
 	ret = snd_soc_dapm_new_controls(dapm, omap4_aic31xx_dapm_widgets,
 			ARRAY_SIZE(omap4_aic31xx_dapm_widgets));
 
+	printk("OMAP4 AIC31XX INIT\n");
 	if (ret)
 		return ret;
 
@@ -386,7 +387,7 @@ static struct snd_soc_dai_link omap4_dai_abe[] = {
 
 		.name = "Legacy McBSP3",
 		.stream_name = "MultiMedia",
-		.cpu_dai_name = "omap-mcbsp-dai.2",
+		.cpu_dai_name = "omap-mcbsp-dai.1",
 		.codec_dai_name = "tlv320aic31xx-MM_EXT",
 		.platform_name = "omap-pcm-audio",
 		.codec_name = "tlv320aic31xx-codec",
