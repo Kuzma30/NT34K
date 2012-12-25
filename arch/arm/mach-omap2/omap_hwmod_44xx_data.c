@@ -1022,11 +1022,6 @@ static struct omap_hwmod omap44xx_counter_32k_hwmod = {
 
 static struct omap_hwmod_class_sysconfig omap44xx_ctrl_module_sysc = {
 	.rev_offs	= 0x0000,
-	.sysc_offs	= 0x0010,
-	.sysc_flags	= SYSC_HAS_SIDLEMODE,
-	.idlemodes	= (SIDLE_FORCE | SIDLE_NO | SIDLE_SMART |
-			   SIDLE_SMART_WKUP),
-	.sysc_fields	= &omap_hwmod_sysc_type2,
 };
 
 static struct omap_hwmod_class omap44xx_ctrl_module_hwmod_class = {
