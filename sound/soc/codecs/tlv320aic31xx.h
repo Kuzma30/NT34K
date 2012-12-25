@@ -28,7 +28,8 @@
 #include "aic3xxx/aic3xxx_cfw.h"
 #include "aic3xxx/aic3xxx_cfw_ops.h"
 #define AIC31XX_MCBSP_SLAVE /*aic3111 master*/
-#if 0
+#define DEBUG
+#if 1
 #ifdef DEBUG
 	#define dprintk(x...)   printk(x)
 	#define DBG(x...)       printk(x)

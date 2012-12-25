@@ -104,6 +104,7 @@
 #define L2X0_ADDR_FILTER_EN		1
 
 #define REV_PL310_R2P0				4
+#define L2X0_PREFETCH_DOUBLE_LINEFILL_SHIFT	30
 
 #ifndef __ASSEMBLY__
 extern void __init l2x0_init(void __iomem *base, u32 aux_val, u32 aux_mask);
