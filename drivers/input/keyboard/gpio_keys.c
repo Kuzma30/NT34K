@@ -30,6 +30,9 @@
 #include <linux/of_gpio.h>
 #include <linux/spinlock.h>
 
+static int was_suspend;
+static int gpio_key_need_emul;
+
 struct gpio_button_data {
 	const struct gpio_keys_button *button;
 	struct input_dev *input;
@@ -335,8 +338,21 @@ static void gpio_keys_gpio_report_event(struct gpio_button_data *bdata)
 		if (state)
 			input_event(input, type, button->code, button->value);
 	} else {
+		/*
+		 * HACK:
+		 * if button has been captured by interrupt and
+		 * missed press key then set flag to generate
+		 * emulated events at resume.
+		 */
+		if (button->wakeup) {
+			if (was_suspend && state == 0) {
+				gpio_key_need_emul = 1;
+				return;
+			}
+		}
 		input_event(input, type, button->code, !!state);
 	}
+	was_suspend = 0;
 	input_sync(input);
 }
 
@@ -792,6 +808,7 @@ static int gpio_keys_suspend(struct device *dev)
 		}
 	}
 
+	was_suspend = 1;
 	return 0;
 }
 
@@ -805,8 +822,23 @@ static int gpio_keys_resume(struct device *dev)
 		if (bdata->button->wakeup && device_may_wakeup(dev))
 			disable_irq_wake(bdata->irq);
 
-		if (gpio_is_valid(bdata->button->gpio))
-			gpio_keys_gpio_report_event(bdata);
+		if (gpio_is_valid(bdata->button->gpio)) {
+			/*
+			 * HACK:
+			 * if button has been captured by interrupt and
+			 * missed press key then generate press event then
+			 * in 20 ms up event.
+			 */
+			if (bdata->button->wakeup && gpio_key_need_emul) {
+				input_event(bdata->input, EV_KEY,
+					    bdata->button->code, 1);
+				mod_timer(&bdata->timer, jiffies +
+					  msecs_to_jiffies(20));
+				gpio_key_need_emul = 0;
+			} else {
+				gpio_keys_gpio_report_event(bdata);
+			}
+		}
 	}
 	input_sync(ddata->input);
 
