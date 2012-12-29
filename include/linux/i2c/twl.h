@@ -246,6 +246,10 @@ static inline int twl6030_mmc_card_detect(struct device *dev, int slot)
 
 /*----------------------------------------------------------------------*/
 
+int twl6030_register_notifier(struct notifier_block *nb,
+			      unsigned int events);
+int twl6030_unregister_notifier(struct notifier_block *nb,
+				unsigned int events);
 /*
  * GPIO Block Register offsets (use TWL4030_MODULE_GPIO)
  */
@@ -498,6 +502,15 @@ static inline int twl6030_mmc_card_detect(struct device *dev, int slot)
 */
 #define TWL6030_REG_CFG_SMPS_PD		0xF6
 
+/*
+* Test Register Map (use TWL6030_MODULE_ID2)
+*/
+/* silicon version number */
+#define TWL6030_REG_JTAGVERNUM		0x87
+/* EPROM revision number register */
+#define TWL6030_REG_EPROM_REV		0xd7
+#define TWL6032_REG_EPROM_REV		0xdf
+
 /*----------------------------------------------------------------------*/
 
 /* Power bus message definitions */
@@ -649,6 +662,23 @@ struct twl4030_clock_init_data {
 struct twl4030_bci_platform_data {
 	int *battery_tmp_tbl;
 	unsigned int tblsize;
+
+	unsigned int monitoring_interval;
+
+	unsigned int max_charger_currentmA;
+	unsigned int max_charger_voltagemV;
+	unsigned int termination_currentmA;
+	unsigned int max_battery_capacity;
+
+	unsigned int max_bat_voltagemV;
+	unsigned int low_bat_voltagemV;
+
+	unsigned int sense_resistor_mohm;
+
+	/* twl6032 */
+	unsigned long features;
+
+	unsigned int errata;
 };
 
 /* TWL4030_GPIO_MAX (18) GPIOs, with interrupts */
@@ -889,6 +919,7 @@ struct twl_regulator_driver_data {
 	int		(*get_voltage)(void *data);
 	void		*data;
 	unsigned long	features;
+	u32		errata;
 };
 
 /*----------------------------------------------------------------------*/
@@ -996,5 +1027,12 @@ static inline int twl4030charger_usb_en(int enable) { return 0; }
 #define TWL6032_REG_EXT_V2V1	64
 
 #define PHOENIX_MSK_TRANSITION      0x20
+#define TWL6032_ERRATA_LDO_MUST_BE_ALWAYS_ON	(1 << 3)
+
 #define TWL6032_PREQ1_RES_ASS_A	0xd7
+
+#define TWL6032_ERRATA_DB00119490	(1 << 0)
+#define TWL6030_ERRATA_DB00112620	(1 << 1)
+#define TWL6030_ERRATA_DB00110684	(1 << 2)
+
 #endif /* End of __TWL4030_H */

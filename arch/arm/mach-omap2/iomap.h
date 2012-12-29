@@ -29,6 +29,7 @@
  * with this program; if not, write  to the Free Software Foundation, Inc.,
  * 675 Mass Ave, Cambridge, MA 02139, USA.
  */
+#include <plat/io.h>
 
 #define OMAP2_L3_IO_OFFSET	0x90000000
 #define OMAP2_L3_IO_ADDRESS(pa)	IOMEM((pa) + OMAP2_L3_IO_OFFSET) /* L3 */

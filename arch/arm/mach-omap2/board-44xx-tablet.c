@@ -24,6 +24,8 @@
 #include <linux/spi/spi.h>
 #include <linux/hwspinlock.h>
 #include <linux/i2c/twl.h>
+#include <linux/i2c/bq2415x.h>
+#include <linux/i2c/tmp102.h>
 #include <linux/mfd/twl6040.h>
 #include <linux/cdc_tcxo.h>
 #include <linux/regulator/machine.h>
@@ -31,6 +33,7 @@
 #include <linux/platform_data/omap-abe-twl6040.h>
 #include <linux/platform_data/thermistor_sensor.h>
 #include <linux/leds-omap4430sdp-display.h>
+#include <linux/omap4_duty_cycle_governor.h>
 
 #include <asm/hardware/gic.h>
 #include <asm/mach-types.h>
@@ -193,6 +196,7 @@ static struct omap2_hsmmc_info mmc[] = {
 		.gpio_wp	= -EINVAL,
 		.nonremovable   = true,
 		.ocr_mask	= MMC_VDD_29_30,
+		.built_in	= 1,
 		.no_off_init	= true,
 	},
 	{
@@ -213,6 +217,32 @@ static struct omap2_hsmmc_info mmc[] = {
 	},
 	{}	/* Terminator */
 };
+
+#ifdef CONFIG_OMAP4_DUTY_CYCLE_GOVERNOR
+
+static struct pcb_section omap4_duty_governor_pcb_sections[] = {
+	{
+		.pcb_temp_level			= DUTY_GOVERNOR_DEFAULT_TEMP,
+		.max_opp			= 1200000,
+		.duty_cycle_enabled		= true,
+		.tduty_params = {
+			.nitro_rate		= 1200000,
+			.cooling_rate		= 1008000,
+			.nitro_interval		= 20000,
+			.nitro_percentage	= 24,
+		},
+	},
+};
+
+static void init_duty_governor(void)
+{
+	omap4_duty_pcb_section_reg(omap4_duty_governor_pcb_sections,
+				   ARRAY_SIZE
+				   (omap4_duty_governor_pcb_sections));
+}
+#else
+static void init_duty_governor(void){}
+#endif /*CONFIG_OMAP4_DUTY_CYCLE*/
 
 static int omap4_twl6030_hsmmc_late_init(struct device *dev)
 {
@@ -378,10 +408,38 @@ static struct cdc_tcxo_platform_data tablet_cdc_data = {
 	},
 };
 
+static struct bq2415x_platform_data tablet_bqdata = {
+		.max_charger_voltagemV = 4200,
+		.max_charger_currentmA = 1550,
+};
+
 static struct i2c_board_info __initdata tablet_i2c_boardinfo[] = {
 	{
 		I2C_BOARD_INFO("cdc_tcxo_driver", 0x6c),
 		.platform_data = &tablet_cdc_data,
+	},
+	{
+		I2C_BOARD_INFO("bq24156", 0x6a),
+		.platform_data = &tablet_bqdata,
+	},
+};
+
+/* TMP102 PCB Temperature sensor close to OMAP
+ * values for .slope and .offset are taken from OMAP5 structure,
+ * as TMP102 sensor was not used by domains other then CPU
+ */
+static struct tmp102_platform_data tmp102_omap_info = {
+	.slope = 470,
+	.slope_cpu = 1063,
+	.offset = -1272,
+	.offset_cpu = -477,
+	.domain = "pcb", /* for hotspot extrapolation */
+};
+
+static struct i2c_board_info __initdata tablet_i2c_4_tmp102_boardinfo[] = {
+	{
+			I2C_BOARD_INFO("tmp102_temp_sensor", 0x48),
+			.platform_data = &tmp102_omap_info,
 	},
 };
 
@@ -422,7 +480,8 @@ static int __init omap4_i2c_init(void)
 	omap_register_i2c_bus_board_data(4, &omap4_i2c_4_bus_pdata);
 
 	omap4_pmic_get_config(&tablet_twldata, TWL_COMMON_PDATA_USB |
-			TWL_COMMON_PDATA_MADC,
+			TWL_COMMON_PDATA_MADC | \
+			TWL_COMMON_PDATA_BCI,
 			TWL_COMMON_REGULATOR_VDAC |
 			TWL_COMMON_REGULATOR_VAUX1 |
 			TWL_COMMON_REGULATOR_VAUX2 |
@@ -453,6 +512,18 @@ static int __init omap4_i2c_init(void)
 	omap_register_i2c_bus(2, 400, NULL, 0);
 	omap_register_i2c_bus(3, 400, NULL, 0);
 	omap_register_i2c_bus(4, 400, NULL, 0);
+
+	if (cpu_is_omap447x())
+		i2c_register_board_info(4, tablet_i2c_4_tmp102_boardinfo,
+					ARRAY_SIZE
+					(tablet_i2c_4_tmp102_boardinfo));
+
+	/*
+	 * This will allow unused regulator to be shutdown. This flag
+	 * should be set in the board file. Before regulators are registered.
+	 */
+	regulator_has_full_constraints();
+
 	/*
 	 * Drive MSECURE high for TWL6030/6032 write access.
 	 */
@@ -590,6 +661,7 @@ static void __init omap_tablet_init(void)
 
 	omap4_ehci_ohci_init();
 	usb_musb_init(&musb_board_data);
+	init_duty_governor();
 
 	omap_init_dmm_tiler();
 	omap4_register_ion();
