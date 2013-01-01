@@ -63,7 +63,11 @@ ifeq ($(CONFIG_PM_OPP),y)
 obj-y					+= opp.o
 obj-$(CONFIG_ARCH_OMAP3)		+= opp3xxx_data.o
 obj-$(CONFIG_ARCH_OMAP4)		+= opp4xxx_data.o
+ifeq ($(CONFIG_ARCH_OMAP5_ES1),y)
+obj-$(CONFIG_ARCH_OMAP5)		+= opp5xxx_es1_data.o
+else
 obj-$(CONFIG_ARCH_OMAP5)		+= opp5xxx_data.o
+endif
 endif
 
 # Power Management
@@ -103,20 +107,23 @@ endif
 obj-y					+= prm_common.o
 obj-$(CONFIG_ARCH_OMAP2)		+= prcm.o cm2xxx_3xxx.o prm2xxx_3xxx.o
 obj-$(CONFIG_ARCH_OMAP3)		+= prcm.o cm2xxx_3xxx.o prm2xxx_3xxx.o \
-					   vc3xxx_data.o vp3xxx_data.o
+					   vc3xxx_data.o vp3xxx_data.o \
+					   abb36xx_data.o
 # XXX The presence of cm2xxx_3xxx.o on the line below is temporary and
 # will be removed once the OMAP4 part of the codebase is converted to
 # use OMAP4-specific PRCM functions.
 obj-$(CONFIG_ARCH_OMAP4)		+= prcm.o cm2xxx_3xxx.o cminst44xx.o \
 					   prcm_mpu44xx.o prminst44xx.o	\
-					   vc44xx_data.o vp44xx_data.o prm44xx.o
+					   vc44xx_data.o vp44xx_data.o prm44xx.o \
+					   abb44xx_data.o
 
 obj-$(CONFIG_ARCH_OMAP5)                += prcm.o cm2xxx_3xxx.o cminst44xx.o \
 					   prcm_mpu44xx.o prminst44xx.o	\
-					   vc54xx_data.o vp54xx_data.o
+					   vc54xx_data.o vp54xx_data.o \
+					   abb54xx_data.o
 
 # OMAP voltage domains
-voltagedomain-common			:= voltage.o vc.o vp.o
+voltagedomain-common			:= voltage.o vc.o vp.o abb.o
 obj-$(CONFIG_ARCH_OMAP2)		+= $(voltagedomain-common) \
 					   voltagedomains2xxx_data.o
 obj-$(CONFIG_ARCH_OMAP3)		+= $(voltagedomain-common) \
@@ -125,7 +132,6 @@ obj-$(CONFIG_ARCH_OMAP4)		+= $(voltagedomain-common) \
 					   voltagedomains44xx_data.o
 obj-$(CONFIG_ARCH_OMAP5)		+= $(voltagedomain-common) \
 					   voltagedomains54xx_data.o
-
 
 # OMAP powerdomain framework
 powerdomain-common			+= powerdomain.o powerdomain-common.o
@@ -198,6 +204,10 @@ obj-$(CONFIG_OMAP3_EMU)			+= emu.o
 obj-$(CONFIG_ARCH_OMAP3)		+= omap_l3_smx.o
 obj-$(CONFIG_ARCH_OMAP4)		+= omap_l3_noc.o
 obj-$(CONFIG_ARCH_OMAP5)                += omap_l3_noc.o
+
+# trim quirks
+obj-$(CONFIG_ARCH_OMAP4)		+= omap_trim_quirks.o
+obj-$(CONFIG_ARCH_OMAP5)		+= omap_trim_quirks.o
 
 obj-$(CONFIG_OMAP_MBOX_FWK)		+= mailbox_mach.o
 mailbox_mach-objs			:= mailbox.o
@@ -376,3 +386,4 @@ endif
 
 obj-$(CONFIG_ION_OMAP)			+= omap4_ion.o omap5_ion.o
 obj-$(CONFIG_OMAP_RAM_CONSOLE)		+= omap_ram_console.o
+obj-$(CONFIG_OMAP_REBOOT_REASON)	+= omap-reboot-reason.o

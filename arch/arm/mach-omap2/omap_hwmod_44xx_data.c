@@ -1022,11 +1022,6 @@ static struct omap_hwmod omap44xx_counter_32k_hwmod = {
 
 static struct omap_hwmod_class_sysconfig omap44xx_ctrl_module_sysc = {
 	.rev_offs	= 0x0000,
-	.sysc_offs	= 0x0010,
-	.sysc_flags	= SYSC_HAS_SIDLEMODE,
-	.idlemodes	= (SIDLE_FORCE | SIDLE_NO | SIDLE_SMART |
-			   SIDLE_SMART_WKUP),
-	.sysc_fields	= &omap_hwmod_sysc_type2,
 };
 
 static struct omap_hwmod_class omap44xx_ctrl_module_hwmod_class = {
@@ -1044,8 +1039,15 @@ static struct omap_hwmod_irq_info omap44xx_ctrl_module_core_irqs[] = {
 
 static struct omap_hwmod_addr_space omap44xx_ctrl_module_core_addrs[] = {
 	{
+		.name		= "omap_control_core_core",
 		.pa_start	= 0x4a002000,
-		.pa_end		= 0x4a0027ff,
+		.pa_end		= 0x4a002fff,
+		.flags		= ADDR_TYPE_RT
+	},
+	{
+		.name		= "omap_control_core_pad",
+		.pa_start	= 0x4a100000,
+		.pa_end		= 0x4a100fff,
 		.flags		= ADDR_TYPE_RT
 	},
 	{ }
@@ -1068,7 +1070,7 @@ static struct omap_hwmod_ocp_if *omap44xx_ctrl_module_core_slaves[] = {
 static struct omap_hwmod omap44xx_ctrl_module_core_hwmod = {
 	.name		= "ctrl_module_core",
 	.class		= &omap44xx_ctrl_module_hwmod_class,
-	.clkdm_name	= "ducati_clkdm",
+	.clkdm_name	= "l4_cfg_clkdm",
 	.mpu_irqs	= omap44xx_ctrl_module_core_irqs,
 	.slaves		= omap44xx_ctrl_module_core_slaves,
 	.slaves_cnt	= ARRAY_SIZE(omap44xx_ctrl_module_core_slaves),
@@ -1439,7 +1441,7 @@ static struct omap_hwmod_ocp_if omap44xx_l3_main_2__dss = {
 	.slave		= &omap44xx_dss_hwmod,
 	.clk		= "l3_div_ck",
 	.addr		= omap44xx_dss_dma_addrs,
-	.user		= OCP_USER_SDMA,
+	.user		= OCP_USER_SDMA | OCP_USER_MPU,
 };
 
 static struct omap_hwmod_addr_space omap44xx_dss_addrs[] = {
@@ -1548,7 +1550,7 @@ static struct omap_hwmod_ocp_if omap44xx_l3_main_2__dss_dispc = {
 	.slave		= &omap44xx_dss_dispc_hwmod,
 	.clk		= "l3_div_ck",
 	.addr		= omap44xx_dss_dispc_dma_addrs,
-	.user		= OCP_USER_SDMA,
+	.user		= OCP_USER_SDMA | OCP_USER_MPU,
 };
 
 static struct omap_hwmod_addr_space omap44xx_dss_dispc_addrs[] = {
@@ -1646,7 +1648,7 @@ static struct omap_hwmod_ocp_if omap44xx_l3_main_2__dss_dsi1 = {
 	.slave		= &omap44xx_dss_dsi1_hwmod,
 	.clk		= "l3_div_ck",
 	.addr		= omap44xx_dss_dsi1_dma_addrs,
-	.user		= OCP_USER_SDMA,
+	.user		= OCP_USER_SDMA | OCP_USER_MPU,
 };
 
 static struct omap_hwmod_addr_space omap44xx_dss_dsi1_addrs[] = {
@@ -1723,7 +1725,7 @@ static struct omap_hwmod_ocp_if omap44xx_l3_main_2__dss_dsi2 = {
 	.slave		= &omap44xx_dss_dsi2_hwmod,
 	.clk		= "l3_div_ck",
 	.addr		= omap44xx_dss_dsi2_dma_addrs,
-	.user		= OCP_USER_SDMA,
+	.user		= OCP_USER_SDMA | OCP_USER_MPU,
 };
 
 static struct omap_hwmod_addr_space omap44xx_dss_dsi2_addrs[] = {
@@ -1821,7 +1823,7 @@ static struct omap_hwmod_ocp_if omap44xx_l3_main_2__dss_hdmi = {
 	.slave		= &omap44xx_dss_hdmi_hwmod,
 	.clk		= "l3_div_ck",
 	.addr		= omap44xx_dss_hdmi_dma_addrs,
-	.user		= OCP_USER_SDMA,
+	.user		= OCP_USER_SDMA | OCP_USER_MPU,
 };
 
 static struct omap_hwmod_addr_space omap44xx_dss_hdmi_addrs[] = {
@@ -1913,7 +1915,7 @@ static struct omap_hwmod_ocp_if omap44xx_l3_main_2__dss_rfbi = {
 	.slave		= &omap44xx_dss_rfbi_hwmod,
 	.clk		= "l3_div_ck",
 	.addr		= omap44xx_dss_rfbi_dma_addrs,
-	.user		= OCP_USER_SDMA,
+	.user		= OCP_USER_SDMA | OCP_USER_MPU,
 };
 
 static struct omap_hwmod_addr_space omap44xx_dss_rfbi_addrs[] = {
@@ -1988,7 +1990,7 @@ static struct omap_hwmod_ocp_if omap44xx_l3_main_2__dss_venc = {
 	.slave		= &omap44xx_dss_venc_hwmod,
 	.clk		= "l3_div_ck",
 	.addr		= omap44xx_dss_venc_dma_addrs,
-	.user		= OCP_USER_SDMA,
+	.user		= OCP_USER_SDMA | OCP_USER_MPU,
 };
 
 static struct omap_hwmod_addr_space omap44xx_dss_venc_addrs[] = {

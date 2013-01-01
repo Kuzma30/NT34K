@@ -82,40 +82,44 @@ struct omap_opp_def {
  * Initialization wrapper used to define SmartReflex process data
  * XXX Is this needed?  Just use C99 initializers in data files?
  */
-#define VOLT_DATA_DEFINE(_v_nom, _efuse_offs, _errminlimit, _errgain)  \
+#define VOLT_DATA_DEFINE(_v_nom, _efuse_offs, _errminlimit, _errgain, _opp_sel)  \
 {								       \
 	.volt_nominal	= _v_nom,				       \
 	.sr_efuse_offs	= _efuse_offs,				       \
 	.sr_errminlimit = _errminlimit,				       \
-	.vp_errgain	= _errgain				       \
+	.vp_errgain	= _errgain,				       \
+	.opp_sel	= _opp_sel,				       \
 }
 
-#define VOLT_DATA_DEFINE_MARGIN(_v_nom, _v_margin, _efuse_offs, _errminlimit, _errgain)  \
+#define VOLT_DATA_DEFINE_MARGIN(_v_nom, _v_margin, _efuse_offs, _errminlimit, _errgain, _opp_sel)  \
 {								       \
 	.volt_nominal	= _v_nom,				       \
 	.volt_margin	= _v_margin,				       \
 	.sr_efuse_offs	= _efuse_offs,				       \
 	.sr_errminlimit = _errminlimit,				       \
-	.vp_errgain	= _errgain				       \
+	.vp_errgain	= _errgain,				       \
+	.opp_sel	= _opp_sel,				       \
 }
 
-#define OMAP5_VOLT_DATA_DEFINE(_v_nom, _efuse_offs, _lvt_efuse_offs, _errminlimit, _errgain)  \
+#define OMAP5_VOLT_DATA_DEFINE(_v_nom, _efuse_offs, _lvt_efuse_offs, _errminlimit, _errgain, _opp_sel)  \
 {								       \
 	.volt_nominal	= _v_nom,				       \
 	.sr_efuse_offs	= _efuse_offs,				       \
 	.lvt_sr_efuse_offs	= _lvt_efuse_offs,				       \
 	.sr_errminlimit = _errminlimit,				       \
-	.vp_errgain	= _errgain				       \
+	.vp_errgain	= _errgain,				       \
+	.opp_sel	= _opp_sel,				       \
 }
 
-#define OMAP5_VOLT_DATA_DEFINE_MARGIN(_v_nom, _v_margin, _efuse_offs, _lvt_efuse_offs, _errminlimit, _errgain)  \
+#define OMAP5_VOLT_DATA_DEFINE_MARGIN(_v_nom, _v_margin, _efuse_offs, _lvt_efuse_offs, _errminlimit, _errgain, _opp_sel)  \
 {								       \
 	.volt_nominal	= _v_nom,				       \
 	.volt_margin	= _v_margin,				       \
 	.sr_efuse_offs	= _efuse_offs,				       \
 	.lvt_sr_efuse_offs	= _lvt_efuse_offs,				       \
 	.sr_errminlimit = _errminlimit,				       \
-	.vp_errgain	= _errgain				       \
+	.vp_errgain	= _errgain,				       \
+	.opp_sel	= _opp_sel,				       \
 }
 /* Use this to initialize the default table */
 extern int __init omap_init_opp_table(struct omap_opp_def *opp_def,
@@ -146,6 +150,7 @@ extern struct omap_vdd_dep_info omap446x_vddiva_dep_info[];
 extern struct omap_vdd_dep_info omap447x_vddmpu_dep_info[];
 extern struct omap_vdd_dep_info omap447x_vddiva_dep_info[];
 
+#ifdef CONFIG_ARCH_OMAP5_ES1
 extern struct omap_volt_data omap5430_vdd_mpu_volt_data[];
 extern struct omap_volt_data omap5430_vdd_mm_volt_data[];
 extern struct omap_volt_data omap5430_vdd_core_volt_data[];
@@ -159,5 +164,13 @@ extern struct omap_volt_data omap5432_vdd_core_volt_data[];
 
 extern struct omap_vdd_dep_info omap5432_vddmpu_dep_info[];
 extern struct omap_vdd_dep_info omap5432_vddmm_dep_info[];
+#else
+extern struct omap_volt_data omap543x_vdd_mpu_volt_data[];
+extern struct omap_volt_data omap543x_vdd_mm_volt_data[];
+extern struct omap_volt_data omap543x_vdd_core_volt_data[];
+
+extern struct omap_vdd_dep_info omap543x_vddmpu_dep_info[];
+extern struct omap_vdd_dep_info omap543x_vddmm_dep_info[];
+#endif
 
 #endif		/* __ARCH_ARM_MACH_OMAP2_OMAP_OPP_DATA_H */

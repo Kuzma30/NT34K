@@ -437,16 +437,16 @@ static const uint32_t sdp4430_keymap[] = {
 };
 
 static struct omap_device_pad keypad_pads[] = {
-	{	.name   = "kpd_col1.kpd_col1",
-		.enable = OMAP_WAKEUP_EN | OMAP_MUX_MODE1,
+	{	.name   = "kpd_col0.kpd_col0",
+		.enable = OMAP_WAKEUP_EN | OMAP_MUX_MODE0,
 	},
 	{	.name   = "kpd_row0.kpd_row0",
 		.enable = OMAP_PULL_ENA | OMAP_PULL_UP | OMAP_WAKEUP_EN |
-			OMAP_MUX_MODE1 | OMAP_INPUT_EN,
+			OMAP_MUX_MODE0 | OMAP_INPUT_EN,
 	},
 	{	.name   = "kpd_row1.kpd_row1",
 		.enable = OMAP_PULL_ENA | OMAP_PULL_UP | OMAP_WAKEUP_EN |
-			OMAP_MUX_MODE1 | OMAP_INPUT_EN,
+			OMAP_MUX_MODE0 | OMAP_INPUT_EN,
 	},
 };
 
@@ -1343,12 +1343,9 @@ static void __init omap_4430sdp_init(void)
 
 	usb_musb_init(&musb_board_data);
 
-//	keyboard_mux_init();
-#if 1
 	status = omap4_keyboard_init(&sdp4430_keypad_data, &keypad_data);
 	if (status)
 		pr_err("Keypad initialization failed: %d\n", status);
-#endif
 /*	spi_register_board_info(sdp4430_spi_board_info,
 			ARRAY_SIZE(sdp4430_spi_board_info));*/
 	
@@ -1356,9 +1353,9 @@ static void __init omap_4430sdp_init(void)
 	omap4_register_ion();
 	
 	acclaim_panel_init();
-// 	omap_enable_smartreflex_on_init();
-//         if (enable_suspend_off)
-//                 omap_pm_enable_off_mode();
+	omap_enable_smartreflex_on_init();
+	if (enable_suspend_off)
+		 omap_pm_enable_off_mode();
 
 }
 #ifdef CONFIG_ANDROID_RAM_CONSOLE

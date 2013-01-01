@@ -108,6 +108,11 @@ enum dss_hdmi_venc_clk_source_select {
 	DSS_HDMI_M_PCLK = 1,
 };
 
+enum dss_opp_state {
+	DSS_OPP50	= 0,
+	DSS_OPP100	= 1,
+};
+
 enum dss_dsi_content_type {
 	DSS_DSI_CONTENT_DCS,
 	DSS_DSI_CONTENT_GENERIC,
@@ -199,6 +204,9 @@ struct platform_device;
 struct bus_type *dss_get_bus(void);
 struct regulator *dss_get_vdds_dsi(void);
 struct regulator *dss_get_vdds_sdi(void);
+void omap_dss_request_high_bandwidth(struct device *dss_dev);
+void omap_dss_reset_high_bandwidth(struct device *dss_dev);
+void omap_dss_overlay_ensure_bw(void);
 int dss_get_ctx_loss_count(struct device *dev);
 int dss_dsi_enable_pads(int dsi_id, unsigned lane_mask);
 void dss_dsi_disable_pads(int dsi_id, unsigned lane_mask);
@@ -461,6 +469,9 @@ void dispc_find_clk_divs(bool is_tft, unsigned long req_pck, unsigned long fck,
 int dispc_calc_clock_rates(unsigned long dispc_fclk_rate,
 		struct dispc_clock_info *cinfo);
 
+
+void dispc_process_divider(void);
+void dss_request_opp(enum dss_opp_state opp);
 
 void dispc_ovl_set_global_mflag(enum omap_plane plane, bool mflag);
 void dispc_ovl_set_fifo_threshold(enum omap_plane plane, u32 low, u32 high);

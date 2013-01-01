@@ -137,7 +137,7 @@ static int boxer_panel_probe(struct omap_dss_device *dssdev)
 	printk(KERN_INFO " boxer : %s called , line %d\n", __FUNCTION__,
 	       __LINE__);
 
-	omap_writel(0x00020000, 0x4a1005cc);	//PCLK impedance
+	//omap_writel(0x00020000, 0x4a1005cc);	//PCLK impedance
 	return 0;
 }
 
