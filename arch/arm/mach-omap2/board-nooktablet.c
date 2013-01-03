@@ -1489,7 +1489,7 @@ OMAP_DSS_CLK_SRC_DSI2_PLL_HSDIV_DISPC,
 },
 .panel = {
 .config	= OMAP_DSS_LCD_TFT | OMAP_DSS_LCD_IVS |
-OMAP_DSS_LCD_IHS | OMAP_DSS_LCD_IPC,
+OMAP_DSS_LCD_IHS,// | OMAP_DSS_LCD_IPC,
 .timings	= {
 .x_res = 1024,
 .y_res = 600,
