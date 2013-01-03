@@ -28,7 +28,6 @@
 #include <plat/omap_hwmod.h>
 #include <plat/omap_device.h>
 #include <plat/omap-pm.h>
-#include <plat/dvfs.h>
 #include "common.h"
 
 #include "iomap.h"
@@ -346,9 +345,6 @@ int __init omap_display_init(struct omap_dss_board_info *board_data)
 	int i, oh_count;
 	const struct omap_dss_hwmod_data *curr_dss_hwmod;
 	struct platform_device *dss_pdev;
-	struct omap_display_platform_data pdata;
-
-	memset(&pdata, 0, sizeof(pdata));
 
 	/* create omapdss device */
 
@@ -380,16 +376,13 @@ int __init omap_display_init(struct omap_dss_board_info *board_data)
 		oh_count = ARRAY_SIZE(omap5_dss_hwmod_data);
 	}
 
-	pdata.board_data = board_data;
-	pdata.device_scale = omap_device_scale;
 	dss_pdev = NULL;
 
 	for (i = 0; i < oh_count; i++) {
 		pdev = create_dss_pdev(curr_dss_hwmod[i].dev_name,
 				curr_dss_hwmod[i].id,
 				curr_dss_hwmod[i].oh_name,
-				&pdata,
-				sizeof(struct omap_display_platform_data),
+				NULL, 0,
 				dss_pdev);
 
 		if (IS_ERR(pdev)) {

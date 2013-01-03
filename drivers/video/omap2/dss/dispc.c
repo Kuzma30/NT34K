@@ -37,7 +37,6 @@
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/ratelimit.h>
-#include <plat/omap_device.h>
 
 #include <plat/clock.h>
 #include "../../../drivers/staging/omapdrm/omap_dmm_tiler.h"
@@ -3072,216 +3071,6 @@ static void dispc_mgr_get_lcd_divisor(enum omap_channel channel, int *lck_div,
 	*pck_div = FLD_GET(l, 7, 0);
 }
 
-static spinlock_t dispc_fclock_lock;
-static unsigned long dispc_fclk_div = 1;
-static unsigned long req_dispc_fclk_div = 1;
-static bool req_dispc_opp;
-
-static struct workqueue_struct *dss_opp_wkq;
-static struct work_struct dss_opp_low_wk;
-static struct work_struct dss_opp_high_wk;
-
-static int dispc_set_fclk_divisor(unsigned long d);
-
-/* This function requests neded voltage level for DSS, that corresponds to
- * OPP50 or OPP100.
- */
-static void set_dispc_opp(enum dss_opp_state opp)
-{
-	unsigned long rate = 0;
-	struct device *dev = NULL;
-	struct omap_display_platform_data *pdata;
-
-	if (opp > 1)
-		return;
-
-	dev = &dispc.pdev->dev;
-	if (!dev)
-		return;
-
-	pdata = dev->platform_data;
-	if (!pdata)
-		return;
-
-	if (opp == DSS_OPP100) {
-		/* Request OPP100. Request rate, that is greater than maximum
-		 * rate for OPP50.
-		 */
-		rate = 170000000;
-		pdata->device_scale(dev, rate);
-	} else if (opp == DSS_OPP50) {
-		/* Request OPP50. Here we request rate which is sure
-		 * to be lower, than maximum rate for OPP50. Clocks
-		 * mast be already decreased! */
-		rate = 0;
-		pdata->device_scale(dev, rate);
-	}
-}
-
-/* Delayed work to decrease voltage (OPP50) for DSS. */
-static void dss_low_opp_req(struct work_struct *wk)
-{
-	set_dispc_opp(DSS_OPP50);
-}
-
-static void dss_high_opp_req(struct work_struct *wk)
-{
-	int r;
-
-	set_dispc_opp(DSS_OPP100);
-
-	r = dispc_set_fclk_divisor(1);
-	if (r)
-		DSSERR("%s: error: can't set divider! r:%d\n", __func__, r);
-	else {
-		spin_lock(&dispc_fclock_lock);
-		dispc_fclk_div = req_dispc_fclk_div;
-		spin_unlock(&dispc_fclock_lock);
-	}
-}
-
-void init_dss_opp_wkq(void)
-{
-	dss_opp_wkq = create_singlethread_workqueue("dss_opp_work");
-	if (!dss_opp_wkq) {
-		DSSERR("%s: error: can't create workqueue dss_opp_work!\n",
-								__func__);
-		return;
-	}
-
-	INIT_WORK(&dss_opp_low_wk, dss_low_opp_req);
-	INIT_WORK(&dss_opp_high_wk, dss_high_opp_req);
-}
-
-void destroy_dss_opp_wkq(void)
-{
-	destroy_workqueue(dss_opp_wkq);
-}
-
-void dss_request_opp(enum dss_opp_state opp)
-{
-	spin_lock(&dispc_fclock_lock);
-
-	if (opp == DSS_OPP100) {
-		/* Request delayed work to turn off divider to use maximal
-		 * functional clock.
-		 * At first we increase voltage and then set divider=1.
-		 */
-		req_dispc_fclk_div = 1;
-		req_dispc_opp = true;
-	} else if (opp == DSS_OPP50) {
-		/* Request divider=2 and queue delayed work to set divider
-		 * and OPP, because we should request OPP change only
-		 * from process context.
-		 *
-		 * At first we increase divider. DISPC functional clock mast
-		 * be decresed before decreasing DSS voltage.
-		 *
-		 * Value of divider=2 was found with experiments with OMAP4.
-		 * With this value DISPC works stable.
-		 */
-		req_dispc_fclk_div = 2;
-		req_dispc_opp = true;
-	}
-
-	spin_unlock(&dispc_fclock_lock);
-}
-
-static unsigned long dispc_get_fclk_divisor(void)
-{
-	u32 l;
-
-	/* return invalid value if core has no such function */
-	if (!dss_has_feature(FEAT_CORE_CLK_DIV))
-		return 0;
-
-	/* Get divider value for DISPC_FCLK */
-	l = dispc_read_reg(DISPC_DIVISOR);
-	if (l & 1)
-		l = FLD_GET(l, 23, 16);
-	else {
-		l = dispc_read_reg(DISPC_DIVISORo(OMAP_DSS_CHANNEL_LCD));
-		l = FLD_GET(l, 23, 16);	/* DISPC_DIVISOR1 register has the same
-					   bit positions for LCD bitfield */
-	}
-	return l;
-}
-
-/* This function sets divider value for DISPC functional clock (FCLK) in to the
- * register.
- */
-static int dispc_set_fclk_divisor(unsigned long d)
-{
-	unsigned long l;
-	int r = 0;
-
-	/* Return invalid value if core has no divider function. */
-	if (!dss_has_feature(FEAT_CORE_CLK_DIV)) {
-		r = -1;
-		goto done;
-	}
-
-	/* Check, that divider value is not null. */
-	if (!d) {
-		r = -2;
-		goto done;
-	}
-
-	l = dispc_read_reg(DISPC_DIVISOR);
-	if (l & 1) {
-		l = FLD_MOD(l, d, 23, 16);
-		dispc_write_reg(DISPC_DIVISOR, l);
-	} else {
-		l = dispc_read_reg(DISPC_DIVISORo(OMAP_DSS_CHANNEL_LCD));
-		/* DISPC_DIVISOR1 register has LCD bitfield at the same
-		 * positions as DISPC_DIVISOR register. This is coincidence.
-		 */
-		l = FLD_MOD(l, d, 23, 16);
-		dispc_write_reg(DISPC_DIVISORo(OMAP_DSS_CHANNEL_LCD), l);
-	}
-
-done:
-	return r;
-}
-
-/* This function changes divider for DISPC FCLK if requested
- * (req_dispc_fclk_div differs from dispc_fclk_div). It should be invoced,
- * when processing of previous frame with DISPC is completed, i.e. in IRQ
- * context. Futhermore, in case, when decreasing of DISPC FCLK is requested,
- * this function queue delayed work to decrese DSS OPP, because OPP change
- * can be requested only from process context.
- */
-void dispc_process_divider(void)
-{
-	int r;
-
-	spin_lock(&dispc_fclock_lock);
-
-	/* If ask for the same divider, just go out. */
-	if (dispc_fclk_div == req_dispc_fclk_div)
-		goto done;
-
-	if (req_dispc_fclk_div > 1) {
-		r = dispc_set_fclk_divisor(req_dispc_fclk_div);
-		if (!r) {
-			dispc_fclk_div = req_dispc_fclk_div;
-
-			if (req_dispc_opp) {
-				queue_work(dss_opp_wkq, &dss_opp_low_wk);
-				req_dispc_opp = false;
-			}
-		}
-	} else if (req_dispc_fclk_div == 1) {
-		if (req_dispc_opp) {
-			queue_work(dss_opp_wkq, &dss_opp_high_wk);
-			req_dispc_opp = false;
-		}
-	}
-
-done:
-	spin_unlock(&dispc_fclock_lock);
-}
-
 unsigned long dispc_fclk_rate(void)
 {
 	struct platform_device *dsidev;
@@ -4317,8 +4106,6 @@ static int omap_dispchw_probe(struct platform_device *pdev)
 	dev_dbg(&pdev->dev, "OMAP DISPC rev %d.%d\n",
 	       FLD_GET(rev, 7, 4), FLD_GET(rev, 3, 0));
 
-	dispc_set_fclk_divisor(2);
-
 	dispc_runtime_put();
 
 	return 0;
@@ -4410,15 +4197,10 @@ static struct platform_driver omap_dispchw_driver = {
 
 int dispc_init_platform_driver(void)
 {
-	spin_lock_init(&dispc_fclock_lock);
-	init_dss_opp_wkq();
-
 	return platform_driver_probe(&omap_dispchw_driver, omap_dispchw_probe);
 }
 
 void dispc_uninit_platform_driver(void)
 {
-	destroy_dss_opp_wkq();
-
 	return platform_driver_unregister(&omap_dispchw_driver);
 }

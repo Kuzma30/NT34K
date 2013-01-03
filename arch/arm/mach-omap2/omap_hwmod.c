@@ -125,7 +125,7 @@
  * XXX error return values should be checked to ensure that they are
  * appropriate
  */
-#define DEBUG
+#undef DEBUG
 
 #include <linux/kernel.h>
 #include <linux/errno.h>
