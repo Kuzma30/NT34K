@@ -29,18 +29,6 @@
 #include "dss.h"
 #include "dss_features.h"
 
-/*
- * Estimated available DSS bandwidth on L3@OPP50 is ~800MB/s.
- * It is approximately 3 WXGA layers or almost 1.5 FullHD layers at 60fps rate.
- */
-#define OVERLAY_AREA_BW_THRESHOLD (1280*800*3)
-
-static DEFINE_MUTEX(overlay_bw_mutex);
-static bool overlay_bw_requested;
-static struct device dummy_overlay_dev = {
-	.init_name = "omap_dss_overlay_dev",
-};
-
 struct callback_states {
 	/*
 	 * Keep track of callbacks at the last 3 levels of pipeline:
@@ -237,48 +225,6 @@ void dss_apply_init(void)
 
 		op->user_info = op->info;
 	}
-}
-
-void omap_dss_overlay_ensure_bw(void)
-{
-	long unsigned total_area;
-	unsigned long flags;
-	const int num_ovls = dss_feat_get_num_ovls();
-	int i;
-
-	mutex_lock(&overlay_bw_mutex);
-
-	total_area = 0;
-
-	spin_lock_irqsave(&data_lock, flags);
-
-	for (i = 0; i < num_ovls; ++i)
-	{
-		struct ovl_priv_data *op;
-
-		op = &dss_data.ovl_priv_data_array[i];
-
-		if (op->enabled) {
-			struct omap_overlay_info info;
-
-			info = op->user_info;
-			total_area += info.width * info.height;
-		}
-	}
-
-	spin_unlock_irqrestore(&data_lock, flags);
-
-	if (!overlay_bw_requested &&
-			(total_area > OVERLAY_AREA_BW_THRESHOLD)) {
-		omap_dss_request_high_bandwidth(&dummy_overlay_dev);
-		overlay_bw_requested = true;
-	} else if (overlay_bw_requested &&
-			(total_area <= OVERLAY_AREA_BW_THRESHOLD)) {
-		omap_dss_reset_high_bandwidth(&dummy_overlay_dev);
-		overlay_bw_requested = false;
-	}
-
-	mutex_unlock(&overlay_bw_mutex);
 }
 
 static bool ovl_manual_update(struct omap_overlay *ovl)
@@ -1458,12 +1404,6 @@ int omap_dss_mgr_apply(struct omap_overlay_manager *mgr)
 
 	/* Configure manager */
 	omap_dss_mgr_apply_mgr(mgr);
-
-	spin_unlock_irqrestore(&data_lock, flags);
-
-	omap_dss_overlay_ensure_bw();
-
-	return r;
 done:
 	spin_unlock_irqrestore(&data_lock, flags);
 
