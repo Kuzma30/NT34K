@@ -27,7 +27,7 @@
 #include <asm/mach-types.h>
 #include <video/omapdss.h>
 #include <linux/gpio.h>
-#include <asm/io.h>
+#include <plat/io.h>
 //#define DEBUG
 /* Delay between Panel configuration and Panel enabling */
 #define LCD_RST_DELAY		100
@@ -119,25 +119,12 @@ static void boxer_get_resolution(struct omap_dss_device *dssdev,
 	*yres = dssdev->panel.timings.y_res;
 }
 
-#define OMAP2_L4_IO_OFFSET      0xb2000000
-#define OMAP2_L4_IO_ADDRESS(pa) IOMEM((pa) + OMAP2_L4_IO_OFFSET)
-
-static inline void omap_writel(u32 v, u32 pa)
-{
-        __raw_writel(v, OMAP2_L4_IO_ADDRESS(pa));
-}
-
-static inline void omap_writew(u16 v, u32 pa)
-{
-        __raw_writew(v, OMAP2_L4_IO_ADDRESS(pa));
-}
-
 static int boxer_panel_probe(struct omap_dss_device *dssdev)
 {
 	printk(KERN_INFO " boxer : %s called , line %d\n", __FUNCTION__,
 	       __LINE__);
 
-	//omap_writel(0x00020000, 0x4a1005cc);	//PCLK impedance
+	omap_writel(0x00020000, 0x4a1005cc);	//PCLK impedance
 	return 0;
 }
 
