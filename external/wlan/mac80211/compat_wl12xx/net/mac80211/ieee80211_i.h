@@ -226,11 +226,26 @@ struct beacon_data {
 	u8 *head, *tail;
 	int head_len, tail_len;
 	int dtim_period;
+	struct rcu_head rcu_head;
 };
+
+struct probe_resp {
+	struct sk_buff *skb;
+	struct rcu_head rcu_head;
+};
+
+static inline void ieee80211_free_probe_resp(struct probe_resp *probe_resp)
+{
+	if (!probe_resp)
+		return;
+
+	dev_kfree_skb(probe_resp->skb);
+	kfree(probe_resp);
+}
 
 struct ieee80211_if_ap {
 	struct beacon_data __rcu *beacon;
-	struct sk_buff __rcu *probe_resp;
+	struct probe_resp __rcu *probe_resp;
 
 	struct list_head vlans;
 
@@ -243,6 +258,7 @@ struct ieee80211_if_ap {
 	atomic_t num_sta_authorized; /* number of authorized stations */
 	int dtim_count;
 	bool dtim_bc_mc;
+	struct work_struct ap_ch_sw_work;
 };
 
 struct ieee80211_if_wds {
@@ -697,6 +713,7 @@ enum queue_stop_reason {
 	IEEE80211_QUEUE_STOP_REASON_SUSPEND,
 	IEEE80211_QUEUE_STOP_REASON_SKB_ADD,
 	IEEE80211_QUEUE_STOP_REASON_CHTYPE_CHANGE,
+	IEEE80211_QUEUE_STOP_REASON_CH_SW,
 };
 
 #ifdef CONFIG_MAC80211_LEDS
@@ -832,6 +849,9 @@ struct ieee80211_local {
 	/* device is started */
 	bool started;
 
+	/* device is during a HW reconfig */
+	bool in_reconfig;
+
 	/* wowlan is enabled -- don't reconfig on resume */
 	bool wowlan;
 
@@ -918,6 +938,10 @@ struct ieee80211_local {
 	struct ieee80211_sub_if_data *scan_sdata;
 	enum nl80211_channel_type _oper_channel_type;
 	struct ieee80211_channel *oper_channel, *csa_channel;
+	struct ieee80211_channel *ap_cs_channel;
+	enum nl80211_channel_type ap_cs_type;
+	/* Channel switch request completion */
+	struct completion *csr_compl;
 
 	/* Temporary remain-on-channel for off-channel operations */
 	struct ieee80211_channel *tmp_channel;

@@ -433,8 +433,7 @@ struct conf_rx_settings {
 #define CONF_TX_RATE_RETRY_LIMIT       10
 
 /* basic rates for p2p operations (probe req/resp, etc.) */
-#define CONF_TX_RATE_MASK_BASIC_P2P    (CONF_HW_BIT_RATE_6MBPS | \
-	CONF_HW_BIT_RATE_12MBPS | CONF_HW_BIT_RATE_24MBPS)
+#define CONF_TX_RATE_MASK_BASIC_P2P    CONF_HW_BIT_RATE_6MBPS
 
 /*
  * Rates supported for data packets when operating as AP. Note the absence
@@ -690,6 +689,9 @@ struct conf_tx_settings {
 	 */
 	u8 tmpl_short_retry_limit;
 	u8 tmpl_long_retry_limit;
+
+	/* Time in ms for Tx watchdog timer to expire */
+	u32 tx_watchdog_timeout;
 };
 
 enum {
@@ -979,6 +981,13 @@ struct conf_conn_settings {
 	 * Range: u16
 	 */
 	u8 max_listen_interval;
+
+	/*
+	 * Specifies the timeout in which the host will allow the chip to go
+	 * into ELP. Mainly needed for TX traffic to prevent the host from
+	 * interrogating the FW status for each packets.
+	 */
+	u16 elp_timeout;
 };
 
 enum {
@@ -1076,6 +1085,24 @@ struct conf_scan_settings {
 	 * Range: u32 tu/1000
 	 */
 	u32 max_dwell_time_active;
+
+	/*
+	 * The minimum time to wait on each channel for active scans
+	 * when there's a concurrent active interface. This should
+	 * lower than min_dwell_time_active usually in order to avoid
+	 * interfering with possible voip traffic on another interface.
+	 *
+	 * Range: u32 tu/1000
+	 */
+	u32 min_dwell_time_active_conc;
+
+	/*
+	 * The maximum time to wait on each channel for active scans
+	 * See explanation about min_dwell_time_active_conc
+	 *
+	 * Range: u32 tu/1000
+	 */
+	u32 max_dwell_time_active_conc;
 
 	/*
 	 * The minimum time to wait on each channel for passive scans
@@ -1258,6 +1285,9 @@ struct conf_rx_streaming_settings {
 	u8 always;
 };
 
+#define CONF_FWLOG_MIN_MEM_BLOCKS 	2
+#define CONF_FWLOG_MAX_MEM_BLOCKS	16
+
 struct conf_fwlog {
 	/* Continuous or on-demand */
 	u8 mode;
@@ -1265,7 +1295,7 @@ struct conf_fwlog {
 	/*
 	 * Number of memory blocks dedicated for the FW logger
 	 *
-	 * Range: 1-3, or 0 to disable the FW logger
+	 * Range: 2-16, or 0 to disable the FW logger
 	 */
 	u8 mem_blocks;
 
@@ -1280,6 +1310,29 @@ struct conf_fwlog {
 
 	/* Regulates the frequency of log messages */
 	u8 threshold;
+};
+
+enum core_dump_mem_area_enum {
+	CONF_MEM_CODE      = 0,
+	CONF_MEM_DATA      = 1,
+	CONF_MEM_PACKET	   = 2,
+	CONF_MEM_REGISTERS = 3,
+
+	CONF_MEM_LAST,
+};
+
+struct mem_partition {
+	u32 size;
+	u32 start;
+};
+
+struct conf_core_dump {
+	/* enable core dump to sysfs */
+	u8 enable;
+
+	/* FW memory areas to dump */
+	struct mem_partition mem_wl127x[CONF_MEM_LAST];
+	struct mem_partition mem_wl128x[CONF_MEM_LAST];
 };
 
 #define ACX_RATE_MGMT_NUM_OF_RATES 13
@@ -1332,6 +1385,7 @@ struct conf_drv_settings {
 	struct conf_fm_coex fm_coex;
 	struct conf_rx_streaming_settings rx_streaming;
 	struct conf_fwlog fwlog;
+	struct conf_core_dump core_dump;
 	struct conf_rate_policy_settings rate;
 	struct conf_hangover_settings hangover;
 	u8 hci_io_ds;

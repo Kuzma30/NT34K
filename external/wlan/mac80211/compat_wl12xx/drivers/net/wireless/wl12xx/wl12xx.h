@@ -58,6 +58,7 @@
 #define WL1271_TX_SQN_POST_RECOVERY_PADDING 0xff
 
 #define WL1271_CIPHER_SUITE_GEM 0x00147201
+#define WL1271_ETH_P_WAI 0x88B4
 
 #define WL1271_BUSY_WORD_CNT 1
 #define WL1271_BUSY_WORD_LEN (WL1271_BUSY_WORD_CNT * sizeof(u32))
@@ -68,10 +69,13 @@
 #define WL1271_DEFAULT_BEACON_INT  100
 #define WL1271_DEFAULT_DTIM_PERIOD 1
 
-#define WL12XX_MAX_ROLES           4
+#define WL12XX_MAX_ROLES           6
 #define WL12XX_MAX_LINKS           12
 #define WL12XX_INVALID_ROLE_ID     0xff
 #define WL12XX_INVALID_LINK_ID     0xff
+
+/* the driver supports the 2.4Ghz and 5Ghz bands */
+#define WLCORE_NUM_BANDS           2
 
 #define WL12XX_MAX_RATE_POLICIES 16
 
@@ -95,10 +99,12 @@
 
 #define WL1271_AGGR_BUFFER_SIZE (4 * PAGE_SIZE)
 
-enum wl1271_state {
-	WL1271_STATE_OFF,
-	WL1271_STATE_ON,
-	WL1271_STATE_PLT,
+#define NUM_MAC_ADDRESSES          3
+
+enum wlcore_state {
+	WLCORE_STATE_OFF,
+	WLCORE_STATE_RESTARTING,
+	WLCORE_STATE_ON,
 };
 
 enum wl12xx_fw_type {
@@ -226,10 +232,10 @@ struct wl1271_scan {
 };
 
 struct wl1271_if_operations {
-	void (*read)(struct device *child, int addr, void *buf, size_t len,
-		     bool fixed);
-	void (*write)(struct device *child, int addr, void *buf, size_t len,
-		     bool fixed);
+	int __must_check (*read)(struct device *child, int addr, void *buf,
+				 size_t len, bool fixed);
+	int __must_check (*write)(struct device *child, int addr, void *buf,
+				  size_t len, bool fixed);
 	void (*reset)(struct device *child);
 	void (*init)(struct device *child);
 	int (*power)(struct device *child, bool enable);
@@ -265,6 +271,7 @@ enum wl12xx_flags {
 	WL1271_FLAG_RECOVERY_IN_PROGRESS,
 	WL1271_FLAG_VIF_CHANGE_IN_PROGRESS,
 	WL1271_FLAG_INTENDED_FW_RECOVERY,
+	WL1271_FLAG_IO_FAILED,
 };
 
 enum wl12xx_vif_flags {
@@ -295,14 +302,7 @@ struct wl1271_link {
 	u8 ba_bitmap;
 };
 
-struct ap_peers {
-	struct list_head list;
-	struct ieee80211_sta sta;
-	struct ieee80211_vif *vif;
-	struct ieee80211_hw *hw;
-};
-
-#define WL1271_MAX_RX_FILTERS 5
+#define WL1271_MAX_RX_FILTERS 7
 #define WL1271_RX_FILTER_MAX_FIELDS 8
 
 #define WL1271_RX_FILTER_ETH_HEADER_SIZE 14
@@ -351,9 +351,10 @@ struct wl1271 {
 
 	spinlock_t wl_lock;
 
-	enum wl1271_state state;
+	enum wlcore_state state;
 	enum wl12xx_fw_type fw_type;
 	enum wl12xx_fw_type saved_fw_type;
+	bool plt;
 	struct mutex mutex;
 
 	unsigned long flags;
@@ -377,7 +378,7 @@ struct wl1271 {
 	u32 fuse_nic_addr;
 
 	/* we have up to 2 MAC addresses */
-	struct mac_address addresses[2];
+	struct mac_address addresses[NUM_MAC_ADDRESSES];
 	int channel;
 	u8 system_hlid;
 
@@ -412,7 +413,7 @@ struct wl1271 {
 
 	/* Frames scheduled for transmission, not handled yet */
 	int tx_queue_count[NUM_TX_QUEUES];
-	long stopped_queues_map;
+	unsigned long queue_stop_reasons[NUM_TX_QUEUES];
 
 	/* Frames received, not handled yet by mac80211 */
 	struct sk_buff_head deferred_rx_queue;
@@ -432,7 +433,7 @@ struct wl1271 {
 	u32 rx_counter;
 
 	/* Rx memory pool address */
-	struct wl1271_rx_mem_pool_addr rx_mem_pool_addr;
+	struct wl1271_rx_mem_pool_addr *rx_mem_pool_addr;
 
 	/* Intermediate buffer, used for packet aggregation */
 	u8 *aggr_buf;
@@ -452,8 +453,33 @@ struct wl1271 {
 	/* Sysfs FW log entry readers wait queue */
 	wait_queue_head_t fwlog_waitq;
 
+	/* Core Dump memory map */
+	struct mem_partition *core_dump_mem_area;
+
+	/* Core Dump buffer */
+	u8 *core_dump;
+
+	/* Number of valid bytes in the core dump buffer */
+	size_t core_dump_size;
+
+	/* Core dump available */
+	bool core_dump_avail;
+
+	/* Sysfs core_dump entry readers wait queue */
+	wait_queue_head_t core_dump_waitq;
+
 	/* Hardware recovery work */
 	struct work_struct recovery_work;
+	/*
+	 * delayed recovery work - we use a separate work
+	 * in order to prevent big changes. however, me
+	 * may want to reconisder it...
+	 */
+	struct delayed_work delayed_recovery;
+	bool force_mr_fw;
+
+	/* Pointer that holds DMA-friendly block for the mailbox */
+	struct event_mailbox *mbox;
 
 	/* The mbox event mask */
 	u32 event_mask;
@@ -480,11 +506,12 @@ struct wl1271 {
 #ifdef CONFIG_HAS_WAKELOCK
 	struct wake_lock wake_lock;
 	struct wake_lock rx_wake;
+	struct wake_lock recovery_wake;
 #endif
 
 	struct wl1271_stats stats;
 
-	__le32 buffer_32;
+	__le32 *buffer_32;
 	u32 buffer_cmd;
 	u32 buffer_busyword[WL1271_BUSY_WORD_CNT];
 
@@ -504,7 +531,7 @@ struct wl1271 {
 	s8 noise;
 
 	/* bands supported by this instance of wl12xx */
-	struct ieee80211_supported_band bands[IEEE80211_NUM_BANDS];
+	struct ieee80211_supported_band bands[WLCORE_NUM_BANDS];
 
 	int tcxo_clock;
 
@@ -548,10 +575,22 @@ struct wl1271 {
 	/* RX Data filter rule status - enabled/disabled */
 	bool rx_data_filters_status[WL1271_MAX_RX_FILTERS];
 
-	/* AP's peers */
-	struct list_head peers_list;
+	/* AP-mode - the frequency driver switching to in AP/GO */
+	u16 ch_sw_freq;
 
 	bool watchdog_recovery;
+
+	/* work to fire when Tx is stuck */
+	struct delayed_work tx_watchdog_work;
+
+	/* mutex for protecting the tx_flush function */
+	struct mutex flush_mutex;
+
+	/* Short GI is disabled in the FW - For certification tests purposes */
+	bool disable_sgi;
+
+	/* Patterns configured with set_rx_filters */
+	struct cfg80211_wowlan *wowlan_patterns;
 };
 
 struct wl1271_station {
@@ -614,7 +653,7 @@ struct wl12xx_vif {
 	enum ieee80211_band band;
 	int channel;
 
-	u32 bitrate_masks[IEEE80211_NUM_BANDS];
+	u32 bitrate_masks[WLCORE_NUM_BANDS];
 	u32 basic_rate_set;
 
 	/*
@@ -723,12 +762,10 @@ struct wl12xx_rx_data_filter *wl1271_rx_filter_alloc(void);
 int wl1271_rx_filter_get_fields_size(struct wl12xx_rx_data_filter *filter);
 void wl1271_rx_filter_flatten_fields(struct wl12xx_rx_data_filter *filter,
 				     u8 *buf);
-int wl1271_op_sta_add_locked(struct ieee80211_hw *hw,
-			     struct ieee80211_vif *vif,
-			     struct ieee80211_sta *sta);
-void wl12xx_update_sta_state(struct wl1271 *wl,
-			     struct ieee80211_sta *sta,
-			     enum ieee80211_sta_state state);
+int wl12xx_init_pll_clock(struct wl1271 *wl, int *selected_clock);
+bool wl12xx_change_fw_if_needed(struct wl1271 *wl);
+bool is_p2p_mgmt_on_existing_chan(struct wl1271 *wl);
+u8 wl12xx_open_count(struct wl1271 *wl);
 
 #define JOIN_TIMEOUT 5000 /* 5000 milliseconds to join */
 

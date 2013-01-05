@@ -7,23 +7,30 @@
 
 /* include to override NL80211_FEATURE_SK_TX_STATUS */
 #include <linux/nl80211.h>
+#include <linux/skbuff.h>
+#include <net/sch_generic.h>
 
-/*
- * This is not part of The 2.6.37 kernel yet but we
- * we use it to optimize the backport code we
- * need to implement. Instead of using ifdefs
- * to check what version of the check we use
- * we just replace all checks on current code
- * with this. I'll submit this upstream too, that
- * way all we'd have to do is to implement this
- * for older kernels, then we would not have to
- * edit the upstrema code for backport efforts.
- */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,36))
-#define br_port_exists(dev)	(dev->priv_flags & IFF_BRIDGE_PORT)
+#if !((LINUX_VERSION_CODE >= KERNEL_VERSION(3,2,9) && LINUX_VERSION_CODE < KERNEL_VERSION(3,3,0)) || (LINUX_VERSION_CODE >= KERNEL_VERSION(3,0,23) && LINUX_VERSION_CODE < KERNEL_VERSION(3,1,0)))
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(2,6,37))
+static inline void qdisc_cb_private_validate(const struct sk_buff *skb, int sz)
+{
+	BUILD_BUG_ON(sizeof(skb->cb) < sizeof(struct qdisc_skb_cb) + sz);
+}
 #else
-#define br_port_exists(dev)	(dev->br_port)
+static inline void qdisc_cb_private_validate(const struct sk_buff *skb, int sz)
+{
+	/* XXX ? */
+}
 #endif
+#endif
+
+extern struct sk_buff *__pskb_copy(struct sk_buff *skb,
+				   int headroom, gfp_t gfp_mask);
+
+static inline void skb_complete_wifi_ack(struct sk_buff *skb, bool acked)
+{
+	WARN_ON(1);
+}
 #define NL80211_FEATURE_SK_TX_STATUS 0
 
 typedef u32 netdev_features_t;

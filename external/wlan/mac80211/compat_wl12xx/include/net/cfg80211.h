@@ -139,6 +139,34 @@ struct ieee80211_channel {
 };
 
 /**
+ * struct ieee80211_ap_ch_switch - holds the ap channel switch data
+ *
+ * The information provided in this structure is required for the ap channel
+ * switch operation.
+ *
+ * @timestamp: value in microseconds of the 64-bit Time Synchronization
+ *	Function (TSF) timer when the frame containing the channel switch
+ *	announcement was received. This is simply the rx.mactime parameter
+ *	the driver passed into mac80211.
+ * @block_tx: Indicates whether transmission must be blocked before the
+ *	scheduled channel switch, as indicated by the AP.
+ * @post_switch_block_tx: Indicates whether transmission must be blocked after
+ *	the scheduled channel switch, this should be set if the target channel
+ *	is DFS channel.
+ * @channel: the new channel to switch to
+ * @channel_type: the type of the new channel
+ * @count: the number of TBTT's until the channel switch event
+ */
+struct ieee80211_ap_ch_switch {
+	u64 timestamp;
+	bool block_tx;
+	bool post_switch_block_tx;
+	struct ieee80211_channel *channel;
+	enum nl80211_channel_type channel_type;
+	u8 count;
+};
+
+/**
  * enum ieee80211_rate_flags - rate flags
  *
  * Hardware/specification flags for rates. These are structured
@@ -835,7 +863,7 @@ struct mesh_setup {
  * @aifs: Arbitration interframe space [0..255]
  */
 struct ieee80211_txq_params {
-	enum nl80211_txq_q queue;
+	enum nl80211_ac queue;
 	u16 txop;
 	u16 cwmin;
 	u16 cwmax;
@@ -1264,6 +1292,7 @@ struct cfg80211_pmksa {
  *	one bit per byte, in same format as nl80211
  * @pattern: bytes to match where bitmask is 1
  * @pattern_len: length of pattern (in bytes)
+ * @action: whether to drop or allow this pattern
  *
  * Internal note: @mask and @pattern are allocated in one chunk of
  * memory, free @mask only!
@@ -1271,6 +1300,7 @@ struct cfg80211_pmksa {
 struct cfg80211_wowlan_trig_pkt_pattern {
 	u8 *mask, *pattern;
 	int pattern_len;
+	u8 action;
 };
 
 /**
@@ -1495,6 +1525,8 @@ struct cfg80211_gtk_rekey_data {
  *	later passes to cfg80211_probe_status().
  *
  * @set_noack_map: Set the NoAck Map for the TIDs.
+ *
+ * @ap_channel_switch: Perform AP channel switch.
  */
 struct cfg80211_ops {
 	int	(*suspend)(struct wiphy *wiphy, struct cfg80211_wowlan *wow);
@@ -1697,6 +1729,10 @@ struct cfg80211_ops {
 				  struct cfg80211_wowlan *wowlan);
 
 	struct ieee80211_channel *(*get_channel)(struct wiphy *wiphy);
+
+	int	(*ap_channel_switch)(struct wiphy *wiphy,
+				     struct net_device *dev,
+				     struct ieee80211_ap_ch_switch *ap_ch_sw);
 };
 
 /*
@@ -3326,6 +3362,18 @@ bool cfg80211_rx_unexpected_4addr_frame(struct net_device *dev,
 					const u8 *addr, gfp_t gfp);
 
 /**
+ * cfg80211_req_channel_switch - request channel switch for GO/AP
+ * @dev: The device the frame matched to
+ * @gfp: context flags
+ * &chan: desired channel
+ *
+ * This function is used in AP/GO mode to request userspace to switch
+ * to a new channel.
+ */
+void cfg80211_req_channel_switch(struct net_device *dev,
+				 struct ieee80211_channel *chan, gfp_t gfp);
+
+/**
  * cfg80211_probe_status - notify userspace about probe status
  * @dev: the device the probe was sent on
  * @addr: the address of the peer
@@ -3361,6 +3409,17 @@ void cfg80211_report_obss_beacon(struct wiphy *wiphy,
 int cfg80211_can_beacon_sec_chan(struct wiphy *wiphy,
 				 struct ieee80211_channel *chan,
 				 enum nl80211_channel_type channel_type);
+
+/*
+ * cfg80211_ch_switch_notify - update wdev channel and notify userspace
+ * @dev: the device which switched channels
+ * @freq: new channel frequency (in MHz)
+ * @type: channel type
+ *
+ * Acquires wdev_lock, so must only be called from sleepable driver context!
+ */
+void cfg80211_ch_switch_notify(struct net_device *dev, int freq,
+			       enum nl80211_channel_type type);
 
 /* Logging, debugging and troubleshooting/diagnostic helpers. */
 

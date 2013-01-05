@@ -55,6 +55,20 @@ int wl1271_init_templates_config(struct wl1271 *wl)
 		return ret;
 
 	ret = wl1271_cmd_template_set(wl, WL12XX_INVALID_ROLE_ID,
+			CMD_TEMPL_APP_PROBE_REQ_2_4, NULL,
+			WL1271_CMD_TEMPL_MAX_SIZE,
+			0, WL1271_RATE_AUTOMATIC);
+	if (ret < 0)
+		return ret;
+
+	ret = wl1271_cmd_template_set(wl, WL12XX_INVALID_ROLE_ID,
+			CMD_TEMPL_APP_PROBE_REQ_5, NULL,
+			WL1271_CMD_TEMPL_MAX_SIZE,
+			0, WL1271_RATE_AUTOMATIC);
+	if (ret < 0)
+		return ret;
+
+	ret = wl1271_cmd_template_set(wl, WL12XX_INVALID_ROLE_ID,
 				      CMD_TEMPL_NULL_DATA, NULL,
 				      sizeof(struct wl12xx_null_data_template),
 				      0, WL1271_RATE_AUTOMATIC);
@@ -573,12 +587,15 @@ int wl1271_init_vif_specific(struct wl1271 *wl, struct ieee80211_vif *vif)
 
 	/*
 	 * consider all existing roles before configuring psm.
-	 * TODO: reconfigure on interface removal.
 	 */
 	if (!wl->ap_count) {
 		if (is_ap) {
 			/* Configure for power always on */
 			ret = wl1271_acx_sleep_auth(wl, WL1271_PSM_CAM);
+			if (ret < 0)
+				return ret;
+
+			ret = wl1271_configure_wowlan(wl, NULL);
 			if (ret < 0)
 				return ret;
 		} else if (!wl->sta_count) {

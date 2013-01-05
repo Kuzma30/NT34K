@@ -110,11 +110,14 @@ static void wl1271_debugfs_update_stats(struct wl1271 *wl)
 
 	mutex_lock(&wl->mutex);
 
+	if (unlikely(wl->state != WLCORE_STATE_ON))
+		goto out;
+
 	ret = wl1271_ps_elp_wakeup(wl);
 	if (ret < 0)
 		goto out;
 
-	if (wl->state == WL1271_STATE_ON &&
+	if (!wl->plt &&
 	    time_after(jiffies, wl->stats.fw_stats_update +
 		       msecs_to_jiffies(WL1271_DEBUGFS_STATS_LIFETIME))) {
 		wl1271_acx_statistics(wl, wl->stats.fw_stats);
@@ -299,9 +302,18 @@ static ssize_t start_recovery_write(struct file *file,
 				    size_t count, loff_t *ppos)
 {
 	struct wl1271 *wl = file->private_data;
+	int ret;
 
 	mutex_lock(&wl->mutex);
+
+	/* Call ELP wakeup to allow general recovery processing */
+	ret = wl1271_ps_elp_wakeup(wl);
+	if (ret < 0)
+		wl1271_error(
+		    "start_recovery_write: FAILED wl1271_ps_elp_wakeup");
+
 	wl12xx_queue_recovery_work(wl);
+
 	mutex_unlock(&wl->mutex);
 
 	return count;
@@ -342,12 +354,12 @@ static ssize_t dynamic_ps_timeout_write(struct file *file,
 		wl1271_warning("dyanmic_ps_timeout is not in valid range");
 		return -ERANGE;
 	}
-	
+
 	mutex_lock(&wl->mutex);
 
 	wl->conf.conn.dynamic_ps_timeout = value;
 
-	if (wl->state == WL1271_STATE_OFF)
+	if (unlikely(wl->state != WLCORE_STATE_ON))
 		goto out;
 
 	ret = wl1271_ps_elp_wakeup(wl);
@@ -412,7 +424,7 @@ static ssize_t forced_ps_write(struct file *file,
 
 	wl->conf.conn.forced_ps = value;
 
-	if (wl->state == WL1271_STATE_OFF)
+	if (unlikely(wl->state != WLCORE_STATE_ON))
 		goto out;
 
 	ret = wl1271_ps_elp_wakeup(wl);
@@ -444,6 +456,21 @@ static const struct file_operations forced_ps_ops = {
 	.llseek = default_llseek,
 };
 
+static ssize_t vif_count_read(struct file *file, char __user *user_buf,
+			  size_t count, loff_t *ppos)
+{
+	struct wl1271 *wl = file->private_data;
+
+	return wl1271_format_buffer(user_buf, count,
+				    ppos, "%d\n",
+				    wl12xx_open_count(wl));
+}
+
+static const struct file_operations vif_count_ops = {
+	.read = vif_count_read,
+	.open = wl1271_open_file_generic,
+	.llseek = default_llseek,
+};
 
 static ssize_t split_scan_timeout_read(struct file *file, char __user *user_buf,
 			  size_t count, loff_t *ppos)
@@ -486,6 +513,52 @@ static const struct file_operations split_scan_timeout_ops = {
 	.open = wl1271_open_file_generic,
 	.llseek = default_llseek,
 };
+
+
+static ssize_t elp_timeout_read(struct file *file, char __user *user_buf,
+			  size_t count, loff_t *ppos)
+{
+	struct wl1271 *wl = file->private_data;
+
+	return wl1271_format_buffer(user_buf, count,
+				    ppos, "%d\n",
+				    wl->conf.conn.elp_timeout);
+}
+
+static ssize_t elp_timeout_write(struct file *file,
+				    const char __user *user_buf,
+				    size_t count, loff_t *ppos)
+{
+	struct wl1271 *wl = file->private_data;
+	unsigned long value;
+	int ret;
+
+	ret = kstrtoul_from_user(user_buf, count, 10, &value);
+	if (ret < 0) {
+		wl1271_warning("illegal value in dynamic_ps");
+		return -EINVAL;
+	}
+
+	if (value < 1 || value > 65535) {
+		wl1271_warning("dyanmic_ps_timeout is not in valid range");
+		return -ERANGE;
+	}
+
+	mutex_lock(&wl->mutex);
+
+	wl->conf.conn.elp_timeout = value;
+
+	mutex_unlock(&wl->mutex);
+	return count;
+}
+
+static const struct file_operations elp_timeout_ops = {
+	.read = elp_timeout_read,
+	.write = elp_timeout_write,
+	.open = wl1271_open_file_generic,
+	.llseek = default_llseek,
+};
+
 
 static ssize_t driver_state_read(struct file *file, char __user *user_buf,
 				 size_t count, loff_t *ppos)
@@ -1014,6 +1087,82 @@ static const struct file_operations beacon_filtering_ops = {
 	.llseek = default_llseek,
 };
 
+static ssize_t ch_sw_debug_read(struct file *file, char __user *user_buf,
+				size_t count, loff_t *ppos)
+{
+	struct wl1271 *wl = file->private_data;
+	struct wl12xx_vif *wlvif;
+	u16 current_ch = 0;
+
+
+	wl12xx_for_each_wlvif_ap(wl, wlvif) {
+	    current_ch = wlvif->channel;
+	    break;
+	}
+
+	return wl1271_format_buffer(user_buf, count, ppos,
+				    "current channel=%d\n", current_ch);
+}
+
+static ssize_t ch_sw_debug_write(struct file *file,
+				 const char __user *user_buf,
+				 size_t count, loff_t *ppos)
+{
+	struct wl1271 *wl = file->private_data;
+	int ret;
+	struct ieee80211_vif *vif;
+	struct wl12xx_vif *wlvif;
+	unsigned long value;
+
+	ret = kstrtoul_from_user(user_buf, count, 10, &value);
+	if (ret < 0) {
+		wl1271_warning("illegal value in channel switch request!");
+		return -EINVAL;
+	}
+
+	mutex_lock(&wl->mutex);
+
+	ret = wl1271_ps_elp_wakeup(wl);
+	if (ret < 0)
+		goto out;
+
+	wl12xx_for_each_wlvif_ap(wl, wlvif) {
+		struct ieee80211_channel *channel;
+
+		if ((wlvif->band == IEEE80211_BAND_2GHZ) &&
+			((value > 2484) || (value < 2412))) {
+			wl1271_warning("illegal freq value for BG band!");
+			break;
+		} else if ((wlvif->band == IEEE80211_BAND_5GHZ) &&
+			((value > 5825) || (value < 4915))) {
+			wl1271_warning("illegal freq value for A band!");
+			break;
+		}
+
+		channel = ieee80211_get_channel(wl->hw->wiphy, value);
+		if (channel) {
+			wl1271_debug(DEBUG_AP, "Req. to switch to %d freq",
+				channel->center_freq);
+
+			vif = wl12xx_wlvif_to_vif(wlvif);
+			ieee80211_req_channel_switch(vif, channel, GFP_KERNEL);
+		} else
+			wl1271_debug(DEBUG_AP, "illegal chan freq");
+	}
+
+	wl1271_ps_elp_sleep(wl);
+out:
+	mutex_unlock(&wl->mutex);
+	return count;
+}
+
+static const struct file_operations ch_sw_debug_ops = {
+	.read = ch_sw_debug_read,
+	.write = ch_sw_debug_write,
+	.open = wl1271_open_file_generic,
+	.llseek = default_llseek,
+};
+
 static int wl1271_debugfs_add_files(struct wl1271 *wl,
 				     struct dentry *rootdir)
 {
@@ -1132,6 +1281,9 @@ static int wl1271_debugfs_add_files(struct wl1271 *wl,
 	DEBUGFS_ADD(dynamic_ps_timeout, rootdir);
 	DEBUGFS_ADD(forced_ps, rootdir);
 	DEBUGFS_ADD(split_scan_timeout, rootdir);
+	DEBUGFS_ADD(elp_timeout, rootdir);
+	DEBUGFS_ADD(vif_count, rootdir);
+	DEBUGFS_ADD(ch_sw_debug, rootdir);
 
 	streaming = debugfs_create_dir("rx_streaming", rootdir);
 	if (!streaming || IS_ERR(streaming))

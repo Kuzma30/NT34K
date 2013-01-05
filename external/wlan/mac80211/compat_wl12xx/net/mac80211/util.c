@@ -939,6 +939,8 @@ int ieee80211_build_preq_ies(struct ieee80211_local *local, u8 *buffer,
 	int ext_rates_len;
 
 	sband = local->hw.wiphy->bands[band];
+	if (WARN_ON_ONCE(!sband))
+		return 0;
 
 	pos = buffer;
 
@@ -1210,22 +1212,21 @@ int ieee80211_reconfig(struct ieee80211_local *local)
 	/* add STAs back */
 	mutex_lock(&local->sta_mtx);
 	list_for_each_entry(sta, &local->sta_list, list) {
-		if (sta->uploaded) {
-			enum ieee80211_sta_state state = IEEE80211_STA_NONE;
+		enum ieee80211_sta_state state;
 
-			sdata = sta->sdata;
-			if (sdata->vif.type == NL80211_IFTYPE_AP_VLAN)
-				sdata = container_of(sdata->bss,
-					     struct ieee80211_sub_if_data,
-					     u.ap);
+		if (!sta->uploaded)
+			continue;
 
-			if (WARN_ON(drv_sta_add(local, sdata, &sta->sta)))
-				continue;
+		/* AP-mode stations will be added later */
+		if (sta->sdata->vif.type == NL80211_IFTYPE_AP)
+			continue;
 
-			while (state < sta->sta.state)
-				drv_sta_state(local, sdata, &sta->sta,
-					      ++state);
-		}
+		if (WARN_ON(drv_sta_add(local, sta->sdata, &sta->sta)))
+			continue;
+
+		for (state = IEEE80211_STA_NONE;
+		     state < sta->sta.state; state++)
+			drv_sta_state(local, sta->sdata, &sta->sta, state + 1);
 	}
 	mutex_unlock(&local->sta_mtx);
 
@@ -1244,7 +1245,7 @@ int ieee80211_reconfig(struct ieee80211_local *local)
 	ieee80211_hw_config(local, ~0);
 
 	ieee80211_configure_filter(local);
-	ieee80211_set_rx_filters(hw->wiphy, local->wowlan_patterns);
+	drv_set_rx_filters(local, local->wowlan_patterns);
 
 	/* Finally also reconfigure all the BSS information */
 	list_for_each_entry(sdata, &local->interfaces, list) {
@@ -1319,6 +1320,35 @@ int ieee80211_reconfig(struct ieee80211_local *local)
 		}
 	}
 
+	/* APs are now beaconing, add back stations */
+	mutex_lock(&local->sta_mtx);
+	list_for_each_entry(sta, &local->sta_list, list) {
+		enum ieee80211_sta_state state;
+
+		if (!sta->uploaded)
+			continue;
+
+		if (sta->sdata->vif.type != NL80211_IFTYPE_AP)
+			continue;
+
+		if (WARN_ON(drv_sta_add(local, sta->sdata, &sta->sta)))
+			continue;
+
+		for (state = IEEE80211_STA_NONE;
+		     state < sta->sta.state; state++)
+			drv_sta_state(local, sta->sdata, &sta->sta, state + 1);
+	}
+	mutex_unlock(&local->sta_mtx);
+
+	/* add back keys */
+	list_for_each_entry(sdata, &local->interfaces, list)
+		if (ieee80211_sdata_running(sdata))
+			ieee80211_enable_keys(sdata);
+
+ wake_up:
+	local->in_reconfig = false;
+	barrier();
+
 	/*
 	 * Clear the WLAN_STA_BLOCK_BA flag so new aggregation
 	 * sessions can be established after a resume.
@@ -1340,12 +1370,6 @@ int ieee80211_reconfig(struct ieee80211_local *local)
 		mutex_unlock(&local->sta_mtx);
 	}
 
-	/* add back keys */
-	list_for_each_entry(sdata, &local->interfaces, list)
-		if (ieee80211_sdata_running(sdata))
-			ieee80211_enable_keys(sdata);
-
- wake_up:
 	ieee80211_wake_queues_by_reason(hw,
 			IEEE80211_QUEUE_STOP_REASON_SUSPEND);
 
@@ -1762,3 +1786,28 @@ bool ieee80211_suspending(struct ieee80211_hw *hw)
 	return local->quiescing;
 }
 EXPORT_SYMBOL(ieee80211_suspending);
+
+int ieee80211_started_vifs_count(struct ieee80211_hw *hw)
+{
+	struct ieee80211_local *local = hw_to_local(hw);
+	struct ieee80211_sub_if_data *sdata;
+	int count = 0;
+
+	rcu_read_lock();
+
+	list_for_each_entry_rcu(sdata, &local->interfaces, list) {
+		if (!ieee80211_sdata_running(sdata))
+			continue;
+
+		if (sdata->vif.type == NL80211_IFTYPE_AP_VLAN ||
+		    sdata->vif.type == NL80211_IFTYPE_MONITOR)
+			continue;
+
+		if (!sdata->vif.bss_conf.idle)
+			count++;
+	}
+
+	rcu_read_unlock();
+	return count;
+}
+EXPORT_SYMBOL(ieee80211_started_vifs_count);

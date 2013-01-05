@@ -170,7 +170,7 @@ static inline void __arch_decomp_setup(unsigned long arch_id)
 		DEBUG_LL_OMAP3(3, igep0020);
 		DEBUG_LL_OMAP3(3, igep0030);
 		DEBUG_LL_OMAP3(3, nokia_rm680);
-		DEBUG_LL_OMAP3(3, nokia_rm696);
+//		DEBUG_LL_OMAP3(3, nokia_rm696);
 		DEBUG_LL_OMAP3(3, nokia_rx51);
 		DEBUG_LL_OMAP3(3, omap3517evm);
 		DEBUG_LL_OMAP3(3, omap3_beagle);
@@ -189,9 +189,9 @@ static inline void __arch_decomp_setup(unsigned long arch_id)
 		DEBUG_LL_OMAP5(1, omap5_sevm);
 #else
 		/* omap5 based boards using UART3 */
-		DEBUG_LL_OMAP5(3, omap5_sevm);
+//		DEBUG_LL_OMAP5(3, omap5_sevm);
 #endif
-		DEBUG_LL_OMAP5(3, omap5_panda);
+//		DEBUG_LL_OMAP5(3, omap5_panda);
 
 		/* Nook TAblet OMAP4430 use UART1 */
 		DEBUG_LL_OMAP4(1, omap4_nooktablet);
