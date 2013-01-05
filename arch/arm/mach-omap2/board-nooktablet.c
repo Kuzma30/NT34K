@@ -96,6 +96,7 @@
 #include <linux/skbuff.h>
 #include <linux/ti_wilink_st.h>
 #include <plat/omap-serial.h>
+#include <mach/omap-secure.h>
 
 #define WILINK_UART_DEV_NAME "/dev/ttyO1"
 
@@ -1333,7 +1334,7 @@ static void __init omap_4430sdp_init(void)
 
 	acclaim_board_init();
 
-//      omap4_create_board_props();
+	omap_create_board_props();
 //      blaze_pmic_mux_init();
 //      blaze_set_osc_timings();
 
@@ -1570,21 +1571,39 @@ static struct spi_board_info tablet_spi_board_info[] __initdata = {
 };
 
 #define BLAZE_FB_RAM_SIZE                SZ_16M + SZ_4M	/* 1920×1080*4 * 2 */
+static struct dsscomp_platform_data dsscomp_config_boxer = {
+    .tiler1d_slotsz = (SZ_16M + SZ_4M),
+    };
+    
+#ifdef CONFIG_FB_OMAP2_NUM_FBS
+#define OMAPLFB_NUM_DEV CONFIG_FB_OMAP2_NUM_FBS
+#else
+#define OMAPLFB_NUM_DEV 1
+#endif
+    
+static struct sgx_omaplfb_config omaplfb_config_boxer[OMAPLFB_NUM_DEV] = {
+    {
+    .vram_buffers = 2,
+    .swap_chain_length = 2,
+    }
+};
+
+static struct sgx_omaplfb_platform_data omaplfb_plat_data_boxer = {
+	.num_configs = OMAPLFB_NUM_DEV,
+	    .configs = omaplfb_config_boxer,
+	    };
+
 static struct omapfb_platform_data acclaim_fb_data = {
 	.mem_desc = {
 		     .region_cnt = 1,
-		     .region = {
-				[0] = {
-				       .size = BLAZE_FB_RAM_SIZE,
-				       },
-				},
 		     },
 };
 
 void __init omap4_acclaim_display_setup(struct omap_ion_platform_data *ion)
 {
 	omap_android_display_setup(&sdp4430_dss_data,
-				   NULL, NULL, &acclaim_fb_data, ion);
+				&dsscomp_config_boxer,
+				&omaplfb_plat_data_boxer, &acclaim_fb_data, ion);
 }
 
 static void __init acclaim_panel_init(void)
@@ -1593,17 +1612,8 @@ static void __init acclaim_panel_init(void)
 
 	acclaim_panel_get_resource();
 	acclaim_init_display_led();
-	struct sgx_omaplfb_config data = {
-		.tiler2d_buffers = 0,
-		.swap_chain_length = 2,
-		.vram_buffers = 2,
-	};
 
 	omapfb_set_platform_data(&acclaim_fb_data);
-#ifdef CONFIG_OMAPLFB
-	sgx_omaplfb_set(0, &data);
-#endif
-
 	spi_register_board_info(tablet_spi_board_info,
 				ARRAY_SIZE(tablet_spi_board_info));
 
@@ -1630,7 +1640,8 @@ static void __init omap_4430sdp_reserve(void)
 	omap4_acclaim_display_setup(NULL);
 #endif
 	/* do the static reservations first */
-	memblock_remove(PHYS_ADDR_SMC_MEM, PHYS_ADDR_SMC_SIZE);
+	omap_secure_set_secure_workspace_addr(omap_smc_addr(), omap_smc_size());
+//	memblock_remove(PHYS_ADDR_SMC_MEM, PHYS_ADDR_SMC_SIZE);
 	omap_reserve();
 }
 
