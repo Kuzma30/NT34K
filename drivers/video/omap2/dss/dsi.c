@@ -4493,10 +4493,10 @@ static int dsi_display_init_dispc(struct omap_dss_device *dssdev)
 
 		if (dssdev->dispc_timings) {
 			dispc_mgr_set_lcd_timings(dssdev->manager->id,
-				dssdev->dispc_timings);
+						dssdev->dispc_timings);
 		} else {
 			dispc_mgr_set_lcd_timings(dssdev->manager->id,
-				&dssdev->panel.timings);
+						&dssdev->panel.timings);
 		}
 	}
 
