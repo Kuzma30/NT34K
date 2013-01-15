@@ -638,7 +638,7 @@ static int __init omap2_common_pm_subsys_init(void)
 {
 	/* Initialize OMAP OPP layer */
 	omap4_opp_init();
-	omap5_opp_init();
+//	omap5_opp_init();
 
 	/*
 	 * In the case of DT, the PMIC and SR initialization will be done using

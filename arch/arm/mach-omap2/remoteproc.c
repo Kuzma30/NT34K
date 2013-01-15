@@ -186,7 +186,7 @@ void __init omap_rproc_reserve_cma(int platform_type)
 		cma_addr = OMAP4_RPROC_CMA_BASE_DSP;
 	else if (platform_type == RPROC_CMA_OMAP5)
 		cma_addr = OMAP5_RPROC_CMA_BASE_DSP;
-
+	printk("dma_declare_contiguous DSP, cma_size= %lx, cma_addr = %08lx" , (unsigned long)cma_size, (unsigned long)cma_addr);
 	/* reserve CMA memory for OMAP4's dsp "tesla" remote processor */
 	ret = dma_declare_contiguous(&omap4_tesla.dev,
 					cma_size, cma_addr, 0);
@@ -201,12 +201,13 @@ void __init omap_rproc_reserve_cma(int platform_type)
 		cma_size = CONFIG_OMAP5_IPU_CMA_SIZE;
 		cma_addr = OMAP5_RPROC_CMA_BASE_IPU;
 	}
-
+	printk("dma_declare_contiguous IPU, cma_size= %lx, cma_addr = %08lx" , (unsigned long)cma_size, (unsigned long)cma_addr);
 	/* reserve CMA memory for OMAP4's M3 "ducati" remote processor */
 	ret = dma_declare_contiguous(&omap4_ducati.dev,
 					cma_size, cma_addr, 0);
+
 	if (ret)
-		pr_err("dma_declare_contiguous failed for ipu %d\n", ret);
+		pr_err("dma_declare_contiguous failed for ipu %d\n," , ret);
 #endif
 }
 

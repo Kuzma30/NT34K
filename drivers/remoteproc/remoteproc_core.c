@@ -22,6 +22,7 @@
  * GNU General Public License for more details.
  */
 
+
 #define pr_fmt(fmt)    "%s: " fmt, __func__
 
 #include <linux/kernel.h>
@@ -48,7 +49,7 @@
 #include <linux/rproc_secure.h>
 
 #include "remoteproc_internal.h"
-
+#define DEBUG 1
 #define DEFAULT_AUTOSUSPEND_TIMEOUT 5000
 
 #define dev_to_rproc(dev) container_of(dev, struct rproc, dev)

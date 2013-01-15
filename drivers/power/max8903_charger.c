@@ -42,7 +42,7 @@
 
 #define MODULE_TAG "MAX8903"
 
-#define MAX8903_DEBUG 0
+#define MAX8903_DEBUG 1
 #if MAX8903_DEBUG
 #define DBGPRINT(x...)   printk(MODULE_TAG ": " x)
 #else
