@@ -250,10 +250,6 @@ static int omap_dss_probe(struct platform_device *pdev)
 	if (dss_has_feature(FEAT_WB))
 		dss_init_writeback(pdev);
 
-	r = dss_initialize_debugfs();
-	if (r)
-		goto err_debugfs;
-
 	for (i = 0; i < pdata->num_devices; ++i) {
 		struct omap_dss_device *dssdev = pdata->devices[i];
 
@@ -275,9 +271,6 @@ static int omap_dss_probe(struct platform_device *pdev)
 	return 0;
 
 err_register:
-	dss_uninitialize_debugfs();
-err_debugfs:
-
 	return r;
 }
 
@@ -617,8 +610,13 @@ static int __init omap_dss_register_drivers(void)
 		goto err_hdmi;
 	}
 
+	r = dss_initialize_debugfs();
+	if (r)
+		goto err_debugfs;
+
 	return 0;
 
+err_debugfs:
 err_hdmi:
 	dsi_uninit_platform_driver();
 err_dsi:
