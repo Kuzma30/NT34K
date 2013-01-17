@@ -33,11 +33,18 @@ static int omap_reboot_notifier_call(struct notifier_block *this,
 		return notifier_from_errno(-ENOMEM);
 
 	/* Save reboot mode in scratch memory */
+	if (code == SYS_RESTART){
+		if(cmd != NULL && strlen(cmd))
+			reason = cmd;
+	        else
+			reason = "reboot";
+	}
+#if 0
 	if (code == SYS_RESTART && cmd != NULL && *(char *)cmd)
 		reason = cmd;
 	else if (code == SYS_POWER_OFF)
 		reason = "off";
-
+#endif
 	if (cpu_is_omap44xx())
 		offset = OMAP4_REBOOT_REASON_OFFSET;
 	else if (cpu_is_omap54xx())
@@ -49,6 +56,15 @@ static int omap_reboot_notifier_call(struct notifier_block *this,
 
 	/* always end with terminal symbol */
 	*(sar_base + offset + OMAP_REBOOT_REASON_SIZE - 1) = '\0';
+	
+	twl_i2c_write_u8(TWL6030_MODULE_ID0, 0x95, 0x9B);
+	do {
+	    /*
+	    Wait for the value to be written in the
+	    VMMC_CFG_VOLTAGE register
+	    */
+	twl_i2c_read_u8(TWL6030_MODULE_ID0, &vmmc_val, 0x9B);
+	} while (0x95 != vmmc_val);
 	return NOTIFY_DONE;
 }
 
