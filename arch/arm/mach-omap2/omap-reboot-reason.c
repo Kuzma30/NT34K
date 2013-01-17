@@ -16,7 +16,9 @@
 #include <linux/platform_device.h>
 #include <linux/reboot.h>
 #include <linux/notifier.h>
+#include <linux/i2c/twl.h>
 
+#include <mach/hardware.h>
 #include "common.h"
 #include "omap4-sar-layout.h"
 
@@ -26,6 +28,7 @@ static int omap_reboot_notifier_call(struct notifier_block *this,
 	char __iomem *sar_base;
 	char *reason = "normal";
 	int offset = 0;
+	unsigned char vmmc_val = 0;
 
 	sar_base = omap4_get_sar_ram_base();
 
