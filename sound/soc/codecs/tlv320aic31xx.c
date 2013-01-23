@@ -946,30 +946,30 @@ void aic31xx_firmware_load(const struct firmware *fw, void *context)
 		release_firmware(private_ds->cur_fw);
 	private_ds->cur_fw = NULL ;
 
-	if (fw != NULL) {
-		dev_dbg(codec->dev, "Default firmware load\n\n");
-		private_ds->cur_fw = (void *)fw;
+//	if (fw != NULL) {
+//		dev_dbg(codec->dev, "Default firmware load\n\n");
+//		private_ds->cur_fw = (void *)fw;
 //		ret = aic3xxx_cfw_reload(private_ds->cfw_p, (void *)fw->data,
-						fw->size);
-		if (ret < 0) { /* reload failed */
-			dev_err(codec->dev, "Firmware binary load failed\n");
-			release_firmware(private_ds->cur_fw);
-			private_ds->cur_fw = NULL;
-			fw = NULL;
-		} else
-			private_ds->isdefault_fw = 0;
-	}
+//						fw->size);
+//		if (ret < 0) { /* reload failed */
+//			dev_err(codec->dev, "Firmware binary load failed\n");
+//			release_firmware(private_ds->cur_fw);
+//			private_ds->cur_fw = NULL;
+//			fw = NULL;
+//		} else
+//			private_ds->isdefault_fw = 0;
+//	}
 
-	if (fw == NULL) {
+//	if (fw == NULL) {
 		/* either request_firmware or reload failed */
-		dev_dbg(codec->dev, "Default firmware load\n");
-		ret = aic3xxx_cfw_reload(private_ds->cfw_p, default_firmware,
-			sizeof(default_firmware));
-		if (ret < 0)
-			dev_err(codec->dev, "Default firmware load failed\n");
-		else
-			private_ds->isdefault_fw = 1;
-	}
+//		dev_dbg(codec->dev, "Default firmware load\n");
+//		ret = aic3xxx_cfw_reload(private_ds->cfw_p, default_firmware,
+//			sizeof(default_firmware));
+//		if (ret < 0)
+//			dev_err(codec->dev, "Default firmware load failed\n");
+//		else
+//			private_ds->isdefault_fw = 1;
+//	}
 //	aic3xxx_cfw_lock(private_ds->cfw_p, 0); /*  release the lock */
 //	if (ret >= 0) {
 //		/* init function for transition */
