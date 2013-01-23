@@ -1128,7 +1128,7 @@ static int aic31xx_add_controls(struct snd_soc_codec *codec)
 
 	dev_dbg(codec->dev, "%s\n", __func__);
 
-	err = snd_soc_add_controls(codec, aic31xx_snd_controls,
+	err = snd_soc_add_codec_controls(codec, aic31xx_snd_controls,
 				ARRAY_SIZE(aic31xx_snd_controls));
 	if (err < 0) {
 	printk(KERN_INFO, "Invalid control\n");

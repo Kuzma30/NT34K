@@ -125,4 +125,6 @@ obj-$(CONFIG_MFD_PALMAS_GPADC)	+= palmas-gpadc.o
 obj-$(CONFIG_MFD_PALMAS_RESOURCE) += palmas-resource.o
 obj-$(CONFIG_MFD_PALMAS_PWM)	+= palmas-pwm.o
 obj-$(CONFIG_MFD_PALMAS_POWEROFF) += palmas-poweroff.o
-
+obj-$(CONFIG_MFD_AIC3XXX)       += tlv320aic3xxx-core.o tlv320aic3xxx-irq.o
+obj-$(CONFIG_MFD_AIC3XXX_I2C)   += tlv320aic3xxx-i2c.o
+obj-$(CONFIG_MFD_AIC3XXX_SPI)   += tlv320aic3xxx-spi.o
