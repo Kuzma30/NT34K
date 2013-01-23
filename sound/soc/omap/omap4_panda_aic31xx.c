@@ -299,7 +299,7 @@ static int omap4_aic31xx_init(struct snd_soc_pcm_runtime *rtd)
 		return ret;
 
 
-	ret = snd_soc_add_controls(codec, omap4_aic31xx_controls,
+	ret = snd_soc_add_codec_controls(codec, omap4_aic31xx_controls,
 			ARRAY_SIZE(omap4_aic31xx_controls));
 
 	if (ret)
@@ -455,6 +455,6 @@ static void __exit sdp44xx_aic31xx_soc_exit(void)
 }
 module_exit(sdp44xx_aic31xx_soc_exit);
 
-MODULE_AUTHOR("Santosh Sivaraj <santosh.s@mistralsolutions.com>");
-MODULE_DESCRIPTION("ALSA SoC OMAP4 Panda");
-MODULE_LICENSE("GPL");
+//MODULE_AUTHOR("Santosh Sivaraj <santosh.s@mistralsolutions.com>");
+//MODULE_DESCRIPTION("ALSA SoC OMAP4 Panda");
+//MODULE_LICENSE("GPL");
