@@ -81,7 +81,11 @@ void gc_debug_cache_gpu_id(void)
 static int gc_debug_show_gpu_id(struct seq_file *s, void *unused)
 {
 	if (!g_gcGpuId.valid) {
+<<<<<<< HEAD
 		seq_printf(s, "GC gpu id cache not valid.  " \
+=======
+		seq_printf(s, "GC gpu id cache not valid.  "
+>>>>>>> omapzoom/p-android-omap-3.4
 			   "GC must be powered on once.\n");
 		return 0;
 	}
@@ -366,6 +370,7 @@ static const struct file_operations gc_debug_fops_gpu_last_error = {
 
 /*****************************************************************************/
 
+<<<<<<< HEAD
 #define MAX_BLT_SOURCES   8
 
 struct gc_blt_status {
@@ -454,6 +459,8 @@ static const struct file_operations gc_debug_fops_blt_stats = {
 
 /*****************************************************************************/
 
+=======
+>>>>>>> omapzoom/p-android-omap-3.4
 static int gc_debug_show_log_dump(struct seq_file *s, void *data)
 {
 	GCDBG_FLUSHDUMP(s);
@@ -610,8 +617,11 @@ void gc_debug_init(void)
 			    &gc_debug_fops_gpu_id);
 	debugfs_create_file("status", 0664, debug_root, NULL,
 			    &gc_debug_fops_gpu_status);
+<<<<<<< HEAD
 	debugfs_create_file("blt_stats", 0664, debug_root, NULL,
 			    &gc_debug_fops_blt_stats);
+=======
+>>>>>>> omapzoom/p-android-omap-3.4
 	debugfs_create_file("last_error", 0664, debug_root, NULL,
 			    &gc_debug_fops_gpu_last_error);
 	debugfs_create_bool("cache_status_every_irq", 0664, debug_root,

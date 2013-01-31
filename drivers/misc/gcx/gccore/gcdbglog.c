@@ -45,7 +45,11 @@
 #define GC_BUFFERED_OUTPUT	0
 
 /* Debug output buffer size. */
+<<<<<<< HEAD
 #define GC_DUMP_BUFFER_SIZE	(200 * 1024)
+=======
+#define GC_DUMP_BUFFER_SIZE	(400 * 1024)
+>>>>>>> omapzoom/p-android-omap-3.4
 
 /* If disabled, the contents of the buffer will be dumped to the console when
  * the buffer gets full.
@@ -176,7 +180,11 @@ enum buffertype {
 	GC_BUFTYPE_SURFACE
 };
 
+<<<<<<< HEAD
 #define GC_GENERIC_DATA_COUNT 8
+=======
+#define GC_GENERIC_DATA_COUNT 32
+>>>>>>> omapzoom/p-android-omap-3.4
 #define GC_SURFACE_DATA_COUNT 64
 
 struct itembuffer {
@@ -424,8 +432,13 @@ static void gc_print_generic(struct seq_file *s, struct itembuffer *item,
 	indent = gc_get_indent(item->indent, buffer, sizeof(buffer));
 
 	/* Print the title. */
+<<<<<<< HEAD
 	GC_PRINTK(s, "%sBUFFER @ 0x%08X\n",
 		  buffer, item->gpuaddr);
+=======
+	GC_PRINTK(s, "%sBUFFER @ 0x%08X (0x%08X)\n",
+		  buffer, item->gpuaddr, (unsigned int) data);
+>>>>>>> omapzoom/p-android-omap-3.4
 
 	/* Notify the OS that we are still alive. */
 	touch_softlockup_watchdog();
@@ -577,7 +590,11 @@ static void gc_print_command(struct seq_file *s, struct itembuffer *item,
 		case GCREG_COMMAND_OPCODE_LINK:
 			count = data32[i] & 0xFFFF;
 			addr = data32[i + 1];
+<<<<<<< HEAD
 			GC_PRINTK(s, "%s  0x%08X: 0x%08X  " \
+=======
+			GC_PRINTK(s, "%s  0x%08X: 0x%08X  "
+>>>>>>> omapzoom/p-android-omap-3.4
 				  "LINK(0x%08X-0x%08X, %d)\n",
 				  buffer, item->gpuaddr + (i << 2),
 				  data32[i], addr, addr + count * 8,
@@ -678,7 +695,11 @@ static void gc_print_surface(struct seq_file *s, struct itembuffer *itembuffer,
 	/* Add TGA header. */
 	width  = itembuffer->x2 - itembuffer->x1;
 	height = itembuffer->y2 - itembuffer->y1;
+<<<<<<< HEAD
 	GC_PRINTK(s, ":12000000000002000000000000000000" \
+=======
+	GC_PRINTK(s, ":12000000000002000000000000000000"
+>>>>>>> omapzoom/p-android-omap-3.4
 		  "%02X%02X%02X%02X%02X2000\n",
 		  (width  & 0xFF), ((width  >> 8) & 0xFF),
 		  (height & 0xFF), ((height >> 8) & 0xFF),
@@ -1003,7 +1024,11 @@ static void gc_buffer_flush(struct seq_file *s, struct buffout *buffout)
 	if (buffout->count == 0)
 		return;
 
+<<<<<<< HEAD
 	GC_PRINTK(s,  "****************************************" \
+=======
+	GC_PRINTK(s,  "****************************************"
+>>>>>>> omapzoom/p-android-omap-3.4
 				"****************************************\n");
 	GC_PRINTK(s,  "FLUSHING DEBUG OUTPUT BUFFER (%d elements).\n",
 				buffout->count);
@@ -1019,7 +1044,11 @@ static void gc_buffer_flush(struct seq_file *s, struct buffout *buffout)
 	}
 #endif
 
+<<<<<<< HEAD
 	GC_PRINTK(s,  "****************************************" \
+=======
+	GC_PRINTK(s,  "****************************************"
+>>>>>>> omapzoom/p-android-omap-3.4
 			   "****************************************\n");
 
 	item = (struct itemhead *) &buffout->buffer[buffout->start];
@@ -1106,7 +1135,11 @@ static struct itemhead *gc_allocate_item(struct buffout *buffout, int size)
 	}
 #else
 	if (endofbuffer) {
+<<<<<<< HEAD
 		GC_PRINTK(NULL, "message buffer full; " \
+=======
+		GC_PRINTK(NULL, "message buffer full; "
+>>>>>>> omapzoom/p-android-omap-3.4
 			"forcing message flush.\n\n");
 		gc_buffer_flush(NULL, buffout);
 	}
@@ -1194,7 +1227,11 @@ static void gc_append_string(struct buffout *buffout,
 
 #if GC_BUFFERED_OUTPUT && GC_FLUSH_COUNT
 	if (buffout->count >= GC_FLUSH_COUNT) {
+<<<<<<< HEAD
 		GC_PRINTK(NULL, "reached %d message count; " \
+=======
+		GC_PRINTK(NULL, "reached %d message count; "
+>>>>>>> omapzoom/p-android-omap-3.4
 			"forcing message flush.\n\n", buffout->count);
 		gc_buffer_flush(NULL, buffout);
 	}
@@ -1239,7 +1276,11 @@ static void gc_append_buffer(struct gcmmucontext *gcmmucontext,
 
 #if GC_BUFFERED_OUTPUT && GC_FLUSH_COUNT
 	if (buffout->count >= GC_FLUSH_COUNT) {
+<<<<<<< HEAD
 		GC_PRINTK(NULL, "reached %d message count; " \
+=======
+		GC_PRINTK(NULL, "reached %d message count; "
+>>>>>>> omapzoom/p-android-omap-3.4
 			"forcing message flush.\n\n", buffout->count);
 		gc_buffer_flush(NULL, buffout);
 	}

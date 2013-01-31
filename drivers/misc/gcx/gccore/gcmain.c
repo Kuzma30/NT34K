@@ -12,9 +12,13 @@
  * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  */
 
+<<<<<<< HEAD
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/init.h>
+=======
+#include <linux/module.h>
+>>>>>>> omapzoom/p-android-omap-3.4
 #include <linux/platform_device.h>
 #include <linux/uaccess.h>
 #include <linux/pm_runtime.h>
@@ -190,12 +194,20 @@ void gc_write_reg(unsigned int address, unsigned int data)
 
 static void gcpwr_enable_clock(struct gccorecontext *gccorecontext)
 {
+<<<<<<< HEAD
 	int ctxlost;
 
 	GCENTER(GCZONE_POWER);
 
 	ctxlost =
 	gccorecontext->plat->get_context_loss_count(gccorecontext->device);
+=======
+	bool ctxlost;
+
+	GCENTER(GCZONE_POWER);
+
+	ctxlost = gccorecontext->plat->get_context_loss_count(gccorecontext->device);
+>>>>>>> omapzoom/p-android-omap-3.4
 
 	if (!gccorecontext->clockenabled) {
 		/* Enable the clock. */
@@ -1013,6 +1025,7 @@ static int gc_init(struct gccorecontext *gccorecontext)
 		goto fail;
 	}
 
+<<<<<<< HEAD
 	/*gccorecontext->bb2ddevice = omap_hwmod_name_get_dev("bb2d");
 	if (gccorecontext->bb2ddevice == NULL) {
 		GCERR("cannot find bb2d device.\n");
@@ -1020,6 +1033,8 @@ static int gc_init(struct gccorecontext *gccorecontext)
 		goto fail;
 	}*/
 
+=======
+>>>>>>> omapzoom/p-android-omap-3.4
 	result = platform_driver_register(&plat_drv);
 	if (result < 0) {
 		GCERR("failed to register platform driver.\n");
@@ -1089,10 +1104,18 @@ static void gc_exit(struct gccorecontext *gccorecontext)
 static int __init gc_init_wrapper(void)
 {
 	GCDBG_INIT();
+<<<<<<< HEAD
 	GCDBG_REGISTER(core);
 	GCDBG_REGISTER(mem);
 	GCDBG_REGISTER(mmu);
 	GCDBG_REGISTER(queue);
+=======
+
+	GCDBG_REGISTER(core,  GCZONE_NONE);
+	GCDBG_REGISTER(mem,   GCZONE_NONE);
+	GCDBG_REGISTER(mmu,   GCZONE_NONE);
+	GCDBG_REGISTER(queue, GCZONE_NONE);
+>>>>>>> omapzoom/p-android-omap-3.4
 
 	return gc_init(&g_context);
 }

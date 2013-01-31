@@ -63,6 +63,17 @@
 
 #define GC_MAX_BASE_ALIGN 64
 
+<<<<<<< HEAD
+=======
+#define GCBV_BATCH_FINALIZE_SRCCOUNT       (1 << 0)
+#define GCBV_BATCH_FINALIZE_MULTISRC       (1 << 1)
+#define GCBV_BATCH_FINALIZE_ALIGN          (1 << 2)
+#define GCBV_BATCH_FINALIZE_FLAGS_DST      (1 << 3)
+#define GCBV_BATCH_FINALIZE_FLAGS_DESTRECT (1 << 4)
+#define GCBV_BATCH_FINALIZE_FLAGS_CLIPRECT (1 << 5)
+#define GCBV_BATCH_FINALIZE_OPERATION      (1 << 6)
+
+>>>>>>> omapzoom/p-android-omap-3.4
 #if !defined(BVBATCH_DESTRECT)
 #define BVBATCH_DESTRECT (BVBATCH_DSTRECT_ORIGIN | BVBATCH_DSTRECT_SIZE)
 #endif
@@ -163,6 +174,16 @@ struct gcfiltercache {
  * Global data structure.
  */
 
+<<<<<<< HEAD
+=======
+struct gccaps {
+	bool l2cachefor420;
+	unsigned int maxsource;
+	bool strictalign;
+	bool swizzlefixed;
+};
+
+>>>>>>> omapzoom/p-android-omap-3.4
 struct gccontext {
 	/* Last generated error message. */
 	char bverrorstr[128];
@@ -172,11 +193,15 @@ struct gccontext {
 	unsigned int gcrevision;
 	unsigned int gcdate;
 	unsigned int gctime;
+<<<<<<< HEAD
 	union gcfeatures gcfeatures;
 	union gcfeatures0 gcfeatures0;
 	union gcfeatures1 gcfeatures1;
 	union gcfeatures2 gcfeatures2;
 	union gcfeatures3 gcfeatures3;
+=======
+	struct gccaps gccaps;
+>>>>>>> omapzoom/p-android-omap-3.4
 
 	/* Dynamically allocated structure cache. */
 	struct bvbuffmap *buffmapvac;		/* bvbuffmap */
@@ -249,7 +274,13 @@ struct bvformatxlate {
 	unsigned int allocbitspp;
 	unsigned int format;
 	unsigned int swizzle;
+<<<<<<< HEAD
 	bool premultiplied;
+=======
+	unsigned int endian;
+	bool premultiplied;
+	bool zerofill;
+>>>>>>> omapzoom/p-android-omap-3.4
 
 	union {
 		struct {
@@ -281,11 +312,16 @@ struct gcblendconfig {
 
 /* Alpha blending descriptor. */
 struct gcalpha {
+<<<<<<< HEAD
 	unsigned int src_global_color;
 	unsigned int dst_global_color;
 
 	unsigned char src_global_alpha_mode;
 	unsigned char dst_global_alpha_mode;
+=======
+	bool globalcolorenable;
+	unsigned int globalcolor;
+>>>>>>> omapzoom/p-android-omap-3.4
 
 	struct gcblendconfig *k1;
 	struct gcblendconfig *k2;
@@ -325,13 +361,35 @@ extern const unsigned int rotencoding[];
  * Surface descriptor.
  */
 
+<<<<<<< HEAD
 struct surfaceinfo {
+=======
+struct gcrectset {
+	/* Render rectangle as specified by the client. */
+	struct gcrect orig;
+
+	/* Clipped rectangle. */
+	struct gcrect clip;
+
+	/* Clipped rectangle adjusted for base address misalignment. */
+	struct gcrect adj;
+};
+
+struct gcsurface {
+	/* Surface change flags. */
+	bool surfdirty;
+	bool rectdirty;
+	bool destrectdirty;
+	bool cliprectdirty;
+
+>>>>>>> omapzoom/p-android-omap-3.4
 	/* BLTsville source index (-1 for dst, 0 for src1 and 1 for src2). */
 	int index;
 
 	/* Surface buffer descriptor. */
 	union bvinbuff buf;
 
+<<<<<<< HEAD
 	/* Surface geometry. */
 	struct bvsurfgeom *geom;
 	bool newgeom;
@@ -358,6 +416,47 @@ struct surfaceinfo {
 
 	/* Rotation angle. */
 	int angle;
+=======
+	/* Geometry size as specified by the client. */
+	unsigned int width;
+	unsigned int height;
+
+	/* Geometry size adjusted for base address misalignment. */
+	unsigned int adjwidth;
+	unsigned int adjheight;
+
+	/* Physical size of the surface (adjusted and 0 degree rotated). */
+	unsigned int physwidth;
+	unsigned int physheight;
+
+	/* Plane strides. */
+	long stride1;
+	long stride2;
+	long stride3;
+
+	/* Base address alignment in pixels. */
+	int xpixalign;
+	int ypixalign;
+
+	/* Base address alignment in bytes. */
+	int bytealign1;
+	int bytealign2;
+	int bytealign3;
+
+	/* Surface format. */
+	struct bvformatxlate format;
+
+	/* Rotation angle. */
+	int angle;
+	int adjangle;
+
+	/* Render rectangles. */
+	struct gcrectset rect;
+
+	/* Aux render rectangles. */
+	bool haveaux;
+	struct gcrectset auxrect;
+>>>>>>> omapzoom/p-android-omap-3.4
 
 	/* Mirror setting. */
 	unsigned int mirror;
@@ -367,6 +466,14 @@ struct surfaceinfo {
 
 	/* Blending info. */
 	struct gcalpha *gca;
+<<<<<<< HEAD
+=======
+	bool globalcolorenable;
+	unsigned int globalcolor;
+	unsigned char srcglobalpremul;
+	unsigned char srcglobalmode;
+	unsigned char dstglobalmode;
+>>>>>>> omapzoom/p-android-omap-3.4
 };
 
 
@@ -385,7 +492,11 @@ struct gcblit {
 	unsigned int srccount;
 
 	/* Multi source enable flag. */
+<<<<<<< HEAD
 	unsigned int multisrc;
+=======
+	bool multisrc;
+>>>>>>> omapzoom/p-android-omap-3.4
 
 	/* Computed destination rectangle coordinates; in multi-source
 	 * setup can be modified to match new destination and source
@@ -393,11 +504,20 @@ struct gcblit {
 	struct gcrect dstrect;
 
 	/* Block walker enable. */
+<<<<<<< HEAD
 	int blockenable;
 
 	/* Destination format and swizzle */
 	unsigned int format;
 	unsigned int swizzle;
+=======
+	bool blockenable;
+
+	/* Destination format and swizzle. */
+	unsigned int format;
+	unsigned int swizzle;
+	unsigned int endian;
+>>>>>>> omapzoom/p-android-omap-3.4
 };
 
 /* Filter states. */
@@ -409,6 +529,7 @@ struct gcfilter {
 	/* Scale factors. */
 	unsigned int horscalefactor;
 	unsigned int verscalefactor;
+<<<<<<< HEAD
 
 	/* Destination angle. */
 	bool angleoverride;
@@ -430,6 +551,8 @@ struct gcfilter {
 	 * the surface misalignment and the source angle. */
 	struct gcrect dstadjusted;
 	struct gcrect dstadjustedaux;
+=======
+>>>>>>> omapzoom/p-android-omap-3.4
 };
 
 /* Batch header. */
@@ -450,6 +573,7 @@ struct gcbatch {
 	} op;
 
 	/* Destination surface. */
+<<<<<<< HEAD
 	struct surfaceinfo dstinfo;
 
 	/* Aux rectangle present. */
@@ -464,11 +588,15 @@ struct gcbatch {
 	 * surface misalignment if any. */
 	struct gcrect dstadjusted;
 	struct gcrect dstadjustedaux;
+=======
+	struct gcsurface dstinfo;
+>>>>>>> omapzoom/p-android-omap-3.4
 
 	/* Clipping deltas; used to correct the source coordinates for
 	 * single source blits. */
 	struct gcrect clipdelta;
 
+<<<<<<< HEAD
 	/* Adjusted geometry size of the destination surface. */
 	unsigned int dstwidth;
 	unsigned int dstheight;
@@ -484,6 +612,8 @@ struct gcbatch {
 	 * geometry. */
 	int dstbyteshift;
 
+=======
+>>>>>>> omapzoom/p-android-omap-3.4
 	/* Destination rectangle adjustment offsets. */
 	int dstoffsetX;
 	int dstoffsetY;
@@ -518,17 +648,35 @@ struct gcbatch {
 struct gccontext *get_context(void);
 
 /* Validation. */
+<<<<<<< HEAD
 bool valid_rect(struct bvsurfgeom *bvsurfgeom, struct gcrect *gcrect);
 
 /* Parsers. */
 enum bverror parse_format(struct bvbltparams *bvbltparams,
 			  struct surfaceinfo *surfaceinfo);
+=======
+bool null_rect(struct gcrect *gcrect);
+bool valid_rect(struct gcsurface *gcsurface, struct gcrect *gcrect);
+
+/* Rotation processing. */
+void rotate_rect(int angle,
+		 struct gcsurface *gcsurface, struct gcrect *rect);
+void rotate_geom(int angle, struct gcsurface *gcsurface);
+void adjust_angle(struct gcsurface *srcinfo, struct gcsurface *dstinfo);
+void process_rotation(struct gcsurface *gcsurface);
+
+/* Parsers. */
+enum bverror parse_format(struct bvbltparams *bvbltparams,
+			  enum ocdformat ocdformat,
+			  struct bvformatxlate *format);
+>>>>>>> omapzoom/p-android-omap-3.4
 enum bverror parse_blend(struct bvbltparams *bvbltparams,
 			 enum bvblend blend,
 			 struct gcalpha *gca);
 enum bverror parse_destination(struct bvbltparams *bvbltparams,
 			       struct gcbatch *gcbatch);
 enum bverror parse_source(struct bvbltparams *bvbltparams,
+<<<<<<< HEAD
 			  struct gcbatch *gcbatch,
 			  struct bvrect *srcrect,
 			  struct surfaceinfo *srcinfo);
@@ -541,6 +689,17 @@ void process_dest_rotation(struct bvbltparams *bvbltparams,
 
 /* Return surface alignment offset. */
 int get_pixel_offset(struct surfaceinfo *surfaceinfo, int offset);
+=======
+			  struct gcbatch *batch,
+			  struct gcsurface *srcinfo,
+			  unsigned int index,
+			  unsigned short rop);
+enum bverror parse_scalemode(struct bvbltparams *bvbltparams,
+			     struct gcbatch *batch);
+
+/* Return surface alignment offset. */
+int get_pixel_offset(struct gcsurface *gcsurface, int offset);
+>>>>>>> omapzoom/p-android-omap-3.4
 
 /* Buffer mapping. */
 enum bverror do_map(struct bvbuffdesc *bvbuffdesc,
@@ -580,6 +739,7 @@ enum bverror set_dst(struct bvbltparams *bltparams,
 /* Program blending. */
 enum bverror set_blending(struct bvbltparams *bvbltparams,
 			  struct gcbatch *batch,
+<<<<<<< HEAD
 			  struct surfaceinfo *srcinfo);
 enum bverror set_blending_index(struct bvbltparams *bvbltparams,
 				struct gcbatch *batch,
@@ -595,12 +755,30 @@ enum bverror set_yuvsrc(struct bvbltparams *bvbltparams,
 enum bverror set_yuvsrc_index(struct bvbltparams *bvbltparams,
 			      struct gcbatch *batch,
 			      struct surfaceinfo *srcinfo,
+=======
+			  struct gcsurface *srcinfo);
+enum bverror set_blending_index(struct bvbltparams *bvbltparams,
+				struct gcbatch *batch,
+				struct gcsurface *srcinfo,
+				unsigned int index);
+
+/* Program YUV source. */
+void set_computeyuv(struct gcsurface *srcinfo, int x, int y);
+enum bverror set_yuvsrc(struct bvbltparams *bvbltparams,
+			struct gcbatch *batch,
+			struct gcsurface *srcinfo,
+			struct bvbuffmap *srcmap);
+enum bverror set_yuvsrc_index(struct bvbltparams *bvbltparams,
+			      struct gcbatch *batch,
+			      struct gcsurface *srcinfo,
+>>>>>>> omapzoom/p-android-omap-3.4
 			      struct bvbuffmap *srcmap,
 			      unsigned int index);
 
 /* Rendering entry points. */
 enum bverror do_fill(struct bvbltparams *bltparams,
 		     struct gcbatch *gcbatch,
+<<<<<<< HEAD
 		     struct surfaceinfo *srcinfo);
 enum bverror do_blit(struct bvbltparams *bltparams,
 		     struct gcbatch *gcbatch,
@@ -608,5 +786,14 @@ enum bverror do_blit(struct bvbltparams *bltparams,
 enum bverror do_filter(struct bvbltparams *bvbltparams,
 		       struct gcbatch *gcbatch,
 		       struct surfaceinfo *srcinfo);
+=======
+		     struct gcsurface *srcinfo);
+enum bverror do_blit(struct bvbltparams *bltparams,
+		     struct gcbatch *gcbatch,
+		     struct gcsurface *srcinfo);
+enum bverror do_filter(struct bvbltparams *bvbltparams,
+		       struct gcbatch *gcbatch,
+		       struct gcsurface *srcinfo);
+>>>>>>> omapzoom/p-android-omap-3.4
 
 #endif

@@ -25,6 +25,10 @@
 #include <linux/gccore.h>
 #include <linux/bltsville.h>
 #include <linux/bvinternal.h>
+<<<<<<< HEAD
+=======
+#include "gcbvdebug.h"
+>>>>>>> omapzoom/p-android-omap-3.4
 
 #define GC_DEV_NAME	"gc2d"
 

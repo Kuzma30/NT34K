@@ -26,7 +26,11 @@ struct gcmmucontext;
 
 /* Enables internal gccore logging backend. */
 #if !defined(GCDEBUG_ENABLE)
+<<<<<<< HEAD
 #define GCDEBUG_ENABLE 0
+=======
+#define GCDEBUG_ENABLE 1 /* enabled for development branch only */
+>>>>>>> omapzoom/p-android-omap-3.4
 #endif
 
 /* Enables linux builtin logging backend. */
@@ -162,9 +166,16 @@ do { \
 		return &GCDBGFILTER; \
 	}
 
+<<<<<<< HEAD
 #define GCDBG_REGISTER(name) \
 do { \
 	struct gcdbgfilter *name ## _dbgfilter(void); \
+=======
+#define GCDBG_REGISTER(name, initalzone) \
+do { \
+	struct gcdbgfilter *name ## _dbgfilter(void); \
+	name ## _dbgfilter()->zone = initalzone; \
+>>>>>>> omapzoom/p-android-omap-3.4
 	gc_dbg_add_client(name ## _dbgfilter()); \
 } while (0)
 

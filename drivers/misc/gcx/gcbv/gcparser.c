@@ -63,6 +63,10 @@
 #define GCZONE_DEST		(1 << 4)
 #define GCZONE_SRC		(1 << 5)
 #define GCZONE_SCALING		(1 << 6)
+<<<<<<< HEAD
+=======
+#define GCZONE_SURF		(1 << 7)
+>>>>>>> omapzoom/p-android-omap-3.4
 
 GCDBG_FILTERDEF(parser, GCZONE_NONE,
 		"format",
@@ -71,7 +75,12 @@ GCDBG_FILTERDEF(parser, GCZONE_NONE,
 		"offset",
 		"dest",
 		"src",
+<<<<<<< HEAD
 		"scaling")
+=======
+		"scaling",
+		"surface")
+>>>>>>> omapzoom/p-android-omap-3.4
 
 
 /*******************************************************************************
@@ -126,9 +135,15 @@ static const unsigned int rgb16swizzle[] = {
 };
 
 static const unsigned int rgba32swizzle[] = {
+<<<<<<< HEAD
 	GCREG_DE_SWIZZLE_BGRA,
 	GCREG_DE_SWIZZLE_ABGR,
 	GCREG_DE_SWIZZLE_RGBA,
+=======
+	GCREG_DE_SWIZZLE_ARGB,
+	GCREG_DE_SWIZZLE_ABGR,
+	GCREG_DE_SWIZZLE_ABGR,
+>>>>>>> omapzoom/p-android-omap-3.4
 	GCREG_DE_SWIZZLE_ARGB
 };
 
@@ -193,6 +208,7 @@ static const unsigned int container[] = {
 };
 
 enum bverror parse_format(struct bvbltparams *bvbltparams,
+<<<<<<< HEAD
 			  struct surfaceinfo *surfaceinfo)
 {
 	enum bverror bverror = BVERR_NONE;
@@ -203,6 +219,16 @@ enum bverror parse_format(struct bvbltparams *bvbltparams,
 
 	format = &surfaceinfo->format;
 	ocdformat = surfaceinfo->geom->format;
+=======
+			  enum ocdformat ocdformat,
+			  struct bvformatxlate *format)
+{
+	enum bverror bverror = BVERR_NONE;
+	struct gccontext *gccontext = get_context();
+	unsigned int cs, std, alpha, subsample, layout;
+	unsigned int reversed, leftjust, swizzle, cont, bits;
+
+>>>>>>> omapzoom/p-android-omap-3.4
 	GCENTERARG(GCZONE_FORMAT, "ocdformat = 0x%08X\n", ocdformat);
 
 	cs = (ocdformat & OCDFMTDEF_CS_MASK)
@@ -227,6 +253,12 @@ enum bverror parse_format(struct bvbltparams *bvbltparams,
 	GCDBG(GCZONE_FORMAT_VERBOSE, "cont = %d\n", cont);
 	GCDBG(GCZONE_FORMAT_VERBOSE, "bits = %d\n", bits);
 
+<<<<<<< HEAD
+=======
+	format->endian
+		= GCREG_DEST_CONFIG_ENDIAN_CONTROL_NO_SWAP;
+
+>>>>>>> omapzoom/p-android-omap-3.4
 	switch (cs) {
 	case (OCDFMTDEF_CS_RGB >> OCDFMTDEF_CS_SHIFT):
 		GCDBG(GCZONE_FORMAT, "OCDFMTDEF_CS_RGB\n");
@@ -250,6 +282,7 @@ enum bverror parse_format(struct bvbltparams *bvbltparams,
 		if (alpha == OCDFMTDEF_ALPHA) {
 			format->premultiplied
 				= ((ocdformat & OCDFMTDEF_NON_PREMULT) == 0);
+<<<<<<< HEAD
 		} else {
 			format->premultiplied = true;
 
@@ -258,6 +291,13 @@ enum bverror parse_format(struct bvbltparams *bvbltparams,
 					      "0 filling is not supported");
 				goto exit;
 			}
+=======
+			format->zerofill = false;
+		} else {
+			format->premultiplied = true;
+			format->zerofill
+				= ((ocdformat & OCDFMTDEF_FILL_EMPTY_0) != 0);
+>>>>>>> omapzoom/p-android-omap-3.4
 		}
 		GCDBG(GCZONE_FORMAT, "premultiplied = %d\n",
 		      format->premultiplied);
@@ -289,7 +329,13 @@ enum bverror parse_format(struct bvbltparams *bvbltparams,
 				format->format = GCREG_DE_FORMAT_A4R4G4B4;
 				format->cs.rgb.comp = &argb4444_bits[swizzle];
 			} else {
+<<<<<<< HEAD
 				format->format = GCREG_DE_FORMAT_X4R4G4B4;
+=======
+				format->format = gccontext->gccaps.swizzlefixed
+					? GCREG_DE_FORMAT_X4R4G4B4
+					: GCREG_DE_FORMAT_A4R4G4B4;
+>>>>>>> omapzoom/p-android-omap-3.4
 				format->cs.rgb.comp = &xrgb4444_bits[swizzle];
 			}
 			break;
@@ -335,6 +381,13 @@ enum bverror parse_format(struct bvbltparams *bvbltparams,
 				format->format = GCREG_DE_FORMAT_X8R8G8B8;
 				format->cs.rgb.comp = &xrgb8888_bits[swizzle];
 			}
+<<<<<<< HEAD
+=======
+
+			format->endian = ((swizzle & 1) == 0)
+				? GCREG_DEST_CONFIG_ENDIAN_CONTROL_SWAP_DWORD
+				: GCREG_DEST_CONFIG_ENDIAN_CONTROL_NO_SWAP;
+>>>>>>> omapzoom/p-android-omap-3.4
 			break;
 
 		default:
@@ -390,6 +443,10 @@ enum bverror parse_format(struct bvbltparams *bvbltparams,
 		}
 
 		format->premultiplied = true;
+<<<<<<< HEAD
+=======
+		format->zerofill = false;
+>>>>>>> omapzoom/p-android-omap-3.4
 
 		/* Parse subsampling. */
 		switch (subsample) {
@@ -1117,8 +1174,12 @@ enum bverror parse_blend(struct bvbltparams *bvbltparams,
 	struct bvblendxlate *k2_xlate;
 	unsigned int alpha;
 
+<<<<<<< HEAD
 	GCENTERARG(GCZONE_BLEND, "blend = 0x%08X (%s)\n",
 		   blend, gc_bvblend_name(blend));
+=======
+	GCENTER(GCZONE_BLEND);
+>>>>>>> omapzoom/p-android-omap-3.4
 
 	if ((blend & BVBLENDDEF_REMOTE) != 0) {
 		BVSETBLTERROR(BVERR_BLEND, "remote alpha not supported");
@@ -1131,6 +1192,7 @@ enum bverror parse_blend(struct bvbltparams *bvbltparams,
 	case (BVBLENDDEF_GLOBAL_NONE >> BVBLENDDEF_GLOBAL_SHIFT):
 		GCDBG(GCZONE_BLEND, "BVBLENDDEF_GLOBAL_NONE\n");
 
+<<<<<<< HEAD
 		gca->src_global_color =
 		gca->dst_global_color = 0;
 
@@ -1159,6 +1221,30 @@ enum bverror parse_blend(struct bvbltparams *bvbltparams,
 
 		gca->src_global_alpha_mode = GCREG_GLOBAL_ALPHA_MODE_GLOBAL;
 		gca->dst_global_alpha_mode = GCREG_GLOBAL_ALPHA_MODE_GLOBAL;
+=======
+		gca->globalcolor = 0;
+		gca->globalcolorenable = false;
+		break;
+
+	case (BVBLENDDEF_GLOBAL_UCHAR >> BVBLENDDEF_GLOBAL_SHIFT):
+		GCDBG(GCZONE_BLEND, "BVBLENDDEF_GLOBAL_UCHAR (0x%02X)\n",
+		      bvbltparams->globalalpha.size8);
+
+		gca->globalcolor
+			= ((unsigned int) bvbltparams->globalalpha.size8) << 24;
+		gca->globalcolorenable = true;
+		break;
+
+	case (BVBLENDDEF_GLOBAL_FLOAT >> BVBLENDDEF_GLOBAL_SHIFT):
+		GCDBG(GCZONE_BLEND, "BVBLENDDEF_GLOBAL_FLOAT (0x%08X)\n",
+		      *(unsigned int *) &bvbltparams->globalalpha.fp);
+
+		alpha = gcfp2norm8(bvbltparams->globalalpha.fp);
+		GCDBG(GCZONE_BLEND, "converted alpha = 0x%02X\n", alpha);
+
+		gca->globalcolor = alpha << 24;
+		gca->globalcolorenable = true;
+>>>>>>> omapzoom/p-android-omap-3.4
 		break;
 
 	default:
@@ -1268,7 +1354,17 @@ static inline int get_angle(int orientation)
  * Surface compare and validation.
  */
 
+<<<<<<< HEAD
 bool valid_rect(struct bvsurfgeom *bvsurfgeom, struct gcrect *gcrect)
+=======
+bool null_rect(struct gcrect *gcrect)
+{
+	return (gcrect->left == gcrect->right) &&
+	       (gcrect->top  == gcrect->bottom);
+}
+
+bool valid_rect(struct gcsurface *gcsurface, struct gcrect *gcrect)
+>>>>>>> omapzoom/p-android-omap-3.4
 {
 	int width, height;
 
@@ -1280,12 +1376,17 @@ bool valid_rect(struct bvsurfgeom *bvsurfgeom, struct gcrect *gcrect)
 
 	width  = gcrect->right  - gcrect->left;
 	height = gcrect->bottom - gcrect->top;
+<<<<<<< HEAD
 	if ((width <= 0) || (height <= 0)) {
+=======
+	if ((width < 0) || (height < 0)) {
+>>>>>>> omapzoom/p-android-omap-3.4
 		GCERR("invalid rectangle size: %d,%d.\n",
 		      width, height);
 		return false;
 	}
 
+<<<<<<< HEAD
 	if (gcrect->right > (int) bvsurfgeom->width) {
 		GCERR("right coordinate (%d) exceeds surface width (%d).\n",
 		      gcrect->right, bvsurfgeom->width);
@@ -1295,18 +1396,34 @@ bool valid_rect(struct bvsurfgeom *bvsurfgeom, struct gcrect *gcrect)
 	if (gcrect->bottom > (int) bvsurfgeom->height) {
 		GCERR("bottom coordinate (%d) exceeds surface height (%d).\n",
 		      gcrect->bottom, bvsurfgeom->height);
+=======
+	if (gcrect->right > (int) gcsurface->width) {
+		GCERR("right coordinate (%d) exceeds surface width (%d).\n",
+		      gcrect->right, gcsurface->width);
+		return false;
+	}
+
+	if (gcrect->bottom > (int) gcsurface->height) {
+		GCERR("bottom coordinate (%d) exceeds surface height (%d).\n",
+		      gcrect->bottom, gcsurface->height);
+>>>>>>> omapzoom/p-android-omap-3.4
 		return false;
 	}
 
 	return true;
 }
 
+<<<<<<< HEAD
 static bool valid_geom(struct surfaceinfo *surfaceinfo)
+=======
+static bool valid_geom(struct gcsurface *gcsurface)
+>>>>>>> omapzoom/p-android-omap-3.4
 {
 	unsigned int size;
 	unsigned int height;
 
 	/* Compute the size of the surface. */
+<<<<<<< HEAD
 	size = (surfaceinfo->geom->width *
 		surfaceinfo->geom->height *
 		surfaceinfo->format.allocbitspp) / 8;
@@ -1322,10 +1439,27 @@ static bool valid_geom(struct surfaceinfo *surfaceinfo)
 		      size);
 		GCERR("  specified surface size: %lu\n",
 		      surfaceinfo->buf.desc->length);
+=======
+	size = (gcsurface->width * gcsurface->height *
+		gcsurface->format.allocbitspp) / 8;
+
+	/* Make sure the size is not greater then the surface. */
+	if (size > gcsurface->buf.desc->length) {
+		GCERR("invalid geometry detected:\n");
+		GCERR("  specified dimensions: %dx%d, %d bitspp\n",
+		      gcsurface->width,
+		      gcsurface->height,
+		      gcsurface->format.bitspp);
+		GCERR("  surface size based on the dimensions: %d\n",
+		      size);
+		GCERR("  specified surface size: %lu\n",
+		      gcsurface->buf.desc->length);
+>>>>>>> omapzoom/p-android-omap-3.4
 		return false;
 	}
 
 	/* Determine the height of the image. */
+<<<<<<< HEAD
 	height = ((surfaceinfo->angle % 2) == 0)
 	       ? surfaceinfo->geom->height
 	       : surfaceinfo->geom->width;
@@ -1345,19 +1479,120 @@ static bool valid_geom(struct surfaceinfo *surfaceinfo)
 		GCERR("  computed surface size = %d\n", size);
 		GCERR("  specified surface size: %lu\n",
 		      surfaceinfo->buf.desc->length);
+=======
+	height = ((gcsurface->angle % 2) == 0)
+	       ? gcsurface->height
+	       : gcsurface->width;
+
+	/* Compute the size using the stide. */
+	size = gcsurface->stride1 * height;
+
+	/* Make sure the size is not greater then the surface. */
+	if (size > gcsurface->buf.desc->length) {
+		GCERR("invalid geometry detected:\n");
+		GCERR("  specified dimensions: %dx%d, %d bitspp\n",
+		      gcsurface->width,
+		      gcsurface->height,
+		      gcsurface->format.bitspp);
+		GCERR("  physical image height = %d\n", height);
+		GCERR("  image stride = %d\n", gcsurface->stride1);
+		GCERR("  computed surface size = %d\n", size);
+		GCERR("  specified surface size: %lu\n",
+		      gcsurface->buf.desc->length);
+>>>>>>> omapzoom/p-android-omap-3.4
 		return false;
 	}
 
 	return true;
 }
 
+<<<<<<< HEAD
 int get_pixel_offset(struct surfaceinfo *surfaceinfo, int offset)
 {
+=======
+enum bverror valid_stride(struct bvbltparams *bvbltparams,
+			  struct gcsurface *gcsurface)
+{
+	enum bverror bverror;
+	struct gccontext *gccontext = get_context();
+	struct bvformatxlate *format = &gcsurface->format;
+	bool srcsurface;
+	unsigned int alignment;
+
+	/* Is this the source? */
+	srcsurface = (gcsurface->index >= 0);
+
+	if (gccontext->gccaps.strictalign) {
+		if (format->type == BVFMT_YUV) {
+			if (srcsurface) {
+				alignment = (format->cs.yuv.planecount == 1)
+					  ? 16 - 1
+					  : 8 - 1;
+			} else {
+				alignment = ~0U;
+			}
+		} else {
+			alignment = 16 - 1;
+		}
+	} else {
+		if (format->type == BVFMT_YUV) {
+			if (format->cs.yuv.planecount == 1) {
+				alignment = 4 - 1;
+			} else {
+				alignment = (srcsurface)
+					  ? 8 - 1
+					  : ~0U;
+			}
+		} else {
+			alignment = (format->bitspp / 8) - 1;
+		}
+	}
+
+	if (alignment == ~0U) {
+		if (srcsurface) {
+			BVSETBLTERROR((gcsurface->index == 0)
+						? BVERR_SRC1GEOM_FORMAT
+						: BVERR_SRC2GEOM_FORMAT,
+				      "source %d format unsupported",
+				      gcsurface->index);
+		} else {
+			BVSETBLTERROR(BVERR_DSTGEOM_FORMAT,
+				      "destination format unsupported");
+		}
+
+		return bverror;
+	}
+
+	if ((gcsurface->stride1 & alignment) != 0) {
+		if (srcsurface) {
+			BVSETBLTERROR((gcsurface->index == 0)
+						? BVERR_SRC1GEOM_STRIDE
+						: BVERR_SRC2GEOM_STRIDE,
+				      "source %d stride must be "
+				      "%d pixel aligned.",
+				      gcsurface->index,
+				      alignment + 1);
+		} else {
+			BVSETBLTERROR(BVERR_DSTGEOM_FORMAT,
+				      "destination format unsupported");
+		}
+
+		return bverror;
+	}
+
+	return BVERR_NONE;
+}
+
+int get_pixel_offset(struct gcsurface *gcsurface, int offset)
+{
+	struct gccontext *gccontext = get_context();
+>>>>>>> omapzoom/p-android-omap-3.4
 	unsigned int alignment;
 	int byteoffset;
 	unsigned int alignedoffset;
 	int pixeloffset;
 
+<<<<<<< HEAD
 	GCENTERARG(GCZONE_OFFSET, "surfaceinfo=0x%08X, offset=%d\n",
 		   surfaceinfo, offset);
 
@@ -1366,14 +1601,44 @@ int get_pixel_offset(struct surfaceinfo *surfaceinfo, int offset)
 		: (16 - 1);
 
 	GCDBG(GCZONE_OFFSET, "bpp = %d\n", surfaceinfo->format.bitspp);
+=======
+	GCENTERARG(GCZONE_OFFSET, "gcsurface=0x%08X, offset=%d\n",
+		   gcsurface, offset);
+
+	if (gccontext->gccaps.strictalign) {
+		if ((gcsurface->format.type == BVFMT_YUV) &&
+		    (gcsurface->format.cs.yuv.planecount > 1))
+			alignment = 64 - 1;
+		else
+			alignment = 16 - 1;
+	} else {
+		if (gcsurface->format.type == BVFMT_YUV) {
+			if (gcsurface->format.cs.yuv.planecount == 1)
+				alignment = 4 - 1;
+			else
+				alignment = 64 - 1;
+		} else {
+			alignment = (gcsurface->format.bitspp / 8) - 1;
+		}
+	}
+
+	GCDBG(GCZONE_OFFSET, "bpp = %d\n", gcsurface->format.bitspp);
+>>>>>>> omapzoom/p-android-omap-3.4
 	GCDBG(GCZONE_OFFSET, "alignment = %d\n", alignment);
 
 	/* Determine offset in bytes from the base modified by the
 	 * given offset. */
+<<<<<<< HEAD
 	if (surfaceinfo->buf.desc->auxtype == BVAT_PHYSDESC) {
 		struct bvphysdesc *bvphysdesc;
 		bvphysdesc = (struct bvphysdesc *)
 			     surfaceinfo->buf.desc->auxptr;
+=======
+	if (gcsurface->buf.desc->auxtype == BVAT_PHYSDESC) {
+		struct bvphysdesc *bvphysdesc;
+		bvphysdesc = (struct bvphysdesc *)
+			     gcsurface->buf.desc->auxptr;
+>>>>>>> omapzoom/p-android-omap-3.4
 		GCDBG(GCZONE_OFFSET, "physical descriptor = 0x%08X\n",
 		      bvphysdesc);
 		GCDBG(GCZONE_OFFSET, "first page = 0x%08X\n",
@@ -1385,7 +1650,11 @@ int get_pixel_offset(struct surfaceinfo *surfaceinfo, int offset)
 	} else {
 		GCDBG(GCZONE_OFFSET, "no physical descriptor.\n");
 		byteoffset = (unsigned int)
+<<<<<<< HEAD
 			     surfaceinfo->buf.desc->virtaddr + offset;
+=======
+			     gcsurface->buf.desc->virtaddr + offset;
+>>>>>>> omapzoom/p-android-omap-3.4
 	}
 
 	GCDBG(GCZONE_OFFSET, "byteoffset = %d\n", byteoffset);
@@ -1394,7 +1663,11 @@ int get_pixel_offset(struct surfaceinfo *surfaceinfo, int offset)
 	alignedoffset = byteoffset & alignment;
 
 	/* Convert to pixels. */
+<<<<<<< HEAD
 	pixeloffset = alignedoffset * 8 / surfaceinfo->format.bitspp;
+=======
+	pixeloffset = alignedoffset * 8 / gcsurface->format.bitspp;
+>>>>>>> omapzoom/p-android-omap-3.4
 
 	GCDBG(GCZONE_OFFSET, "alignedoffset = %d\n", alignedoffset);
 	GCDBG(GCZONE_OFFSET, "pixeloffset = %d\n", -pixeloffset);
@@ -1403,15 +1676,296 @@ int get_pixel_offset(struct surfaceinfo *surfaceinfo, int offset)
 	return -pixeloffset;
 }
 
+<<<<<<< HEAD
+=======
+void rotate_rect(int angle,
+		 struct gcsurface *gcsurface, struct gcrect *rect)
+{
+	unsigned int width, height;
+	struct gcrect temprect;
+
+	GCENTER(GCZONE_SURF);
+
+	GCDBG(GCZONE_SURF, "adjustment angle = %d\n",
+	      angle);
+	GCDBG(GCZONE_SURF, "geom size = %dx%d\n",
+	      gcsurface->width, gcsurface->height);
+
+	switch (angle) {
+	case ROT_ANGLE_0:
+		break;
+
+	case ROT_ANGLE_90:
+		width  = gcsurface->width;
+		height = gcsurface->height;
+
+		temprect.left   = height - rect->bottom;
+		temprect.top    = rect->left;
+		temprect.right  = height - rect->top;
+		temprect.bottom = rect->right;
+
+		*rect = temprect;
+		break;
+
+	case ROT_ANGLE_180:
+		width  = gcsurface->width;
+		height = gcsurface->height;
+
+		temprect.left   = width  - rect->right;
+		temprect.top    = height - rect->bottom;
+		temprect.right  = width  - rect->left;
+		temprect.bottom = height - rect->top;
+
+		*rect = temprect;
+		break;
+
+	case ROT_ANGLE_270:
+		width  = gcsurface->width;
+		height = gcsurface->height;
+
+		temprect.left   = rect->top;
+		temprect.top    = width - rect->right;
+		temprect.right  = rect->bottom;
+		temprect.bottom = width - rect->left;
+
+		*rect = temprect;
+		break;
+	}
+
+	GCEXIT(GCZONE_SURF);
+}
+
+void rotate_geom(int angle, struct gcsurface *gcsurface)
+{
+	GCENTER(GCZONE_SURF);
+
+	GCDBG(GCZONE_SURF, "adjustment angle = %d\n",
+	      angle);
+	GCDBG(GCZONE_SURF, "geom angle = %d\n",
+	      gcsurface->angle);
+	GCDBG(GCZONE_SURF, "geom size = %dx%d\n",
+	      gcsurface->width, gcsurface->height);
+
+	if ((angle % 2) != 0) {
+		unsigned int width, height;
+
+		width  = gcsurface->width;
+		height = gcsurface->height;
+
+		gcsurface->width  = height;
+		gcsurface->height = width;
+	}
+
+	gcsurface->angle = (gcsurface->angle + angle) % 4;
+	GCDBG(GCZONE_SURF, "new geom angle = %d\n",
+	      gcsurface->angle);
+	GCDBG(GCZONE_SURF, "new geom size = %dx%d\n",
+	      gcsurface->width, gcsurface->height);
+
+	GCEXIT(GCZONE_SURF);
+}
+
+void adjust_angle(struct gcsurface *srcinfo, struct gcsurface *dstinfo)
+{
+	int srcangle, dstangle;
+	struct gcrect *srcorig;
+	struct gcrect *dstorig, *dstclip, *dstadj;
+	struct gcrect *dstorigaux, *dstclipaux, *dstadjaux;
+
+	GCENTER(GCZONE_SURF);
+
+	/* Determine adjustment angles. */
+	srcangle = srcinfo->adjangle;
+	dstangle = (4 - (dstinfo->adjangle - srcangle)) % 4;
+
+	GCDBG(GCZONE_SURF, "source adjustment = %d deg.\n", srcangle * 90);
+	GCDBG(GCZONE_SURF, "destination adjusment = %d deg.\n", dstangle * 90);
+
+	/* Adjust the source. */
+	if (srcangle != 0) {
+		srcorig = &srcinfo->rect.orig;
+
+		rotate_rect(srcangle, srcinfo, srcorig);
+		rotate_geom(srcangle, srcinfo);
+
+		GCPRINT_RECT(GCZONE_SURF, "original src (rot)", srcorig);
+	}
+
+	/* Adjust the destination. */
+	if (dstangle != 0) {
+		dstorig = &dstinfo->rect.orig;
+		dstclip = &dstinfo->rect.clip;
+		dstadj = &dstinfo->rect.adj;
+
+		rotate_rect(dstangle, dstinfo, dstorig);
+		rotate_rect(dstangle, dstinfo, dstclip);
+		rotate_rect(dstangle, dstinfo, dstadj);
+
+		GCPRINT_RECT(GCZONE_SURF, "original dst (rot)", dstorig);
+		GCPRINT_RECT(GCZONE_SURF, "clipped dst (rot)", dstclip);
+		GCPRINT_RECT(GCZONE_SURF, "adjusted dst (rot)", dstadj);
+
+		if (dstinfo->haveaux) {
+			dstorigaux = &dstinfo->auxrect.orig;
+			dstclipaux = &dstinfo->auxrect.clip;
+			dstadjaux = &dstinfo->auxrect.adj;
+
+			rotate_rect(dstangle, dstinfo, dstorigaux);
+			rotate_rect(dstangle, dstinfo, dstclipaux);
+			rotate_rect(dstangle, dstinfo, dstadjaux);
+
+			GCPRINT_RECT(GCZONE_SURF, "original aux dst (rot)",
+				     dstorigaux);
+			GCPRINT_RECT(GCZONE_SURF, "clipped aux dst (rot)",
+				     dstclipaux);
+			GCPRINT_RECT(GCZONE_SURF, "adjusted aux dst (rot)",
+				     dstadjaux);
+		}
+
+		rotate_geom(dstangle, dstinfo);
+
+		/* Make sure the new destination is programmed. */
+		dstinfo->surfdirty = true;
+	}
+
+	GCEXIT(GCZONE_SURF);
+}
+
+void process_rotation(struct gcsurface *gcsurface)
+{
+	int offsetX, offsetY;
+	struct gcrect *clip;
+	struct gcrect *adj;
+	struct gcrect *clipaux;
+	struct gcrect *adjaux;
+
+	GCENTER(GCZONE_SURF);
+
+	switch (gcsurface->angle) {
+	case ROT_ANGLE_0:
+		/* Determine the origin offset. */
+		offsetX = gcsurface->xpixalign;
+		offsetY = gcsurface->ypixalign;
+
+		/* Determine geometry size. */
+		gcsurface->adjwidth  = gcsurface->width
+				     - gcsurface->xpixalign;
+		gcsurface->adjheight = gcsurface->height
+				     - gcsurface->ypixalign;
+
+		/* Determine the physical size. */
+		gcsurface->physwidth  = gcsurface->adjwidth;
+		gcsurface->physheight = gcsurface->adjheight;
+		break;
+
+	case ROT_ANGLE_90:
+		/* Determine the origin offset. */
+		offsetX = gcsurface->ypixalign;
+		offsetY = gcsurface->xpixalign;
+
+		/* Determine geometry size. */
+		gcsurface->adjwidth  = gcsurface->width
+				     - gcsurface->ypixalign;
+		gcsurface->adjheight = gcsurface->height
+				     - gcsurface->xpixalign;
+
+		/* Determine the physical size. */
+		gcsurface->physwidth  = gcsurface->adjheight;
+		gcsurface->physheight = gcsurface->adjwidth;
+		break;
+
+	case ROT_ANGLE_180:
+		/* Determine the origin offset. */
+		offsetX = 0;
+		offsetY = 0;
+
+		/* Determine geometry size. */
+		gcsurface->adjwidth  = gcsurface->width
+				     - gcsurface->xpixalign;
+		gcsurface->adjheight = gcsurface->height
+				     - gcsurface->ypixalign;
+
+		/* Determine the physical size. */
+		gcsurface->physwidth  = gcsurface->adjwidth;
+		gcsurface->physheight = gcsurface->adjheight;
+		break;
+
+	case ROT_ANGLE_270:
+		/* Determine the origin offset. */
+		offsetX = 0;
+		offsetY = 0;
+
+		/* Determine geometry size. */
+		gcsurface->adjwidth  = gcsurface->width
+				     - gcsurface->ypixalign;
+		gcsurface->adjheight = gcsurface->height
+				     - gcsurface->xpixalign;
+
+		/* Determine the physical size. */
+		gcsurface->physwidth  = gcsurface->adjheight;
+		gcsurface->physheight = gcsurface->adjwidth;
+		break;
+
+	default:
+		offsetX = 0;
+		offsetY = 0;
+	}
+
+	/* Get shortcuts to the destination rectangles. */
+	clip = &gcsurface->rect.clip;
+	adj = &gcsurface->rect.adj;
+
+	/* Compute adjusted destination rectangle. */
+	adj->left   = clip->left   - offsetX;
+	adj->top    = clip->top    - offsetY;
+	adj->right  = clip->right  - offsetX;
+	adj->bottom = clip->bottom - offsetY;
+
+	GCPRINT_RECT(GCZONE_SURF, "adjusted", adj);
+
+	if (gcsurface->haveaux) {
+		/* Get shortcuts to the destination aux rectangles. */
+		clipaux = &gcsurface->auxrect.clip;
+		adjaux = &gcsurface->auxrect.adj;
+
+		/* Compute adjusted destination rectangle. */
+		adjaux->left   = clipaux->left   - offsetX;
+		adjaux->top    = clipaux->top    - offsetY;
+		adjaux->right  = clipaux->right  - offsetX;
+		adjaux->bottom = clipaux->bottom - offsetY;
+
+		GCPRINT_RECT(GCZONE_SURF, "adjusted aux", adjaux);
+	}
+
+	GCDBG(GCZONE_SURF, "aligned geometry size = %dx%d\n",
+		gcsurface->adjwidth, gcsurface->adjheight);
+	GCDBG(GCZONE_SURF, "aligned physical size = %dx%d\n",
+		gcsurface->physwidth, gcsurface->physheight);
+	GCDBG(GCZONE_SURF, "origin offset (pixels) = %d,%d\n",
+		offsetX, offsetY);
+
+	GCEXIT(GCZONE_SURF);
+}
+
+>>>>>>> omapzoom/p-android-omap-3.4
 enum bverror parse_destination(struct bvbltparams *bvbltparams,
 			       struct gcbatch *batch)
 {
 	enum bverror bverror = BVERR_NONE;
+<<<<<<< HEAD
+=======
+	struct gcsurface *dstinfo;
+	struct gcrect *dstorig;
+	struct gcrect *dstclip;
+	struct gcrect *dstorigaux = NULL;
+	struct gcrect *dstclipaux = NULL;
+>>>>>>> omapzoom/p-android-omap-3.4
 
 	GCENTER(GCZONE_DEST);
 
 	GCDBG(GCZONE_DEST, "parsing destination\n");
 
+<<<<<<< HEAD
 	/* Did the destination surface change? */
 	if ((batch->batchflags & BVBATCH_DST) != 0) {
 		struct surfaceinfo *dstinfo;
@@ -1429,11 +1983,34 @@ enum bverror parse_destination(struct bvbltparams *bvbltparams,
 
 		/* Parse the destination format. */
 		if (parse_format(bvbltparams, dstinfo) != BVERR_NONE) {
+=======
+	/* Get a shortcut to the destination surface descriptor. */
+	dstinfo = &batch->dstinfo;
+
+	/* Did the destination surface change? */
+	if (dstinfo->surfdirty) {
+		struct bvsurfgeom *dstgeom;
+
+		/* Shortcut to the geometry. */
+		dstgeom = bvbltparams->dstgeom;
+
+		/* Initialize the destination descriptor. */
+		dstinfo->index = -1;
+		dstinfo->buf.desc = bvbltparams->dstdesc;
+		dstinfo->width = dstgeom->width;
+		dstinfo->height = dstgeom->height;
+		dstinfo->stride1 = dstgeom->virtstride;
+
+		/* Parse the destination format. */
+		if (parse_format(bvbltparams, dstgeom->format,
+				 &dstinfo->format) != BVERR_NONE) {
+>>>>>>> omapzoom/p-android-omap-3.4
 			bverror = BVERR_DSTGEOM_FORMAT;
 			goto exit;
 		}
 
 		/* Parse orientation. */
+<<<<<<< HEAD
 		dstinfo->angle = get_angle(dstinfo->geom->orientation);
 		if (dstinfo->angle == ROT_ANGLE_INVALID) {
 			BVSETBLTERROR(BVERR_DSTGEOM,
@@ -1442,12 +2019,37 @@ enum bverror parse_destination(struct bvbltparams *bvbltparams,
 			goto exit;
 		}
 
+=======
+		dstinfo->angle = get_angle(dstgeom->orientation);
+		if (dstinfo->angle == ROT_ANGLE_INVALID) {
+			BVSETBLTERROR(BVERR_DSTGEOM,
+				      "unsupported destination orientation %d.",
+				      dstgeom->orientation);
+			goto exit;
+		}
+
+		/* If angle has been modified previosuly, it means that
+		 * the rectangles have been rotated, make sure they are
+		 * reset back to the original ones. */
+		if (dstinfo->adjangle != 0) {
+			dstinfo->rectdirty = true;
+
+			/* Reset destination adjust angle. */
+			dstinfo->adjangle = 0;
+		}
+
+>>>>>>> omapzoom/p-android-omap-3.4
 		/* Compute the destination alignments needed to compensate
 		 * for the surface base address misalignment if any. */
 		dstinfo->xpixalign = get_pixel_offset(dstinfo, 0);
 		dstinfo->ypixalign = 0;
+<<<<<<< HEAD
 		dstinfo->bytealign = (dstinfo->xpixalign
 				   * (int) dstinfo->format.bitspp) / 8;
+=======
+		dstinfo->bytealign1 = (dstinfo->xpixalign
+				    * (int) dstinfo->format.bitspp) / 8;
+>>>>>>> omapzoom/p-android-omap-3.4
 
 		GCDBG(GCZONE_DEST, "  buffer length = %d\n",
 		      dstinfo->buf.desc->length);
@@ -1470,6 +2072,7 @@ enum bverror parse_destination(struct bvbltparams *bvbltparams,
 		}
 
 		GCDBG(GCZONE_DEST, "  stride = %ld\n",
+<<<<<<< HEAD
 		      dstinfo->geom->virtstride);
 		GCDBG(GCZONE_DEST, "  geometry size = %dx%d\n",
 		      dstinfo->geom->width, dstinfo->geom->height);
@@ -1477,6 +2080,15 @@ enum bverror parse_destination(struct bvbltparams *bvbltparams,
 		      dstinfo->xpixalign, dstinfo->ypixalign);
 		GCDBG(GCZONE_DEST, "  surface offset (bytes) = %d\n",
 		      dstinfo->bytealign);
+=======
+		      dstinfo->stride1);
+		GCDBG(GCZONE_DEST, "  geometry size = %dx%d\n",
+		      dstinfo->width, dstinfo->height);
+		GCDBG(GCZONE_DEST, "  surface offset (pixels) = %d,%d\n",
+		      dstinfo->xpixalign, dstinfo->ypixalign);
+		GCDBG(GCZONE_DEST, "  surface offset (bytes) = %d\n",
+		      dstinfo->bytealign1);
+>>>>>>> omapzoom/p-android-omap-3.4
 
 		/* Check for unsupported dest formats. */
 		if ((dstinfo->format.type == BVFMT_YUV) &&
@@ -1486,6 +2098,7 @@ enum bverror parse_destination(struct bvbltparams *bvbltparams,
 			goto exit;
 		}
 
+<<<<<<< HEAD
 		/* Destination stride must be 8 pixel aligned. */
 		if ((dstinfo->geom->virtstride
 				& (dstinfo->format.bitspp - 1)) != 0) {
@@ -1495,6 +2108,20 @@ enum bverror parse_destination(struct bvbltparams *bvbltparams,
 			goto exit;
 		}
 
+=======
+		/* Zero-fill for destination is not supported. */
+		if (dstinfo->format.zerofill) {
+			BVSETBLTERROR(BVERR_DSTGEOM_FORMAT,
+				      "0 filling is not supported.");
+			goto exit;
+		}
+
+		/* Validate the stride. */
+		bverror = valid_stride(bvbltparams, dstinfo);
+		if (bverror != BVERR_NONE)
+			goto exit;
+
+>>>>>>> omapzoom/p-android-omap-3.4
 		/* Validate geometry. */
 		if (!valid_geom(dstinfo)) {
 			BVSETBLTERROR(BVERR_DSTGEOM,
@@ -1504,6 +2131,7 @@ enum bverror parse_destination(struct bvbltparams *bvbltparams,
 	}
 
 	/* Did clipping/destination rects change? */
+<<<<<<< HEAD
 	if ((batch->batchflags & (BVBATCH_CLIPRECT |
 				  BVBATCH_DESTRECT |
 				  BVBATCH_DST)) != 0) {
@@ -1526,6 +2154,38 @@ enum bverror parse_destination(struct bvbltparams *bvbltparams,
 		batch->haveaux
 			= ((bvbltparams->flags & BVFLAG_SRC2_AUXDSTRECT) != 0);
 		GCDBG(GCZONE_DEST, "  have aux dest = %d\n", batch->haveaux);
+=======
+	if (dstinfo->rectdirty) {
+		struct gcrect cliprect;
+		struct gcrect *clipdelta;
+
+		/* Get shortcuts to the destination rectangles. */
+		clipdelta = &batch->clipdelta;
+		dstorig = &dstinfo->rect.orig;
+		dstclip = &dstinfo->rect.clip;
+
+		/* Determine destination rectangle. */
+		GCCONVERT_RECT(GCZONE_DEST,
+			       "  rect",
+			       &bvbltparams->dstrect,
+			       dstorig);
+
+		/* Determine whether aux destination is specified. */
+		dstinfo->haveaux
+			= ((bvbltparams->flags & BVFLAG_SRC2_AUXDSTRECT) != 0);
+		GCDBG(GCZONE_DEST, "  have aux dest = %d\n", dstinfo->haveaux);
+
+		if (dstinfo->haveaux) {
+			dstorigaux = &dstinfo->auxrect.orig;
+			dstclipaux = &dstinfo->auxrect.clip;
+
+			/* Convert the aux rectangle. */
+			GCCONVERT_RECT(GCZONE_DEST,
+					"  aux rect",
+					&bvbltparams->src2auxdstrect,
+					dstorigaux);
+		}
+>>>>>>> omapzoom/p-android-omap-3.4
 
 		/* Is clipping rectangle specified? */
 		if ((bvbltparams->flags & BVFLAG_CLIP) == BVFLAG_CLIP) {
@@ -1546,6 +2206,7 @@ enum bverror parse_destination(struct bvbltparams *bvbltparams,
 
 			/* Compute clipping deltas and the adjusted
 			 * destination rect. */
+<<<<<<< HEAD
 			if (cliprect.left <= dstrect->left) {
 				batch->clipdelta.left = 0;
 				batch->dstclipped.left = dstrect->left;
@@ -1639,38 +2300,146 @@ enum bverror parse_destination(struct bvbltparams *bvbltparams,
 
 		/* Validate the destination rectangle. */
 		if (!valid_rect(dstinfo->geom, &batch->dstclipped)) {
+=======
+			if (cliprect.left <= dstorig->left) {
+				clipdelta->left = 0;
+				dstclip->left = dstorig->left;
+			} else {
+				clipdelta->left
+					= cliprect.left - dstorig->left;
+				dstclip->left = cliprect.left;
+			}
+
+			if (cliprect.top <= dstorig->top) {
+				clipdelta->top = 0;
+				dstclip->top = dstorig->top;
+			} else {
+				clipdelta->top
+					= cliprect.top - dstorig->top;
+				dstclip->top = cliprect.top;
+			}
+
+			if (cliprect.right >= dstorig->right) {
+				clipdelta->right = 0;
+				dstclip->right = dstorig->right;
+			} else {
+				clipdelta->right
+					= cliprect.right - dstorig->right;
+				dstclip->right = cliprect.right;
+			}
+
+			if (cliprect.bottom >= dstorig->bottom) {
+				clipdelta->bottom = 0;
+				dstclip->bottom = dstorig->bottom;
+			} else {
+				clipdelta->bottom
+					= cliprect.bottom - dstorig->bottom;
+				dstclip->bottom = cliprect.bottom;
+			}
+
+			/* Clip the aux destination. */
+			if (dstinfo->haveaux) {
+				dstclipaux->left =
+					(cliprect.left <= dstorigaux->left)
+						? dstorigaux->left
+						: cliprect.left;
+
+				dstclipaux->top =
+					(cliprect.top <= dstorigaux->top)
+						? dstorigaux->top
+						: cliprect.top;
+
+				dstclipaux->right =
+					(cliprect.right >= dstorigaux->right)
+						? dstorigaux->right
+						: cliprect.right;
+
+				dstclipaux->bottom =
+					(cliprect.bottom >= dstorigaux->bottom)
+						? dstorigaux->bottom
+						: cliprect.bottom;
+			}
+		} else {
+			clipdelta->left =
+			clipdelta->top =
+			clipdelta->right =
+			clipdelta->bottom = 0;
+
+			*dstclip = *dstorig;
+
+			if (dstinfo->haveaux)
+				*dstclipaux = *dstorigaux;
+		}
+
+		GCPRINT_RECT(GCZONE_DEST, "  clipped dest", dstclip);
+
+		/* Validate the destination rectangle. */
+		if (!valid_rect(dstinfo, dstclip)) {
+>>>>>>> omapzoom/p-android-omap-3.4
 			BVSETBLTERROR(BVERR_DSTRECT,
 				      "invalid destination rectangle.");
 			goto exit;
 		}
 
+<<<<<<< HEAD
 		if (batch->haveaux) {
 			GCPRINT_RECT(GCZONE_DEST, "  clipped aux dest",
 				     &batch->dstclippedaux);
 
 			/* Validate the aux destination rectangle. */
 			if (!valid_rect(dstinfo->geom, &batch->dstclippedaux)) {
+=======
+		if (dstinfo->haveaux) {
+			GCPRINT_RECT(GCZONE_DEST, "  clipped aux dest",
+				     dstclipaux);
+
+			/* Validate the aux destination rectangle. */
+			if (!valid_rect(dstinfo, dstclipaux)) {
+>>>>>>> omapzoom/p-android-omap-3.4
 				BVSETBLTERROR(BVERR_DSTRECT,
 					      "invalid aux destination "
 					      "rectangle.");
 				goto exit;
 			}
+<<<<<<< HEAD
+=======
+
+			/* Disable aux rectangle if empty. */
+			if (null_rect(dstclipaux)) {
+				GCDBG(GCZONE_DEST, "  empty aux dest.\n");
+				dstinfo->haveaux = false;
+			}
+>>>>>>> omapzoom/p-android-omap-3.4
 		}
 
 		GCDBG(GCZONE_DEST,
 		      "  clipping delta = (%d,%d)-(%d,%d)\n",
+<<<<<<< HEAD
 		      batch->clipdelta.left,
 		      batch->clipdelta.top,
 		      batch->clipdelta.right,
 		      batch->clipdelta.bottom);
 	}
 
+=======
+		      clipdelta->left,
+		      clipdelta->top,
+		      clipdelta->right,
+		      clipdelta->bottom);
+	}
+
+	/* Did clipping/destination rects change? */
+	if (dstinfo->surfdirty || dstinfo->rectdirty)
+		process_rotation(dstinfo);
+
+>>>>>>> omapzoom/p-android-omap-3.4
 exit:
 	GCEXITARG(GCZONE_DEST, "bv%s = %d\n",
 		  (bverror == BVERR_NONE) ? "result" : "error", bverror);
 	return bverror;
 }
 
+<<<<<<< HEAD
 void process_dest_rotation(struct bvbltparams *bvbltparams,
 			   struct gcbatch *batch)
 {
@@ -1802,12 +2571,73 @@ enum bverror parse_source(struct bvbltparams *bvbltparams,
 	/* Parse the source format. */
 	if (parse_format(bvbltparams, srcinfo) != BVERR_NONE) {
 		bverror = (srcinfo->index == 0)
+=======
+enum bverror parse_source(struct bvbltparams *bvbltparams,
+			  struct gcbatch *batch,
+			  struct gcsurface *srcinfo,
+			  unsigned int index,
+			  unsigned short rop)
+{
+	enum bverror bverror = BVERR_NONE;
+	struct bvsurfgeom *srcgeom;
+	struct bvrect *srcrect;
+
+	GCENTER(GCZONE_SRC);
+	GCDBG(GCZONE_SRC, "parsing source #%d\n", index);
+
+	if (index == 0) {
+		/* Set source index. */
+		srcinfo->index = 0;
+
+		/* Determine change flags. */
+		srcinfo->surfdirty = ((batch->batchflags
+				   & BVBATCH_SRC1) != 0);
+		srcinfo->rectdirty = ((batch->batchflags
+				   & BVBATCH_SRC1RECT) != 0);
+
+		/* Set buffer descriptor. */
+		srcinfo->buf = bvbltparams->src1;
+
+		/* Fetch proper structures. */
+		srcgeom = bvbltparams->src1geom;
+		srcrect = &bvbltparams->src1rect;
+	} else {
+		/* Set source index. */
+		srcinfo->index = 1;
+
+		/* Determine change flags. */
+		srcinfo->surfdirty = ((batch->batchflags
+				   & BVBATCH_SRC2) != 0);
+		srcinfo->rectdirty = ((batch->batchflags
+				   & BVBATCH_SRC2RECT) != 0);
+
+		/* Set buffer descriptor. */
+		srcinfo->buf = bvbltparams->src2;
+
+		/* Fetch proper structures. */
+		srcgeom = bvbltparams->src2geom;
+		srcrect = &bvbltparams->src2rect;
+	}
+
+	/* Set parameters. */
+	srcinfo->width = srcgeom->width;
+	srcinfo->height = srcgeom->height;
+	srcinfo->stride1 = srcgeom->virtstride;
+	srcinfo->rop = rop;
+	srcinfo->haveaux = false;
+
+	/* Parse the source format. */
+	if (parse_format(bvbltparams, srcgeom->format,
+			 &srcinfo->format) != BVERR_NONE) {
+		bverror = (index == 0)
+>>>>>>> omapzoom/p-android-omap-3.4
 			? BVERR_SRC1GEOM_FORMAT
 			: BVERR_SRC2GEOM_FORMAT;
 		goto exit;
 	}
 
 	/* Parse orientation. */
+<<<<<<< HEAD
 	srcinfo->angle = get_angle(srcinfo->geom->orientation);
 	if (srcinfo->angle == ROT_ANGLE_INVALID) {
 		BVSETBLTERROR((srcinfo->index == 0)
@@ -1821,6 +2651,25 @@ enum bverror parse_source(struct bvbltparams *bvbltparams,
 
 	/* Determine source mirror. */
 	srcinfo->mirror = (srcinfo->index == 0)
+=======
+	srcinfo->angle = get_angle(srcgeom->orientation);
+	if (srcinfo->angle == ROT_ANGLE_INVALID) {
+		BVSETBLTERROR((index == 0)
+					? BVERR_SRC1GEOM
+					: BVERR_SRC2GEOM,
+			      "unsupported source%d orientation %d.",
+			      index + 1,
+			      srcgeom->orientation);
+		goto exit;
+	}
+
+	/* Assume that the source rotation is supported and the source
+	 * does not need to be software rotared. */
+	srcinfo->adjangle = 0;
+
+	/* Determine source mirror. */
+	srcinfo->mirror = (index == 0)
+>>>>>>> omapzoom/p-android-omap-3.4
 			? (bvbltparams->flags >> BVFLAG_FLIP_SRC1_SHIFT)
 			   & BVFLAG_FLIP_MASK
 			: (bvbltparams->flags >> BVFLAG_FLIP_SRC2_SHIFT)
@@ -1844,13 +2693,20 @@ enum bverror parse_source(struct bvbltparams *bvbltparams,
 	}
 
 	GCDBG(GCZONE_SRC, "  stride = %ld\n",
+<<<<<<< HEAD
 	      srcinfo->geom->virtstride);
 	GCDBG(GCZONE_SRC, "  geometry size = %dx%d\n",
 	      srcinfo->geom->width, srcinfo->geom->height);
+=======
+	      srcinfo->stride1);
+	GCDBG(GCZONE_SRC, "  geometry size = %dx%d\n",
+	      srcinfo->width, srcinfo->height);
+>>>>>>> omapzoom/p-android-omap-3.4
 	GCDBG(GCZONE_SRC, "  mirror = %d\n", srcinfo->mirror);
 
 	/* Convert the rectangle. */
 	GCCONVERT_RECT(GCZONE_SRC,
+<<<<<<< HEAD
 		       "  rect", srcrect, &srcinfo->rect);
 
 	/* Source must be 8 pixel aligned. */
@@ -1862,6 +2718,9 @@ enum bverror parse_source(struct bvbltparams *bvbltparams,
 			      "source stride must be 8 pixel aligned.");
 		goto exit;
 	}
+=======
+		       "  rect", srcrect, &srcinfo->rect.orig);
+>>>>>>> omapzoom/p-android-omap-3.4
 
 	/* Planar YUV? */
 	if ((srcinfo->format.type == BVFMT_YUV) &&
@@ -1870,26 +2729,41 @@ enum bverror parse_source(struct bvbltparams *bvbltparams,
 
 		/* Source rotation is not supported. */
 		if (srcinfo->angle != ROT_ANGLE_0) {
+<<<<<<< HEAD
 			BVSETBLTERROR((srcinfo->index == 0)
 						? BVERR_SRC1_ROT
 						: BVERR_SRC2_ROT,
 				      "rotation of planar YUV is "
 				      "not supported");
 			goto exit;
+=======
+			srcinfo->adjangle = (4 - srcinfo->angle) % 4;
+			GCDBG(GCZONE_SRC, "  rotation adjustment angle %d.\n",
+			      srcinfo->adjangle * 90);
+>>>>>>> omapzoom/p-android-omap-3.4
 		}
 
 		/* Check base address alignment. */
 		xpixalign = get_pixel_offset(srcinfo, 0);
 		if (xpixalign != 0) {
+<<<<<<< HEAD
 			BVSETBLTERROR((srcinfo->index == 0)
 						? BVERR_SRC1DESC_ALIGNMENT
 						: BVERR_SRC2DESC_ALIGNMENT,
 					"planar YUV base address must be "
 					"64 byte aligned.");
+=======
+			BVSETBLTERROR((index == 0)
+						? BVERR_SRC1DESC_ALIGNMENT
+						: BVERR_SRC2DESC_ALIGNMENT,
+				      "planar YUV base address must be "
+				      "64 byte aligned.");
+>>>>>>> omapzoom/p-android-omap-3.4
 			goto exit;
 		}
 	}
 
+<<<<<<< HEAD
 	/* Validate source geometry. */
 	if (!valid_geom(srcinfo)) {
 		BVSETBLTERROR((srcinfo->index == 0)
@@ -1897,6 +2771,20 @@ enum bverror parse_source(struct bvbltparams *bvbltparams,
 					: BVERR_SRC2GEOM,
 			      "source%d geom exceeds surface size.",
 			      srcinfo->index + 1);
+=======
+	/* Validate the stride. */
+	bverror = valid_stride(bvbltparams, srcinfo);
+	if (bverror != BVERR_NONE)
+		goto exit;
+
+	/* Validate source geometry. */
+	if (!valid_geom(srcinfo)) {
+		BVSETBLTERROR((index == 0)
+					? BVERR_SRC1GEOM
+					: BVERR_SRC2GEOM,
+			      "source%d geom exceeds surface size.",
+			      index + 1);
+>>>>>>> omapzoom/p-android-omap-3.4
 		goto exit;
 	}
 

@@ -1090,7 +1090,11 @@ static int mod_init(void)
 		goto failed;
 	}
 
+<<<<<<< HEAD
 	GCDBG_REGISTER(ioctl);
+=======
+	GCDBG_REGISTER(ioctl, GCZONE_NONE);
+>>>>>>> omapzoom/p-android-omap-3.4
 
 	GCDBG(GCZONE_INIT, "device number = %d\n", dev_major);
 	GCDBG(GCZONE_INIT, "device class = 0x%08X\n",

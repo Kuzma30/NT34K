@@ -8,4 +8,9 @@ gcbv2d-y := \
 	gcbuffer.o \
 	gcfill.o \
 	gcblit.o \
+<<<<<<< HEAD
 	gcfilter.o
+=======
+	gcfilter.o \
+	gcbvdebug.o
+>>>>>>> omapzoom/p-android-omap-3.4

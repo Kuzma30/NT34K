@@ -65,7 +65,12 @@ GCDBG_FILTERDEF(fill, GCZONE_NONE,
 
 
 static inline unsigned int extract_component(unsigned int pixel,
+<<<<<<< HEAD
 					     const struct bvcomponent *desc)
+=======
+					     const struct bvcomponent *desc,
+					     bool zerofill)
+>>>>>>> omapzoom/p-android-omap-3.4
 {
 	unsigned int component;
 	unsigned int component8;
@@ -76,7 +81,11 @@ static inline unsigned int extract_component(unsigned int pixel,
 
 	switch (desc->size) {
 	case 0:
+<<<<<<< HEAD
 		component8 = 0xFF;
+=======
+		component8 = zerofill ? 0x00 : 0xFF;
+>>>>>>> omapzoom/p-android-omap-3.4
 		GCDBG(GCZONE_COLOR, "component8=0x%08X\n", component8);
 		break;
 
@@ -129,10 +138,21 @@ static unsigned int getinternalcolor(void *ptr, struct bvformatxlate *format)
 		GCDBG(GCZONE_COLOR, "srcpixel=0x%08X\n", srcpixel);
 	}
 
+<<<<<<< HEAD
 	r = extract_component(srcpixel, &format->cs.rgb.comp->r);
 	g = extract_component(srcpixel, &format->cs.rgb.comp->g);
 	b = extract_component(srcpixel, &format->cs.rgb.comp->b);
 	a = extract_component(srcpixel, &format->cs.rgb.comp->a);
+=======
+	r = extract_component(srcpixel, &format->cs.rgb.comp->r,
+			      format->zerofill);
+	g = extract_component(srcpixel, &format->cs.rgb.comp->g,
+			      format->zerofill);
+	b = extract_component(srcpixel, &format->cs.rgb.comp->b,
+			      format->zerofill);
+	a = extract_component(srcpixel, &format->cs.rgb.comp->a,
+			      format->zerofill);
+>>>>>>> omapzoom/p-android-omap-3.4
 
 	GCDBG(GCZONE_COLOR, "(r,g,b,a)=0x%02X,0x%02X,0x%02X,0x%02X\n",
 	      r, g, b, a);
@@ -146,6 +166,7 @@ static unsigned int getinternalcolor(void *ptr, struct bvformatxlate *format)
 
 enum bverror do_fill(struct bvbltparams *bvbltparams,
 		     struct gcbatch *batch,
+<<<<<<< HEAD
 		     struct surfaceinfo *srcinfo)
 {
 	enum bverror bverror;
@@ -157,6 +178,34 @@ enum bverror do_fill(struct bvbltparams *bvbltparams,
 
 	GCENTER(GCZONE_FILL);
 
+=======
+		     struct gcsurface *srcinfo)
+{
+	enum bverror bverror;
+	struct gccontext *gccontext = get_context();
+	struct gcsurface *dstinfo;
+	struct gcmofill *gcmofill;
+	unsigned char *fillcolorptr;
+	struct bvbuffmap *dstmap = NULL;
+	int physleft, phystop;
+	struct gcrect *srcorig;
+	struct gcrect *dstadj;
+
+	GCENTER(GCZONE_FILL);
+
+	/* Get a shortcut to the destination surface descriptor. */
+	dstinfo = &batch->dstinfo;
+
+	/* Only RGB source is supported. */
+	if (srcinfo->format.type != BVFMT_RGB) {
+		BVSETBLTERROR((srcinfo->index == 0)
+					? BVERR_SRC1GEOM_FORMAT
+					: BVERR_SRC2GEOM_FORMAT,
+			      "only RGB source is supported for fill.");
+		goto exit;
+	}
+
+>>>>>>> omapzoom/p-android-omap-3.4
 	/* Finish previous batch if any. */
 	bverror = batch->batchend(bvbltparams, batch);
 	if (bverror != BVERR_NONE)
@@ -167,6 +216,7 @@ enum bverror do_fill(struct bvbltparams *bvbltparams,
 	if (bverror != BVERR_NONE)
 		goto exit;
 
+<<<<<<< HEAD
 	/* Setup rotation. */
 	process_dest_rotation(bvbltparams, batch);
 
@@ -184,6 +234,12 @@ enum bverror do_fill(struct bvbltparams *bvbltparams,
 
 		/* Mark as modified. */
 		batch->batchflags |= BVBATCH_DST;
+=======
+	/* Ignore the blit if destination rectangle is empty. */
+	if (null_rect(&dstinfo->rect.clip)) {
+		GCDBG(GCZONE_FILL, "empty destination rectangle.\n");
+		goto exit;
+>>>>>>> omapzoom/p-android-omap-3.4
 	}
 
 	/* Map the destination. */
@@ -198,11 +254,14 @@ enum bverror do_fill(struct bvbltparams *bvbltparams,
 	if (bverror != BVERR_NONE)
 		goto exit;
 
+<<<<<<< HEAD
 	/* Reset the modified flag. */
 	batch->batchflags &= ~(BVBATCH_DST |
 			       BVBATCH_CLIPRECT |
 			       BVBATCH_DESTRECT);
 
+=======
+>>>>>>> omapzoom/p-android-omap-3.4
 	/***********************************************************************
 	** Allocate command buffer.
 	*/
@@ -226,7 +285,11 @@ enum bverror do_fill(struct bvbltparams *bvbltparams,
 	gcmofill->src.rotationheight_ldst = gcmofillsrc_rotationheight_ldst;
 	gcmofill->src.rotationheight.reg.height = 1;
 	gcmofill->src.rotationangle.raw = 0;
+<<<<<<< HEAD
 	gcmofill->src.rotationangle.reg.dst = GCREG_ROT_ANGLE_ROT0;
+=======
+	gcmofill->src.rotationangle.reg.dst = rotencoding[dstinfo->angle];
+>>>>>>> omapzoom/p-android-omap-3.4
 	gcmofill->src.rotationangle.reg.dst_mirror = GCREG_MIRROR_NONE;
 
 	/* Disable alpha blending. */
@@ -238,10 +301,47 @@ enum bverror do_fill(struct bvbltparams *bvbltparams,
 	** Set fill color.
 	*/
 
+<<<<<<< HEAD
 	fillcolorptr
 		= (unsigned char *) srcinfo->buf.desc->virtaddr
 		+ srcinfo->rect.top * srcinfo->geom->virtstride
 		+ srcinfo->rect.left * srcinfo->format.bitspp / 8;
+=======
+	/* Get source rectangle shortcut. */
+	srcorig = &srcinfo->rect.orig;
+
+	switch (srcinfo->angle) {
+	case ROT_ANGLE_0:
+		physleft = srcorig->left;
+		phystop  = srcorig->top;
+		break;
+
+	case ROT_ANGLE_90:
+		physleft = srcorig->top;
+		phystop  = srcinfo->width - srcorig->left - 1;
+		break;
+
+	case ROT_ANGLE_180:
+		physleft = srcinfo->width  - srcorig->left - 1;
+		phystop  = srcinfo->height - srcorig->top  - 1;
+		break;
+
+	case ROT_ANGLE_270:
+		physleft = srcinfo->height - srcorig->top  - 1;
+		phystop  = srcorig->left;
+		break;
+
+	default:
+		physleft = 0;
+		phystop  = 0;
+		GCERR("invalid source angle %d.\n", srcinfo->angle);
+	}
+
+	fillcolorptr
+		= (unsigned char *) srcinfo->buf.desc->virtaddr
+		+ phystop * srcinfo->stride1
+		+ physleft * srcinfo->format.bitspp / 8;
+>>>>>>> omapzoom/p-android-omap-3.4
 
 	gcmofill->clearcolor_ldst = gcmofill_clearcolor_ldst;
 	gcmofill->clearcolor.raw = getinternalcolor(fillcolorptr,
@@ -256,22 +356,38 @@ enum bverror do_fill(struct bvbltparams *bvbltparams,
 	gcmofill->dstconfig.raw = 0;
 	gcmofill->dstconfig.reg.swizzle = dstinfo->format.swizzle;
 	gcmofill->dstconfig.reg.format = dstinfo->format.format;
+<<<<<<< HEAD
+=======
+	gcmofill->dstconfig.reg.endian = dstinfo->format.endian;
+>>>>>>> omapzoom/p-android-omap-3.4
 	gcmofill->dstconfig.reg.command = GCREG_DEST_CONFIG_COMMAND_CLEAR;
 
 	/* Set ROP3. */
 	gcmofill->rop_ldst = gcmofill_rop_ldst;
 	gcmofill->rop.raw = 0;
 	gcmofill->rop.reg.type = GCREG_ROP_TYPE_ROP3;
+<<<<<<< HEAD
 	gcmofill->rop.reg.fg = (unsigned char) bvbltparams->op.rop;
+=======
+	gcmofill->rop.reg.fg = srcinfo->rop;
+>>>>>>> omapzoom/p-android-omap-3.4
 
 	/* Set START_DE command. */
 	gcmofill->startde.cmd.fld = gcfldstartde;
 
 	/* Set destination rectangle. */
+<<<<<<< HEAD
 	gcmofill->rect.left = batch->dstadjusted.left;
 	gcmofill->rect.top = batch->dstadjusted.top;
 	gcmofill->rect.right = batch->dstadjusted.right;
 	gcmofill->rect.bottom = batch->dstadjusted.bottom;
+=======
+	dstadj = &dstinfo->rect.adj;
+	gcmofill->rect.left = dstadj->left;
+	gcmofill->rect.top = dstadj->top;
+	gcmofill->rect.right = dstadj->right;
+	gcmofill->rect.bottom = dstadj->bottom;
+>>>>>>> omapzoom/p-android-omap-3.4
 
 exit:
 	GCEXITARG(GCZONE_FILL, "bv%s = %d\n",

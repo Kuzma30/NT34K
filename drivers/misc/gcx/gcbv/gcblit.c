@@ -58,7 +58,11 @@
 #define GCZONE_ALL		(~0U)
 #define GCZONE_BLEND		(1 << 0)
 #define GCZONE_SURF		(1 << 1)
+<<<<<<< HEAD
 #define GCZONE_BLIT		(1 << 3)
+=======
+#define GCZONE_BLIT		(1 << 2)
+>>>>>>> omapzoom/p-android-omap-3.4
 
 GCDBG_FILTERDEF(blit, GCZONE_NONE,
 		"blend",
@@ -119,6 +123,10 @@ static enum bverror do_blit_end(struct bvbltparams *bvbltparams,
 	gcmobltconfig->dstconfig.raw = 0;
 	gcmobltconfig->dstconfig.reg.swizzle = gcblit->swizzle;
 	gcmobltconfig->dstconfig.reg.format = gcblit->format;
+<<<<<<< HEAD
+=======
+	gcmobltconfig->dstconfig.reg.endian = gcblit->endian;
+>>>>>>> omapzoom/p-android-omap-3.4
 	gcmobltconfig->dstconfig.reg.command = gcblit->multisrc
 		? GCREG_DEST_CONFIG_COMMAND_MULTI_SOURCE_BLT
 		: GCREG_DEST_CONFIG_COMMAND_BIT_BLT;
@@ -150,9 +158,15 @@ static enum bverror do_blit_end(struct bvbltparams *bvbltparams,
 	/* Reset the finalizer. */
 	batch->batchend = do_end;
 
+<<<<<<< HEAD
 	gc_debug_blt(gcblit->srccount,
 		     abs(gcblit->dstrect.right - gcblit->dstrect.left),
 		     abs(gcblit->dstrect.bottom - gcblit->dstrect.top));
+=======
+	gcbv_debug_blt(gcblit->srccount,
+		       abs(gcblit->dstrect.right - gcblit->dstrect.left),
+		       abs(gcblit->dstrect.bottom - gcblit->dstrect.top));
+>>>>>>> omapzoom/p-android-omap-3.4
 
 exit:
 	GCEXITARG(GCZONE_BLIT, "bv%s = %d\n",
@@ -162,7 +176,11 @@ exit:
 
 enum bverror do_blit(struct bvbltparams *bvbltparams,
 		     struct gcbatch *batch,
+<<<<<<< HEAD
 		     struct surfaceinfo *srcinfo)
+=======
+		     struct gcsurface *srcinfo)
+>>>>>>> omapzoom/p-android-omap-3.4
 {
 	enum bverror bverror = BVERR_NONE;
 	struct gccontext *gccontext = get_context();
@@ -175,17 +193,35 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 	struct bvbuffmap *dstmap = NULL;
 	struct bvbuffmap *srcmap = NULL;
 
+<<<<<<< HEAD
 	struct surfaceinfo *dstinfo;
+=======
+	struct gcsurface *dstinfo;
+>>>>>>> omapzoom/p-android-omap-3.4
 	int dstshiftX, dstshiftY;
 	int dstpixalign, dstbyteshift;
 	int dstoffsetX, dstoffsetY;
 
+<<<<<<< HEAD
 	int srcshiftX, srcshiftY, srctopedge;
 	struct gcrect srcclipped;
 	int srcsurfwidth, srcsurfheight;
 	unsigned int physwidth, physheight;
 	int orthogonal;
 	int multisrc;
+=======
+	int adjust, srcshiftX, srcshiftY;
+	unsigned int physwidth, physheight;
+	bool orthogonal;
+	bool multisrc;
+	unsigned int batchfinalize;
+
+	int srcleftedge, srctopedge;
+	int dstleftedge, dsttopedge;
+
+	struct gcrect *srcorig, *srcclip, *srcadj;
+	struct gcrect *dstorig, *dstclip, *dstadj;
+>>>>>>> omapzoom/p-android-omap-3.4
 
 	GCENTER(GCZONE_BLIT);
 
@@ -200,27 +236,78 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 		goto exit;
 	}
 
+<<<<<<< HEAD
 	/* Get a shortcut to the destination surface. */
 	dstinfo = &batch->dstinfo;
 
+=======
+	/* Zero-fill for source is not supported. */
+	if (srcinfo->format.zerofill) {
+		BVSETBLTERROR((srcinfo->index == 0)
+					? BVERR_SRC1GEOM_FORMAT
+					: BVERR_SRC2GEOM_FORMAT,
+			      "0 filling is not supported.");
+		goto exit;
+	}
+
+	/***********************************************************************
+	 * Parse destination.
+	 */
+
+	/* Get a shortcut to the destination surface. */
+	dstinfo = &batch->dstinfo;
+
+	/* Get destination rectangle shortcuts. */
+	dstorig = &dstinfo->rect.orig;
+	dstclip = &dstinfo->rect.clip;
+	dstadj = &dstinfo->rect.adj;
+
+>>>>>>> omapzoom/p-android-omap-3.4
 	/* Parse destination parameters. */
 	bverror = parse_destination(bvbltparams, batch);
 	if (bverror != BVERR_NONE)
 		goto exit;
 
+<<<<<<< HEAD
 	/* Setup rotation. */
 	process_dest_rotation(bvbltparams, batch);
+=======
+	/* Ignore the blit if destination rectangle is empty. */
+	if (null_rect(dstclip)) {
+		GCDBG(GCZONE_SURF, "empty destination rectangle.\n");
+		goto exit;
+	}
+
+	/* Adjust surface angles if necessary. */
+	adjust_angle(srcinfo, dstinfo);
+>>>>>>> omapzoom/p-android-omap-3.4
 
 
 	/***********************************************************************
 	 * Determine source surface alignment offset.
 	 */
 
+<<<<<<< HEAD
+=======
+	/* Assume multi-source is possible. */
+	multisrc = true;
+
+	/* Assume no additional shift is necessary. */
+	srcshiftX = 0;
+	srcshiftY = 0;
+
+	/* Get source rectangle shortcuts. */
+	srcorig = &srcinfo->rect.orig;
+	srcclip = &srcinfo->rect.clip;
+	srcadj = &srcinfo->rect.adj;
+
+>>>>>>> omapzoom/p-android-omap-3.4
 	/* Determine whether the source and the destination are orthogonal
 	 * to each other. */
 	orthogonal = (srcinfo->angle % 2) != (dstinfo->angle % 2);
 
 	/* Compute clipped source rectangle. */
+<<<<<<< HEAD
 	srcclipped.left   = srcinfo->rect.left   + batch->clipdelta.left;
 	srcclipped.top    = srcinfo->rect.top    + batch->clipdelta.top;
 	srcclipped.right  = srcinfo->rect.right  + batch->clipdelta.right;
@@ -229,6 +316,16 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 
 	/* Validate the source rectangle. */
 	if (!valid_rect(srcinfo->geom, &srcclipped)) {
+=======
+	srcclip->left   = srcorig->left   + batch->clipdelta.left;
+	srcclip->top    = srcorig->top    + batch->clipdelta.top;
+	srcclip->right  = srcorig->right  + batch->clipdelta.right;
+	srcclip->bottom = srcorig->bottom + batch->clipdelta.bottom;
+	GCPRINT_RECT(GCZONE_SURF, "clipped source", srcclip);
+
+	/* Validate the source rectangle. */
+	if (!valid_rect(srcinfo, srcclip)) {
+>>>>>>> omapzoom/p-android-omap-3.4
 		BVSETBLTERROR((srcinfo->index == 0)
 					? BVERR_SRC1RECT
 					: BVERR_SRC2RECT,
@@ -236,6 +333,7 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 		goto exit;
 	}
 
+<<<<<<< HEAD
 	/* Compute the source surface shift. */
 	switch (srcinfo->angle) {
 	case ROT_ANGLE_0:
@@ -322,11 +420,92 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 	      srcshiftX, srcshiftY);
 	GCDBG(GCZONE_SURF, "  adjusted surface offset (bytes) = 0x%08X\n",
 	      srcinfo->bytealign);
+=======
+	/* Ignore the blit if source rectangle is empty. */
+	if (null_rect(srcclip)) {
+		GCDBG(GCZONE_SURF, "empty source rectangle.\n");
+		goto exit;
+	}
+
+	/* Determine source and destination physical origin. */
+	switch (srcinfo->angle) {
+	case ROT_ANGLE_0:
+		srcleftedge = srcclip->left;
+		srctopedge  = srcclip->top;
+		dstleftedge = dstadj->left;
+		dsttopedge  = dstadj->top;
+		break;
+
+	case ROT_ANGLE_90:
+		srcleftedge = srcclip->top;
+		srctopedge  = srcinfo->width - srcclip->left;
+		dstleftedge = dstadj->top;
+		dsttopedge  = dstinfo->adjwidth - dstadj->left;
+		break;
+
+	case ROT_ANGLE_180:
+		srcleftedge = srcinfo->width - srcclip->left;
+		srctopedge  = srcinfo->height - srcclip->top;
+		dstleftedge = dstinfo->adjwidth - dstadj->left;
+		dsttopedge  = dstinfo->adjheight - dstadj->top;
+		break;
+
+	case ROT_ANGLE_270:
+		srcleftedge = srcinfo->height - srcclip->top;
+		srctopedge  = srcclip->left;
+		dstleftedge = dstinfo->adjheight - dstadj->top;
+		dsttopedge  = dstadj->left;
+		break;
+
+	default:
+		srcleftedge = 0;
+		srctopedge  = 0;
+		dstleftedge = 0;
+		dsttopedge  = 0;
+	}
+
+	/* Compute the source surface shift. */
+	srcinfo->xpixalign = srcleftedge - dstleftedge;
+	srcinfo->ypixalign = srctopedge  - dsttopedge;
+
+	/* Compute the source surface offset in bytes. */
+	srcinfo->bytealign1
+		= srcinfo->ypixalign * (int) srcinfo->stride1
+		+ srcinfo->xpixalign * (int) srcinfo->format.bitspp / 8;
+
+	GCDBG(GCZONE_SURF, "source surface %d:\n", srcinfo->index + 1);
+	GCDBG(GCZONE_SURF, "  surface offset (pixels) = %d,%d\n",
+	      srcinfo->xpixalign, srcinfo->ypixalign);
+	GCDBG(GCZONE_SURF, "  surface offset (bytes) = 0x%08X\n",
+	      srcinfo->bytealign1);
+
+	/* Compute the source offset in pixels needed to compensate
+	 * for the surface base address misalignment if any. */
+	adjust = get_pixel_offset(srcinfo, srcinfo->bytealign1);
+
+	/* Account for the newly created misalignment if any. */
+	srcinfo->bytealign1 += adjust * (int) srcinfo->format.bitspp / 8;
+	srcinfo->xpixalign += adjust;
+	srcshiftX += adjust;
+
+	GCDBG(GCZONE_SURF, "  horizontal alignment adjustment (pixels) = %d\n",
+	      adjust);
+	GCDBG(GCZONE_SURF, "  adjusted surface offset (pixels) = %d,%d\n",
+	      srcinfo->xpixalign, srcinfo->ypixalign);
+	GCDBG(GCZONE_SURF, "  additional surface offset (pixels) = %d,%d\n",
+	      srcshiftX, srcshiftY);
+	GCDBG(GCZONE_SURF, "  adjusted surface offset (bytes) = 0x%08X\n",
+	      srcinfo->bytealign1);
+>>>>>>> omapzoom/p-android-omap-3.4
 
 	/* Compute U/V plane offsets. */
 	if ((srcinfo->format.type == BVFMT_YUV) &&
 	    (srcinfo->format.cs.yuv.planecount > 1))
+<<<<<<< HEAD
 		set_computeyuv(srcinfo, srcshiftX, srcshiftY);
+=======
+		set_computeyuv(srcinfo, srcinfo->xpixalign, srcinfo->ypixalign);
+>>>>>>> omapzoom/p-android-omap-3.4
 
 	/* Set precomputed destination adjustments based on the destination
 	 * base address misalignment only. */
@@ -335,6 +514,7 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 
 	/* Apply source adjustemnts. */
 	if (srcinfo->angle == dstinfo->angle) {
+<<<<<<< HEAD
 		dstshiftX += srcinfo->xpixalign;
 		dstshiftY += srcinfo->ypixalign;
 	} else if (((srcinfo->angle + 3) % 4) == dstinfo->angle) {
@@ -345,6 +525,18 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 
 	/* Compute the destination surface offset in bytes. */
 	dstbyteshift = dstshiftY * (int) dstinfo->geom->virtstride
+=======
+		dstshiftX += srcshiftX;
+		dstshiftY += srcshiftY;
+	} else if (((srcinfo->angle + 3) % 4) == dstinfo->angle) {
+		dstshiftY += srcshiftX;
+	} else if (((srcinfo->angle + 1) % 4) == dstinfo->angle) {
+		dstshiftX += srcshiftY;
+	}
+
+	/* Compute the destination surface offset in bytes. */
+	dstbyteshift = dstshiftY * (int) dstinfo->stride1
+>>>>>>> omapzoom/p-android-omap-3.4
 		     + dstshiftX * (int) dstinfo->format.bitspp / 8;
 
 	/* Compute the destination offset in pixels needed to compensate
@@ -352,6 +544,15 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 	 * comes out anything other than zero, multisource blit cannot be
 	 * performed. */
 	dstpixalign = get_pixel_offset(dstinfo, dstbyteshift);
+<<<<<<< HEAD
+=======
+	if (dstpixalign != 0) {
+		GCDBG(GCZONE_SURF,
+		      "  disabling multi-source, "
+		      "destination needs to be realigned again.\n");
+		multisrc = false;
+	}
+>>>>>>> omapzoom/p-android-omap-3.4
 
 	GCDBG(GCZONE_SURF, "destination surface:\n");
 	GCDBG(GCZONE_SURF, "  surface offset (pixels) = %d,%d\n",
@@ -361,6 +562,7 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 	GCDBG(GCZONE_SURF, "  realignment = %d\n",
 	      dstpixalign);
 
+<<<<<<< HEAD
 	if ((dstpixalign != 0) ||
 	    ((srcinfo->xpixalign != 0) && (srcinfo->angle == dstinfo->angle))) {
 		/* Adjust the destination to match the source geometry. */
@@ -432,11 +634,28 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 		/* Source origin is not used in multi-source setup. */
 		srcclipped.left = 0;
 		srcclipped.top = 0;
+=======
+	if (multisrc) {
+		GCDBG(GCZONE_SURF, "multi-source enabled.\n");
+
+		/* Source origin is not used in multi-source setup. */
+		srcadj->left = 0;
+		srcadj->top = 0;
+
+		/* Set new surface shift. */
+		if (dstinfo->bytealign1 != dstbyteshift) {
+			GCDBG(GCZONE_SURF,
+			      "destination alignment changed.\n");
+			dstinfo->bytealign1 = dstbyteshift;
+			dstinfo->surfdirty = true;
+		}
+>>>>>>> omapzoom/p-android-omap-3.4
 
 		/* Adjust the destination to match the source geometry. */
 		switch (srcinfo->angle) {
 		case ROT_ANGLE_0:
 			/* Adjust the destination horizontally. */
+<<<<<<< HEAD
 			dstoffsetX = srcinfo->xpixalign;
 			dstoffsetY = srcinfo->ypixalign;
 
@@ -451,11 +670,24 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 					   - srcinfo->ypixalign;
 				physheight = dstinfo->physheight
 					   - srcinfo->xpixalign;
+=======
+			dstoffsetX = srcshiftX;
+			dstoffsetY = srcshiftY;
+
+			/* Apply the source alignment. */
+			if ((dstinfo->angle % 2) == 0) {
+				physwidth  = dstinfo->physwidth  - srcshiftX;
+				physheight = dstinfo->physheight - srcshiftY;
+			} else {
+				physwidth  = dstinfo->physwidth  - srcshiftY;
+				physheight = dstinfo->physheight - srcshiftX;
+>>>>>>> omapzoom/p-android-omap-3.4
 			}
 			break;
 
 		case ROT_ANGLE_90:
 			/* Adjust the destination vertically. */
+<<<<<<< HEAD
 			dstoffsetX = srcinfo->ypixalign;
 			dstoffsetY = srcinfo->xpixalign;
 
@@ -470,6 +702,18 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 					   - srcinfo->xpixalign;
 				physheight = dstinfo->physheight
 					   - srcinfo->ypixalign;
+=======
+			dstoffsetX = srcshiftY;
+			dstoffsetY = srcshiftX;
+
+			/* Apply the source alignment. */
+			if ((dstinfo->angle % 2) == 0) {
+				physwidth  = dstinfo->physwidth  - srcshiftY;
+				physheight = dstinfo->physheight - srcshiftX;
+			} else {
+				physwidth  = dstinfo->physwidth  - srcshiftX;
+				physheight = dstinfo->physheight - srcshiftY;
+>>>>>>> omapzoom/p-android-omap-3.4
 			}
 			break;
 
@@ -480,6 +724,7 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 
 			/* Apply the source alignment. */
 			if ((dstinfo->angle % 2) == 0) {
+<<<<<<< HEAD
 				physwidth  = dstinfo->physwidth
 					   - srcinfo->xpixalign;
 				physheight = dstinfo->physheight
@@ -489,6 +734,13 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 					   - srcinfo->ypixalign;
 				physheight = dstinfo->physheight
 					   - srcinfo->xpixalign;
+=======
+				physwidth  = dstinfo->physwidth  - srcshiftX;
+				physheight = dstinfo->physheight - srcshiftY;
+			} else {
+				physwidth  = dstinfo->physwidth  - srcshiftY;
+				physheight = dstinfo->physheight - srcshiftX;
+>>>>>>> omapzoom/p-android-omap-3.4
 			}
 			break;
 
@@ -499,6 +751,7 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 
 			/* Apply the source alignment. */
 			if ((dstinfo->angle % 2) == 0) {
+<<<<<<< HEAD
 				physwidth  = dstinfo->physwidth
 					   - srcinfo->ypixalign;
 				physheight = dstinfo->physheight
@@ -508,6 +761,13 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 					   - srcinfo->xpixalign;
 				physheight = dstinfo->physheight
 					   - srcinfo->ypixalign;
+=======
+				physwidth  = dstinfo->physwidth  - srcshiftY;
+				physheight = dstinfo->physheight - srcshiftX;
+			} else {
+				physwidth  = dstinfo->physwidth  - srcshiftX;
+				physheight = dstinfo->physheight - srcshiftY;
+>>>>>>> omapzoom/p-android-omap-3.4
 			}
 			break;
 
@@ -520,6 +780,7 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 
 		/* Source geometry is now the same as the destination. */
 		if (orthogonal) {
+<<<<<<< HEAD
 			srcsurfwidth = physheight;
 			srcsurfheight = physwidth;
 		} else {
@@ -559,6 +820,74 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 	    ((batch->batchflags & (BVBATCH_DST |
 				   BVBATCH_CLIPRECT |
 				   BVBATCH_DESTRECT)) != 0)) {
+=======
+			srcinfo->physwidth  = physheight;
+			srcinfo->physheight = physwidth;
+		} else {
+			srcinfo->physwidth  = physwidth;
+			srcinfo->physheight = physheight;
+		}
+
+		/* Set new surface size. */
+		if ((physwidth  != dstinfo->physwidth) ||
+		    (physheight != dstinfo->physheight)) {
+			dstinfo->physwidth  = physwidth;
+			dstinfo->physheight = physheight;
+			dstinfo->surfdirty = true;
+		}
+
+		/* Set new offset. */
+		if ((batch->dstoffsetX != dstoffsetX) ||
+		    (batch->dstoffsetY != dstoffsetY)) {
+			batch->dstoffsetX = dstoffsetX;
+			batch->dstoffsetY = dstoffsetY;
+			dstinfo->surfdirty = true;
+		}
+	} else {
+		GCDBG(GCZONE_SURF, "multi-source disabled.\n");
+
+		/* Determine surface size and render rectangle. */
+		process_rotation(srcinfo);
+
+		/* No adjustment necessary for single-source. */
+		dstoffsetX = 0;
+		dstoffsetY = 0;
+	}
+
+	batchfinalize = 0;
+
+	/* Reached maximum number of sources? */
+	if (batch->op.blit.srccount == gccontext->gccaps.maxsource)
+		batchfinalize |= GCBV_BATCH_FINALIZE_SRCCOUNT;
+
+	/* Previous operation was not blit? */
+	if (batch->batchend != do_blit_end)
+		batchfinalize |= GCBV_BATCH_FINALIZE_OPERATION;
+
+	/* Previous blit was not multi-sourced? */
+	else if (!batch->op.blit.multisrc)
+		batchfinalize |= GCBV_BATCH_FINALIZE_MULTISRC;
+
+	/* Current blit is not multi-sourced? */
+	if (!multisrc)
+		batchfinalize |= GCBV_BATCH_FINALIZE_ALIGN;
+
+	/* Destination has changed? */
+	if (dstinfo->surfdirty)
+		batchfinalize |= GCBV_BATCH_FINALIZE_FLAGS_DST;
+
+	if (dstinfo->cliprectdirty)
+		batchfinalize |= GCBV_BATCH_FINALIZE_FLAGS_CLIPRECT;
+
+	if (dstinfo->destrectdirty)
+		batchfinalize |= GCBV_BATCH_FINALIZE_FLAGS_DESTRECT;
+
+	/* Check if we need to finalize existing batch. */
+	if (batchfinalize) {
+		if (batch->batchend == do_blit_end)
+			gcbv_debug_finalize_batch(batchfinalize);
+
+>>>>>>> omapzoom/p-android-omap-3.4
 		/* Finalize existing batch if any. */
 		bverror = batch->batchend(bvbltparams, batch);
 		if (bverror != BVERR_NONE)
@@ -569,13 +898,18 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 
 		/* Initialize the new batch. */
 		gcblit = &batch->op.blit;
+<<<<<<< HEAD
 		gcblit->blockenable = 0;
+=======
+		gcblit->blockenable = false;
+>>>>>>> omapzoom/p-android-omap-3.4
 		gcblit->srccount = 0;
 		gcblit->multisrc = multisrc;
 
 		/* Set the destination format. */
 		gcblit->format  = dstinfo->format.format;
 		gcblit->swizzle = dstinfo->format.swizzle;
+<<<<<<< HEAD
 
 		/* Set the destination coordinates. */
 		gcblit->dstrect.left   = batch->dstadjusted.left   - dstoffsetX;
@@ -583,6 +917,18 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 		gcblit->dstrect.right  = batch->dstadjusted.right  - dstoffsetX;
 		gcblit->dstrect.bottom = batch->dstadjusted.bottom - dstoffsetY;
 
+=======
+		gcblit->endian = dstinfo->format.endian;
+
+		/* Set the destination coordinates. */
+		gcblit->dstrect.left   = dstadj->left   - dstoffsetX;
+		gcblit->dstrect.top    = dstadj->top    - dstoffsetY;
+		gcblit->dstrect.right  = dstadj->right  - dstoffsetX;
+		gcblit->dstrect.bottom = dstadj->bottom - dstoffsetY;
+	}
+
+	if (dstinfo->surfdirty) {
+>>>>>>> omapzoom/p-android-omap-3.4
 		/* Map the destination. */
 		bverror = do_map(dstinfo->buf.desc, batch, &dstmap);
 		if (bverror != BVERR_NONE) {
@@ -594,11 +940,14 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 		bverror = set_dst(bvbltparams, batch, dstmap);
 		if (bverror != BVERR_NONE)
 			goto exit;
+<<<<<<< HEAD
 
 		/* Reset the modified flag. */
 		batch->batchflags &= ~(BVBATCH_DST |
 				       BVBATCH_CLIPRECT |
 				       BVBATCH_DESTRECT);
+=======
+>>>>>>> omapzoom/p-android-omap-3.4
 	}
 
 	/* Map the source. */
@@ -614,7 +963,12 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 
 	/* We need to walk in blocks if the source and the destination
 	 * surfaces are orthogonal to each other. */
+<<<<<<< HEAD
 	batch->op.blit.blockenable |= orthogonal;
+=======
+	if (orthogonal)
+		batch->op.blit.blockenable = true;
+>>>>>>> omapzoom/p-android-omap-3.4
 
 	/* Shortcut to the register index. */
 	index = batch->op.blit.srccount;
@@ -629,6 +983,7 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 			goto exit;
 
 		add_fixup(bvbltparams, batch, &gcmosrc0->address,
+<<<<<<< HEAD
 			  srcinfo->bytealign);
 
 		gcmosrc0->config_ldst = gcmosrc0_config_ldst;
@@ -645,6 +1000,25 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 
 		gcmosrc0->rotation_ldst = gcmosrc0_rotation_ldst;
 		gcmosrc0->rotationheight.reg.height = srcsurfheight;
+=======
+			  srcinfo->bytealign1);
+
+		gcmosrc0->config_ldst = gcmosrc0_config_ldst;
+		gcmosrc0->address = GET_MAP_HANDLE(srcmap);
+		gcmosrc0->stride = srcinfo->stride1;
+		gcmosrc0->rotation.raw = 0;
+		gcmosrc0->rotation.reg.surf_width = srcinfo->physwidth;
+		gcmosrc0->config.raw = 0;
+		gcmosrc0->config.reg.swizzle = srcinfo->format.swizzle;
+		gcmosrc0->config.reg.format = srcinfo->format.format;
+		gcmosrc0->config.reg.endian = srcinfo->format.endian;
+		gcmosrc0->origin.reg.x = srcadj->left;
+		gcmosrc0->origin.reg.y = srcadj->top;
+		gcmosrc0->size.reg = gcregsrcsize_max;
+
+		gcmosrc0->rotation_ldst = gcmosrc0_rotation_ldst;
+		gcmosrc0->rotationheight.reg.height = srcinfo->physheight;
+>>>>>>> omapzoom/p-android-omap-3.4
 		gcmosrc0->rotationangle.raw = 0;
 		gcmosrc0->rotationangle.reg.src = rotencoding[srcinfo->angle];
 		gcmosrc0->rotationangle.reg.dst = rotencoding[dstinfo->angle];
@@ -658,8 +1032,12 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 
 		gcmosrc0->mult_ldst = gcmosrc0_mult_ldst;
 		gcmosrc0->mult.raw = 0;
+<<<<<<< HEAD
 		gcmosrc0->mult.reg.srcglobalpremul
 		= GCREG_COLOR_MULTIPLY_MODES_SRC_GLOBAL_PREMULTIPLY_DISABLE;
+=======
+		gcmosrc0->mult.reg.srcglobalpremul = srcinfo->srcglobalpremul;
+>>>>>>> omapzoom/p-android-omap-3.4
 
 		if (srcinfo->format.premultiplied)
 			gcmosrc0->mult.reg.srcpremul
@@ -703,32 +1081,56 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 			goto exit;
 
 		add_fixup(bvbltparams, batch, &gcmosrc->address,
+<<<<<<< HEAD
 			  srcinfo->bytealign);
+=======
+			  srcinfo->bytealign1);
+>>>>>>> omapzoom/p-android-omap-3.4
 
 		gcmosrc->address_ldst = gcmosrc_address_ldst[index];
 		gcmosrc->address = GET_MAP_HANDLE(srcmap);
 		gcmosrc->stride_ldst = gcmosrc_stride_ldst[index];
+<<<<<<< HEAD
 		gcmosrc->stride = srcinfo->geom->virtstride;
 
 		gcmosrc->rotation_ldst = gcmosrc_rotation_ldst[index];
 		gcmosrc->rotation.raw = 0;
 		gcmosrc->rotation.reg.surf_width = srcsurfwidth;
+=======
+		gcmosrc->stride = srcinfo->stride1;
+
+		gcmosrc->rotation_ldst = gcmosrc_rotation_ldst[index];
+		gcmosrc->rotation.raw = 0;
+		gcmosrc->rotation.reg.surf_width = srcinfo->physwidth;
+>>>>>>> omapzoom/p-android-omap-3.4
 
 		gcmosrc->config_ldst = gcmosrc_config_ldst[index];
 		gcmosrc->config.raw = 0;
 		gcmosrc->config.reg.swizzle = srcinfo->format.swizzle;
 		gcmosrc->config.reg.format = srcinfo->format.format;
+<<<<<<< HEAD
 
 		gcmosrc->origin_ldst = gcmosrc_origin_ldst[index];
 		gcmosrc->origin.reg.x = srcclipped.left;
 		gcmosrc->origin.reg.y = srcclipped.top;
+=======
+		gcmosrc->config.reg.endian = srcinfo->format.endian;
+
+		gcmosrc->origin_ldst = gcmosrc_origin_ldst[index];
+		gcmosrc->origin.reg.x = srcadj->left;
+		gcmosrc->origin.reg.y = srcadj->top;
+>>>>>>> omapzoom/p-android-omap-3.4
 
 		gcmosrc->size_ldst = gcmosrc_size_ldst[index];
 		gcmosrc->size.reg = gcregsrcsize_max;
 
 		gcmosrc->rotationheight_ldst
 			= gcmosrc_rotationheight_ldst[index];
+<<<<<<< HEAD
 		gcmosrc->rotationheight.reg.height = srcsurfheight;
+=======
+		gcmosrc->rotationheight.reg.height = srcinfo->physheight;
+>>>>>>> omapzoom/p-android-omap-3.4
 
 		gcmosrc->rotationangle_ldst
 			= gcmosrc_rotationangle_ldst[index];
@@ -745,8 +1147,12 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 
 		gcmosrc->mult_ldst = gcmosrc_mult_ldst[index];
 		gcmosrc->mult.raw = 0;
+<<<<<<< HEAD
 		gcmosrc->mult.reg.srcglobalpremul
 		= GCREG_COLOR_MULTIPLY_MODES_SRC_GLOBAL_PREMULTIPLY_DISABLE;
+=======
+		gcmosrc->mult.reg.srcglobalpremul = srcinfo->srcglobalpremul;
+>>>>>>> omapzoom/p-android-omap-3.4
 
 		if (srcinfo->format.premultiplied)
 			gcmosrc->mult.reg.srcpremul
