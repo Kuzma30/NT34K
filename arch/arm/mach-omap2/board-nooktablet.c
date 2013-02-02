@@ -138,7 +138,6 @@
 #define FIXED_REG_LCD_ID	1
 #define FIXED_REG_VWLAN_ID	2
 
-
 #include <linux/mfd/tlv320aic31xx-registers.h>
 #include <linux/mfd/tlv320aic3xxx-registers.h>
 #include <linux/mfd/tlv320aic3xxx-core.h>
@@ -571,10 +570,10 @@ static struct platform_device acclaim_keys_gpio = {
 		},
 };
 
-static struct platform_device sdp4430_aic3110 = {
+/*static struct platform_device sdp4430_aic3110 = {
 	.name = "tlv320aic3110-codec",
 	.id = -1,
-};
+};*/
 
 /*******************************************************/
 static struct regulator_consumer_supply acclaim_lcd_supply[] = {
@@ -619,7 +618,7 @@ static struct platform_device acclaim_lcd_regulator = {
 static struct platform_device *sdp4430_devices[] __initdata = {
 	//&sdp4430_leds_gpio,
 	//&sdp4430_leds_pwm,
-	&sdp4430_aic3110,
+//	&sdp4430_aic3110,
 	&acclaim_keys_gpio,
 //      &wl128x_device,
 //      &btwilink_device,
@@ -1050,9 +1049,10 @@ static struct i2c_board_info __initdata sdp4430_i2c_2_boardinfo[] = {
 	 .platform_data = &ft5x06_platform_data,
 	 .irq = OMAP_GPIO_IRQ(OMAP_FT5x06_GPIO),
 	 },
-//      {
-//              I2C_BOARD_INFO("tlv320aic3100", 0x18),
-//      },
+	{
+	I2C_BOARD_INFO("tlv320aic31xx", 0x18),
+	.platform_data = &aic31xx_codec_pdata,
+	},
 };
 
 // static struct i2c_board_info __initdata sdp4430_i2c_3_boardinfo[] = {
@@ -1386,9 +1386,10 @@ static void __init omap_4430sdp_init(void)
 #endif
 
 	omap4_mux_init(board_mux, NULL, package);
-	
+
 	omap4_i2c_init();
 	omap4_audio_conf();
+	
 	platform_add_devices(sdp4430_devices, ARRAY_SIZE(sdp4430_devices));
 	board_serial_init();	//omap_serial_init();
 	omap_sdrc_init(NULL, NULL);

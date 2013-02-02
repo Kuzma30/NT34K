@@ -385,9 +385,9 @@ static int Qoo_headset_jack_status_check(void)
 static struct snd_soc_dai_link omap4_dai_abe[] = {
 	{
 
-		.name = "Legacy McBSP3",
+		.name = "Legacy McBSP2",
 		.stream_name = "MultiMedia",
-		.cpu_dai_name = "omap-mcbsp-dai.1",
+		.cpu_dai_name = "omap-mcbsp-dai.2",
 		.codec_dai_name = "tlv320aic31xx-MM_EXT",
 		.platform_name = "omap-pcm-audio",
 		.codec_name = "tlv320aic31xx-codec",
