@@ -82,9 +82,9 @@
 	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,	\
 }
 
-#define    AUDIO_CODEC_HPH_DETECT_GPIO		(157)
-#define    AUDIO_CODEC_PWR_ON_GPIO		(103)
-#define    AUDIO_CODEC_RESET_GPIO		(37)
+#define    AUDIO_CODEC_HPH_DETECT_GPIO		(102)
+#define    AUDIO_CODEC_PWR_ON_GPIO		(101)
+#define    AUDIO_CODEC_RESET_GPIO		(104)
 #define    AUDIO_CODEC_PWR_ON_GPIO_NAME		"audio_codec_pwron"
 #define    AUDIO_CODEC_RESET_GPIO_NAME		"audio_codec_reset"
 
@@ -455,7 +455,7 @@ unsigned int aic31xx_codec_read(struct snd_soc_codec *codec, unsigned int reg)
 	u8 value;
 	aic31xx_reg_union *aic_reg = (aic31xx_reg_union *)&reg;
 	value = aic3xxx_reg_read(codec->control_data, reg);
-	dev_dbg(codec->dev, "p%d , r 30%x %x\n", aic_reg->aic3xxx_register.page,
+	printk(codec->dev, "p%d , r 30%x %x\n", aic_reg->aic3xxx_register.page,
 			aic_reg->aic3xxx_register.offset, value);
 	return value;
 }
@@ -471,7 +471,7 @@ int aic31xx_codec_write(struct snd_soc_codec *codec, unsigned int reg,
 			unsigned int value)
 {
 	aic31xx_reg_union *aic_reg = (aic31xx_reg_union *)&reg;
-	dev_dbg(codec->dev, "p %d, w 30 %x %x\n",
+	printk(codec->dev, "p %d, w 30 %x %x\n",
 			aic_reg->aic3xxx_register.page,
 			aic_reg->aic3xxx_register.offset, value);
 	return aic3xxx_reg_write(codec->control_data, reg, value);
@@ -487,13 +487,13 @@ void debug_print_registers(struct snd_soc_codec *codec)
 
 	for (i = 0 ; i < 118 ; i++) {
 		data = snd_soc_read(codec, i);
-		dev_dbg(codec->dev, "reg = %d val = %x\n", i, data);
+		printk("reg = %d val = %x\n", i, data);
 	}
 	/* for ADC registers */
-	dev_dbg(codec->dev, "*** Page 1:\n");
+	printk(codec->dev, "*** Page 1:\n");
 	for (i = AIC31XX_HPHONE_DRIVERS ; i <= AIC31XX_MICPGA_CM_REG ; i++) {
 		data = snd_soc_read(codec, i);
-		dev_dbg(codec->dev, "reg = %d val = %x\n", i, data);
+		printk("reg = %d val = %x\n", i, data);
 	}
 }
 
@@ -501,7 +501,7 @@ void debug_print_one_register(struct snd_soc_codec *codec, unsigned int i)
 {
 	u32 data;
 	data = snd_soc_read(codec, i);
-	dev_dbg(codec->dev, "reg = %d val = %x\n", i, data);
+	printk(codec->dev, "reg = %d val = %x\n", i, data);
 
 }
 
@@ -883,7 +883,7 @@ static const struct snd_soc_dapm_widget aic31xx_dapm_widgets[] = {
 	/* For AIC3100 as is mono only left
 	 * channel class-D can be powered up/down
 	 */
-	SND_SOC_DAPM_PGA("SPL Class - D", AIC31XX_CLASS_D_SPK, 7, 0, NULL, 0, \
+	SND_SOC_DAPM_PGA_E("SPL Class - D", AIC31XX_CLASS_D_SPK, 7, 0, NULL, 0, \
 			aic31xx_sp_event, SND_SOC_DAPM_POST_PMU | \
 			SND_SOC_DAPM_POST_PMD),
 
@@ -941,45 +941,45 @@ void aic31xx_firmware_load(const struct firmware *fw, void *context)
 	struct snd_soc_codec *codec = context;
 	struct aic31xx_priv *private_ds = snd_soc_codec_get_drvdata(codec);
 	int ret = 0;
-//	aic3xxx_cfw_lock(private_ds->cfw_p, 1);
+	aic3xxx_cfw_lock(private_ds->cfw_p, 1);
 	if (private_ds->cur_fw != NULL)
 		release_firmware(private_ds->cur_fw);
 	private_ds->cur_fw = NULL ;
 
-//	if (fw != NULL) {
-//		dev_dbg(codec->dev, "Default firmware load\n\n");
-//		private_ds->cur_fw = (void *)fw;
-//		ret = aic3xxx_cfw_reload(private_ds->cfw_p, (void *)fw->data,
-//						fw->size);
-//		if (ret < 0) { /* reload failed */
-//			dev_err(codec->dev, "Firmware binary load failed\n");
-//			release_firmware(private_ds->cur_fw);
-//			private_ds->cur_fw = NULL;
-//			fw = NULL;
-//		} else
-//			private_ds->isdefault_fw = 0;
-//	}
+	if (fw != NULL) {
+		dev_dbg(codec->dev, "Default firmware load\n\n");
+		private_ds->cur_fw = (void *)fw;
+		ret = aic3xxx_cfw_reload(private_ds->cfw_p, (void *)fw->data,
+						fw->size);
+		if (ret < 0) { /* reload failed */
+			dev_err(codec->dev, "Firmware binary load failed\n");
+			release_firmware(private_ds->cur_fw);
+			private_ds->cur_fw = NULL;
+			fw = NULL;
+		} else
+			private_ds->isdefault_fw = 0;
+	}
 
-//	if (fw == NULL) {
+	if (fw == NULL) {
 		/* either request_firmware or reload failed */
-//		dev_dbg(codec->dev, "Default firmware load\n");
-//		ret = aic3xxx_cfw_reload(private_ds->cfw_p, default_firmware,
-//			sizeof(default_firmware));
-//		if (ret < 0)
-//			dev_err(codec->dev, "Default firmware load failed\n");
-//		else
-//			private_ds->isdefault_fw = 1;
-//	}
-//	aic3xxx_cfw_lock(private_ds->cfw_p, 0); /*  release the lock */
-//	if (ret >= 0) {
-//		/* init function for transition */
-//		aic3xxx_cfw_transition(private_ds->cfw_p, "INIT");
-//		if (!private_ds->isdefault_fw) {
-//			aic3xxx_cfw_add_modes(codec, private_ds->cfw_p);
-//			aic3xxx_cfw_add_controls(codec, private_ds->cfw_p);
-//		}
-//		aic3xxx_cfw_setmode_cfg(private_ds->cfw_p, 0, 0);
-//	}
+		dev_dbg(codec->dev, "Default firmware load\n");
+		ret = aic3xxx_cfw_reload(private_ds->cfw_p, default_firmware,
+			sizeof(default_firmware));
+		if (ret < 0)
+			dev_err(codec->dev, "Default firmware load failed\n");
+		else
+			private_ds->isdefault_fw = 1;
+	}
+	aic3xxx_cfw_lock(private_ds->cfw_p, 0); /*  release the lock */
+	if (ret >= 0) {
+		/* init function for transition */
+		aic3xxx_cfw_transition(private_ds->cfw_p, "INIT");
+		if (!private_ds->isdefault_fw) {
+			aic3xxx_cfw_add_modes(codec, private_ds->cfw_p);
+			aic3xxx_cfw_add_controls(codec, private_ds->cfw_p);
+		}
+		aic3xxx_cfw_setmode_cfg(private_ds->cfw_p, 0, 0);
+	}
 }
 
 
@@ -1617,7 +1617,7 @@ static int aic31xx_codec_probe(struct snd_soc_codec *codec)
 	if (codec == NULL)
 		dev_err(codec->dev, "codec pointer is NULL.\n");
 
-
+	printk("AIC31xx_codec_probe start\n");
 	codec->control_data = dev_get_drvdata(codec->dev->parent);
 	control = codec->control_data;
 
@@ -1686,16 +1686,16 @@ static int aic31xx_codec_probe(struct snd_soc_codec *codec)
 	aic31xx_add_controls(codec);
 	aic31xx_add_widgets(codec);
 //	ret = aic31xx_driver_init(codec);
-//	if (ret < 0)
-//		dev_dbg(codec->dev,
-//	"\nAIC31xx CODEC: aic31xx_probe: TiLoad Initialization failed\n");
+	if (ret < 0)
+		dev_dbg(codec->dev,
+	"\nAIC31xx CODEC: aic31xx_probe: TiLoad Initialization failed\n");
 
 
-//	dev_dbg(codec->dev, "%d, %s, Firmware test\n", __LINE__, __func__);
-//	request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG,
-//		"tlv320aic31xx_fw_v1.bin", codec->dev, GFP_KERNEL, codec,
-//		aic31xx_firmware_load);
-
+	dev_dbg(codec->dev, "%d, %s, Firmware test\n", __LINE__, __func__);
+	request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG,
+		"tlv320aic31xx_fw_v1.bin", codec->dev, GFP_KERNEL, codec,
+		aic31xx_firmware_load);
+	debug_print_registers(codec);
 	return 0;
 
 
@@ -2160,6 +2160,8 @@ static struct snd_soc_dai_driver aic31xx_dai_driver[] = {
 static int aic31xx_probe(struct platform_device *pdev)
 {
 	int ret;
+	
+	printk("AIC31xx probe \n");
 	ret = snd_soc_register_codec(&pdev->dev, &soc_codec_driver_aic31xx,
 			aic31xx_dai_driver, ARRAY_SIZE(aic31xx_dai_driver));
 

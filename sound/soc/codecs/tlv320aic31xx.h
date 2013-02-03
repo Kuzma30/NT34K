@@ -32,12 +32,26 @@
 #if 1
 #ifdef DEBUG
 	#define dprintk(x...)   printk(x)
-	#define DBG(x...)       printk(x)
+	#define DBG(x...)       printk(KERN_INFO x)
+	#define dev_dbg(x...)   printk(x)
 #else
 	#define dprintk(x...)
 	#define DBG(x...)
+	#define dev_dbg(x...)
 #endif
 #endif
+
+#define AIC31x_CODEC_DEBUG
+
+#define AIC31XX_DEBUG
+/*
+ * Linux Developer needs to enable a particular flag in
+ * this header file before performing a build of the
+ * Audio Codec Driver.
+*/
+#undef  AIC3110_CODEC_SUPPORT
+#define AIC3100_CODEC_SUPPORT
+
 
 #define AUDIO_NAME "aic31xx"
 /* Macro to enable the inclusion of tiload kernel driver */
