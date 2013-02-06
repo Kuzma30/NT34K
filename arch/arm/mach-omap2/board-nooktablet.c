@@ -161,7 +161,7 @@ static struct aic3xxx_pdata aic31xx_codec_pdata ={
 	.num_gpios = ARRAY_SIZE(aic3xxx_gpio),
         .gpio_irq = 1,
         .gpio_defaults = aic3xxx_gpio,
-        .naudint_irq = 0/*Qoo_HEADSET_DETECT_GPIO_PIN*/ ,
+        .naudint_irq = 102,
         .irq_base = AIC31XX_CODEC_IRQ_BASE,
 };
 

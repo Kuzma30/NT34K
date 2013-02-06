@@ -276,7 +276,7 @@
 
 
 /* The headset jack insertion GPIO used on the Qoo Board */
-#define Qoo_HEADSET_DETECT_GPIO_PIN		49
+#define Qoo_HEADSET_DETECT_GPIO_PIN		102
 
 
 #define AIC31XX_COPS_MDSP_A	0x10

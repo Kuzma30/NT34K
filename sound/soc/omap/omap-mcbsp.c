@@ -745,6 +745,7 @@ int omap_mcbsp_st_add_controls(struct snd_soc_pcm_runtime *rtd)
 	if (!mcbsp->st_data)
 		return -ENODEV;
 
+	printk("cpu_dai->id=%d",cpu_dai->id);
 	switch (cpu_dai->id) {
 	case 2: /* McBSP 2 */
 		return snd_soc_add_dai_controls(cpu_dai,

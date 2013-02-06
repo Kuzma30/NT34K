@@ -2164,7 +2164,7 @@ static int aic31xx_probe(struct platform_device *pdev)
 	printk("AIC31xx probe \n");
 	ret = snd_soc_register_codec(&pdev->dev, &soc_codec_driver_aic31xx,
 			aic31xx_dai_driver, ARRAY_SIZE(aic31xx_dai_driver));
-
+	printk("AIC31xx probe ret = %d", ret);
 	return ret;
 }
 
