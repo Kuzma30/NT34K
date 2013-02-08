@@ -55,7 +55,7 @@
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
 #include <sound/jack.h>
-
+#include <linux/module.h>
 #include <asm/mach-types.h>
 #include <plat/hardware.h>
 #include <plat/mux.h>
@@ -295,6 +295,7 @@ static int omap4_aic31xx_init(struct snd_soc_pcm_runtime *rtd)
 	ret = snd_soc_dapm_new_controls(dapm, omap4_aic31xx_dapm_widgets,
 			ARRAY_SIZE(omap4_aic31xx_dapm_widgets));
 
+	printk("OMAP4 AIC31XX INIT\n");
 	if (ret)
 		return ret;
 
@@ -384,7 +385,7 @@ static int Qoo_headset_jack_status_check(void)
 static struct snd_soc_dai_link omap4_dai_abe[] = {
 	{
 
-		.name = "Legacy McBSP3",
+		.name = "Legacy McBSP2",
 		.stream_name = "MultiMedia",
 		.cpu_dai_name = "omap-mcbsp-dai.2",
 		.codec_dai_name = "tlv320aic31xx-MM_EXT",
@@ -401,7 +402,7 @@ static struct snd_soc_dai_link omap4_dai_abe[] = {
 /* Audio machine driver with ABE Support */
 
 static struct snd_soc_card omap_abe_card = {
-	.name = "OMAP4",
+	.name = "OMAP4_ACCLAIM",
 	.long_name = "TI OMAP4 Board",
 	.dai_link = omap4_dai_abe,
 	.num_links = ARRAY_SIZE(omap4_dai_abe),
@@ -414,11 +415,13 @@ static int __init sdp44xx_aic31xx_soc_init(void)
 {
 	int ret, err_reg;
 
+#if 0
 	if (!machine_is_omap_4430sdp() && !machine_is_omap4_panda()) {
-		pr_debug("Not SDP4430 or PandaBoard!\n");
+		printk("Not SDP4430 or PandaBoard!\n");
 		return -ENODEV;
 	}
-	pr_debug(KERN_INFO "AIC31xx SoC init\n");
+#endif
+	printk(KERN_INFO "AIC31xx SoC init\n");
 	if (machine_is_omap_4430sdp()) {
 		omap_abe_card.name = "AIC31XX_OTTER";
 		pr_debug(KERN_INFO "SoC init\n");
@@ -455,6 +458,6 @@ static void __exit sdp44xx_aic31xx_soc_exit(void)
 }
 module_exit(sdp44xx_aic31xx_soc_exit);
 
-//MODULE_AUTHOR("Santosh Sivaraj <santosh.s@mistralsolutions.com>");
-//MODULE_DESCRIPTION("ALSA SoC OMAP4 Panda");
-//MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Santosh Sivaraj <santosh.s@mistralsolutions.com>");
+MODULE_DESCRIPTION("ALSA SoC OMAP4 Panda");
+MODULE_LICENSE("GPL");

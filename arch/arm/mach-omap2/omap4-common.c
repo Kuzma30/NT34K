@@ -30,12 +30,15 @@
 
 #include <mach/hardware.h>
 #include <mach/omap-wakeupgen.h>
+#include <mach/omap-secure.h>
 
 #include "common.h"
 #include "omap4-sar-layout.h"
 #include <linux/export.h>
 
 #ifdef CONFIG_CACHE_L2X0
+#define L2X0_POR_OFFSET_VALUE	0x5
+#define L2X0_POR_OFFSET_MASK	0x1f
 static void __iomem *l2cache_base;
 #endif
 
@@ -194,6 +197,7 @@ static void omap4_l2x0_set_debug(unsigned long val)
 static int __init omap_l2_cache_init(void)
 {
 	u32 aux_ctrl = 0;
+	u32 por_ctrl = 0;
 
 	/*
 	 * To avoid code running on other OMAPs in
@@ -219,16 +223,40 @@ static int __init omap_l2_cache_init(void)
 
 	if (omap_rev() == OMAP4430_REV_ES1_0) {
 		aux_ctrl |= 0x2 << L2X0_AUX_CTRL_WAY_SIZE_SHIFT;
-	} else {
-		aux_ctrl |= ((0x3 << L2X0_AUX_CTRL_WAY_SIZE_SHIFT) |
-			(1 << L2X0_AUX_CTRL_SHARE_OVERRIDE_SHIFT) |
-			(1 << L2X0_AUX_CTRL_DATA_PREFETCH_SHIFT) |
-			(1 << L2X0_AUX_CTRL_INSTR_PREFETCH_SHIFT) |
-			(1 << L2X0_AUX_CTRL_EARLY_BRESP_SHIFT));
+		goto skip_aux_por_api;
 	}
-	if (omap_rev() != OMAP4430_REV_ES1_0)
-		omap_smc1(0x109, aux_ctrl);
 
+	/*
+	 * Drop instruction prefetch hint since it degrades the
+	 * the performance.
+	 */
+	aux_ctrl |= ((0x3 << L2X0_AUX_CTRL_WAY_SIZE_SHIFT) |
+		(1 << L2X0_AUX_CTRL_SHARE_OVERRIDE_SHIFT) |
+		(1 << L2X0_AUX_CTRL_DATA_PREFETCH_SHIFT) |
+		(1 << L2X0_AUX_CTRL_EARLY_BRESP_SHIFT));
+
+	omap_smc1(0x109, aux_ctrl);
+
+	/* Setup POR Control register */
+	por_ctrl = readl_relaxed(l2cache_base + L2X0_PREFETCH_CTRL);
+
+	/*
+	 * Double linefill is available only on OMAP4460 L2X0.
+	 * It may cause single cache line memory corruption, leave it disabled
+	 * on all devices
+	 */
+	por_ctrl &= ~(1 << L2X0_PREFETCH_DOUBLE_LINEFILL_SHIFT);
+	por_ctrl &= ~L2X0_POR_OFFSET_MASK;
+	por_ctrl |= L2X0_POR_OFFSET_VALUE;
+
+	/* Set POR through PPA service only in EMU/HS devices */
+	if (omap_type() != OMAP2_DEVICE_TYPE_GP)
+		omap_secure_dispatcher(OMAP4_PPA_L2_POR_INDEX, 0x7, 1,
+				       por_ctrl, 0, 0, 0);
+	else if (omap_rev() >= OMAP4430_REV_ES2_2)
+		omap_smc1(0x113, por_ctrl);
+
+skip_aux_por_api:
 	/* Enable PL310 L2 Cache controller */
 	omap_smc1(0x102, 0x1);
 

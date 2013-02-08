@@ -138,6 +138,54 @@
 #define FIXED_REG_LCD_ID	1
 #define FIXED_REG_VWLAN_ID	2
 
+#include <linux/mfd/tlv320aic31xx-registers.h>
+#include <linux/mfd/tlv320aic3xxx-registers.h>
+#include <linux/mfd/tlv320aic3xxx-core.h>
+#include <linux/platform_data/omap-abe-aic31xx.h>
+
+static void omap4_audio_conf(void)
+{
+	/* aic31xx naudint */
+	omap_mux_init_signal("kpd_row1.gpio_2", OMAP_PIN_INPUT_PULLDOWN);
+}
+
+static struct aic3xxx_gpio_setup aic3xxx_gpio[] ={
+        {
+        .reg = AIC3XXX_MAKE_REG(0, 0, 51),
+        .value = 0x14,
+	},
+};
+
+static struct aic3xxx_pdata aic31xx_codec_pdata ={
+        .audio_mclk1 = 19200000,
+	.num_gpios = ARRAY_SIZE(aic3xxx_gpio),
+        .gpio_irq = 1,
+        .gpio_defaults = aic3xxx_gpio,
+        .naudint_irq = 0/*Qoo_HEADSET_DETECT_GPIO_PIN*/ ,
+        .irq_base = AIC31XX_CODEC_IRQ_BASE,
+};
+
+static struct i2c_board_info __initdata panda_i2c_codec[] = {
+        {
+        I2C_BOARD_INFO("tlv320aic31xx", 0x18),
+        .platform_data = &aic31xx_codec_pdata,
+        },
+};
+
+
+static void omap4_mcbsp3_init(void)
+{
+	omap_mux_init_signal("abe_pdm_ul_data",
+	OMAP_PIN_INPUT_PULLDOWN |OMAP_MUX_MODE1);
+	omap_mux_init_signal("abe_pdm_dl_data",
+	OMAP_PIN_INPUT_PULLDOWN |OMAP_MUX_MODE1);
+      /* (OMAP_PIN_OUTPUT | OMAP_PULL_ENA | OMAP_MUX_MODE1)); */
+	omap_mux_init_signal("abe_pdm_frame",
+	OMAP_PIN_INPUT_PULLDOWN |OMAP_MUX_MODE1);
+	omap_mux_init_signal("abe_pdm_lb_clk",
+	OMAP_PIN_INPUT_PULLDOWN |OMAP_MUX_MODE1);
+}
+
 static void acclaim_panel_init(void);
 
 #ifdef CONFIG_BATTERY_MAX17042
@@ -522,10 +570,10 @@ static struct platform_device acclaim_keys_gpio = {
 		},
 };
 
-static struct platform_device sdp4430_aic3110 = {
+/*static struct platform_device sdp4430_aic3110 = {
 	.name = "tlv320aic3110-codec",
 	.id = -1,
-};
+};*/
 
 /*******************************************************/
 static struct regulator_consumer_supply acclaim_lcd_supply[] = {
@@ -570,7 +618,7 @@ static struct platform_device acclaim_lcd_regulator = {
 static struct platform_device *sdp4430_devices[] __initdata = {
 	//&sdp4430_leds_gpio,
 	//&sdp4430_leds_pwm,
-	&sdp4430_aic3110,
+//	&sdp4430_aic3110,
 	&acclaim_keys_gpio,
 //      &wl128x_device,
 //      &btwilink_device,
@@ -1001,9 +1049,10 @@ static struct i2c_board_info __initdata sdp4430_i2c_2_boardinfo[] = {
 	 .platform_data = &ft5x06_platform_data,
 	 .irq = OMAP_GPIO_IRQ(OMAP_FT5x06_GPIO),
 	 },
-//      {
-//              I2C_BOARD_INFO("tlv320aic3100", 0x18),
-//      },
+	{
+	I2C_BOARD_INFO("tlv320aic31xx", 0x18),
+	.platform_data = &aic31xx_codec_pdata,
+	},
 };
 
 // static struct i2c_board_info __initdata sdp4430_i2c_3_boardinfo[] = {
@@ -1337,7 +1386,10 @@ static void __init omap_4430sdp_init(void)
 #endif
 
 	omap4_mux_init(board_mux, NULL, package);
+
 	omap4_i2c_init();
+	omap4_audio_conf();
+	
 	platform_add_devices(sdp4430_devices, ARRAY_SIZE(sdp4430_devices));
 	board_serial_init();	//omap_serial_init();
 	omap_sdrc_init(NULL, NULL);
@@ -1392,7 +1444,9 @@ static void __init omap_4430sdp_init(void)
 
 	omap_init_dmm_tiler();
 	omap4_register_ion();
-
+	
+	omap4_mcbsp3_init();
+	
 	acclaim_panel_init();
 	omap_enable_smartreflex_on_init();
 	if (enable_suspend_off)

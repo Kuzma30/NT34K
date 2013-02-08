@@ -55,20 +55,34 @@ static int aic3xxx_cfw_dlctl(cfw_state *ps, cfw_block *pb,
 static
 #endif
 void aic3xxx_cfw_dlcmds(cfw_state *ps, cfw_block *pb);
-static int aic3xxx_cfw_set_mode_id(cfw_state *ps)
-{return 0;}
-static int aic3xxx_cfw_mute(cfw_state *ps, int mute, u32 flags)
-{return 0;}
-static int aic3xxx_cfw_setmode_cfg_u(cfw_state *ps, int mode, int cfg)
-{return 0;}
-static int aic3xxx_cfw_setcfg_u(cfw_state *ps, int cfg)
-{return 0;}
-static int aic3xxx_cfw_transition_u(cfw_state *ps, char *ttype)
-{return 0;}
-static int aic3xxx_cfw_set_pll_u(cfw_state *ps, int asi)
-{return 0;}
-static int aic3xxx_cfw_control_u(cfw_state *ps, char *cname, int param)
-{return 0;}
+#ifndef AIC3XXX_CFW_HOST_BLD
+static
+#endif
+int aic3xxx_cfw_set_mode_id(cfw_state *ps);
+#ifndef AIC3XXX_CFW_HOST_BLD
+static
+#endif
+int aic3xxx_cfw_mute(cfw_state *ps, int mute, u32 flags);
+#ifndef AIC3XXX_CFW_HOST_BLD
+static
+#endif
+int aic3xxx_cfw_setmode_cfg_u(cfw_state *ps, int mode, int cfg);
+#ifndef AIC3XXX_CFW_HOST_BLD
+static
+#endif
+int aic3xxx_cfw_setcfg_u(cfw_state *ps, int cfg);
+#ifndef AIC3XXX_CFW_HOST_BLD
+static
+#endif
+int aic3xxx_cfw_transition_u(cfw_state *ps, char *ttype);
+#ifndef AIC3XXX_CFW_HOST_BLD
+static
+#endif 
+int aic3xxx_cfw_set_pll_u(cfw_state *ps, int asi);
+#ifndef AIC3XXX_CFW_HOST_BLD
+static
+#endif
+int aic3xxx_cfw_control_u(cfw_state *ps, char *cname, int param);
 
 static void aic3xxx_wait(cfw_state *ps, unsigned int reg, u8 mask,
 			 u8 data);
@@ -968,7 +982,7 @@ int aic3xxx_cfw_add_controls(struct snd_soc_codec *codec, cfw_state *ps)
 			generic_control->put = aic3xxx_put_control;
 			generic_control->info = aic3xxx_info_control;
 			generic_control->iface = SNDRV_CTL_ELEM_IFACE_MIXER;
-			snd_soc_add_controls(codec, generic_control, 1);
+			snd_soc_add_codec_controls(codec, generic_control, 1);
 #endif
 			DBG("Added control %s", pc->name);
 		}
@@ -1065,7 +1079,7 @@ int aic3xxx_cfw_add_modes(struct snd_soc_codec *codec, cfw_state *ps)
 	mode_cfg_control->info = snd_soc_info_enum_ext;
 	mode_cfg_control->private_value = (unsigned long) mode_cfg_enum;
 	mode_cfg_control->iface = SNDRV_CTL_ELEM_IFACE_MIXER;
-	snd_soc_add_controls(codec, mode_cfg_control, 1);
+	snd_soc_add_codec_controls(codec, mode_cfg_control, 1);
 	return 0;
 mem_err:
 	if (mode_cfg_control)
