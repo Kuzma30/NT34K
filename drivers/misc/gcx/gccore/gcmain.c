@@ -12,9 +12,7 @@
  * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  */
 
-#include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/uaccess.h>
 #include <linux/pm_runtime.h>
@@ -190,12 +188,11 @@ void gc_write_reg(unsigned int address, unsigned int data)
 
 static void gcpwr_enable_clock(struct gccorecontext *gccorecontext)
 {
-	int ctxlost;
+	bool ctxlost;
 
 	GCENTER(GCZONE_POWER);
 
-	ctxlost =
-	gccorecontext->plat->get_context_loss_count(gccorecontext->device);
+	ctxlost = gccorecontext->plat->get_context_loss_count(gccorecontext->device);
 
 	if (!gccorecontext->clockenabled) {
 		/* Enable the clock. */
@@ -690,7 +687,7 @@ void gc_map(struct gcimap *gcimap, bool fromuser)
 	} else {
 		mem.base = 0;
 		mem.offset = gcimap->buf.offset;
-		mem.pages = gcimap->pagearray;
+		mem.pages = (pte_t *)gcimap->pagearray;
 
 		GCDBG(GCZONE_MAPPING, "  pagearray = 0x%08X\n",
 		      (unsigned int) gcimap->pagearray);
@@ -1013,13 +1010,6 @@ static int gc_init(struct gccorecontext *gccorecontext)
 		goto fail;
 	}
 
-	/*gccorecontext->bb2ddevice = omap_hwmod_name_get_dev("bb2d");
-	if (gccorecontext->bb2ddevice == NULL) {
-		GCERR("cannot find bb2d device.\n");
-		result = -EINVAL;
-		goto fail;
-	}*/
-
 	result = platform_driver_register(&plat_drv);
 	if (result < 0) {
 		GCERR("failed to register platform driver.\n");
@@ -1089,10 +1079,11 @@ static void gc_exit(struct gccorecontext *gccorecontext)
 static int __init gc_init_wrapper(void)
 {
 	GCDBG_INIT();
-	GCDBG_REGISTER(core);
-	GCDBG_REGISTER(mem);
-	GCDBG_REGISTER(mmu);
-	GCDBG_REGISTER(queue);
+
+	GCDBG_REGISTER(core,  GCZONE_NONE);
+	GCDBG_REGISTER(mem,   GCZONE_NONE);
+	GCDBG_REGISTER(mmu,   GCZONE_NONE);
+	GCDBG_REGISTER(queue, GCZONE_NONE);
 
 	return gc_init(&g_context);
 }

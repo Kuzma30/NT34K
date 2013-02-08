@@ -32,6 +32,7 @@
 #include <linux/leds_pwm.h>
 #include <linux/platform_data/omap4-keypad.h>
 #include <linux/platform_data/thermistor_sensor.h>
+#include <linux/platform_data/lm75_platform_data.h>
 
 #include <mach/hardware.h>
 #include <asm/hardware/gic.h>
@@ -810,7 +811,8 @@ static int __init omap4_i2c_init(void)
 
 	omap4_pmic_get_config(&sdp4430_twldata, TWL_COMMON_PDATA_USB |
 			TWL_COMMON_PDATA_MADC | \
-			TWL_COMMON_PDATA_BCI,
+			TWL_COMMON_PDATA_BCI |
+			TWL_COMMON_PDATA_THERMAL,
 			TWL_COMMON_REGULATOR_VDAC |
 			TWL_COMMON_REGULATOR_VAUX1 |
 			TWL_COMMON_REGULATOR_VAUX2 |
@@ -1209,6 +1211,8 @@ static struct omap_board_mux board_mux[] __initdata = {
 					| OMAP_OFF_PULL_EN),
 	OMAP4_MUX(GPMC_NCS1, OMAP_MUX_MODE3 | OMAP_INPUT_EN | OMAP_WAKEUP_EN),
 	OMAP4_MUX(GPMC_A24, OMAP_MUX_MODE3 | OMAP_INPUT_EN | OMAP_WAKEUP_EN),
+
+	OMAP4_MUX(ABE_MCBSP1_DR, OMAP_MUX_MODE0 | OMAP_PIN_INPUT_PULLDOWN),
 	{ .reg_offset = OMAP_MUX_TERMINATOR },
 };
 
@@ -1256,7 +1260,6 @@ static void __init omap4_sdp4430_wifi_init(void)
 		pr_err("Error registering wl12xx device: %d\n", ret);
 }
 
-<<<<<<< HEAD
 #if defined(CONFIG_USB_EHCI_HCD_OMAP) || defined(CONFIG_USB_OHCI_HCD_OMAP3)
 static const struct usbhs_omap_board_data usbhs_bdata __initconst = {
 	.port_mode[0] = OMAP_EHCI_PORT_MODE_PHY,
@@ -1286,17 +1289,6 @@ static void __init omap4_ehci_ohci_init(void)
 }
 #else
 static void __init omap4_ehci_ohci_init(void){}
-=======
-#if defined(CONFIG_TI_EMIF) || defined(CONFIG_TI_EMIF_MODULE)
-static struct __devinitdata emif_custom_configs custom_configs = {
-	.mask	= EMIF_CUSTOM_CONFIG_LPMODE,
-	.lpmode	= EMIF_LP_MODE_SELF_REFRESH,
-	.lpmode_timeout_performance = 512,
-	.lpmode_timeout_power = 512,
-	/* only at OPP100 should we use performance value */
-	.lpmode_freq_threshold = 400000000,
-};
->>>>>>> adc39e2... OMAP4: SDP/Tablet44xx: EMIF: Enable self-refresh
 #endif
 
 #if defined(CONFIG_TI_EMIF) || defined(CONFIG_TI_EMIF_MODULE)
@@ -1398,12 +1390,20 @@ static void __init omap_4430sdp_reserve(void)
 	omap_reserve();
 }
 
-MACHINE_START(OMAP_4430SDP, "OMAP4 Blaze board")
+static void __init omap_4430sdp_init_early(void)
+{
+	omap4430_init_early();
+	if (cpu_is_omap446x())
+		omap_tps6236x_gpio_no_reset_wa(TPS62361_GPIO, -1, 32);
+}
+
+
+MACHINE_START(OMAP_4430SDP, "OMAP4430 4430SDP board")
 	/* Maintainer: Santosh Shilimkar - Texas Instruments Inc */
 	.atag_offset	= 0x100,
 	.reserve	= omap_4430sdp_reserve,
 	.map_io		= omap4_map_io,
-	.init_early	= omap4430_init_early,
+	.init_early	= omap_4430sdp_init_early,
 	.init_irq	= gic_init_irq,
 	.handle_irq	= gic_handle_irq,
 	.init_machine	= omap_4430sdp_init,

@@ -387,7 +387,7 @@ static struct snd_soc_dai_link omap4_dai_abe[] = {
 
 		.name = "Legacy McBSP2",
 		.stream_name = "MultiMedia",
-		.cpu_dai_name = "omap-mcbsp-dai.2",
+		.cpu_dai_name = "omap-mcbsp.2",
 		.codec_dai_name = "tlv320aic31xx-MM_EXT",
 		.platform_name = "omap-pcm-audio",
 		.codec_name = "tlv320aic31xx-codec",

@@ -26,7 +26,7 @@ struct gcmmucontext;
 
 /* Enables internal gccore logging backend. */
 #if !defined(GCDEBUG_ENABLE)
-#define GCDEBUG_ENABLE 0
+#define GCDEBUG_ENABLE 1 /* enabled for development branch only */
 #endif
 
 /* Enables linux builtin logging backend. */
@@ -162,9 +162,10 @@ do { \
 		return &GCDBGFILTER; \
 	}
 
-#define GCDBG_REGISTER(name) \
+#define GCDBG_REGISTER(name, initalzone) \
 do { \
 	struct gcdbgfilter *name ## _dbgfilter(void); \
+	name ## _dbgfilter()->zone = initalzone; \
 	gc_dbg_add_client(name ## _dbgfilter()); \
 } while (0)
 

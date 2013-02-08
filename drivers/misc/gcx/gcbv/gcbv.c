@@ -56,19 +56,21 @@
 
 #define GCZONE_NONE		0
 #define GCZONE_ALL		(~0U)
-#define GCZONE_MAPPING		(1 << 0)
-#define GCZONE_BUFFER		(1 << 1)
-#define GCZONE_DEST		(1 << 2)
-#define GCZONE_SRC		(1 << 3)
-#define GCZONE_MASK		(1 << 4)
-#define GCZONE_BATCH		(1 << 5)
-#define GCZONE_BLIT		(1 << 6)
-#define GCZONE_CACHE		(1 << 7)
-#define GCZONE_CALLBACK		(1 << 8)
-#define GCZONE_TEMP		(1 << 9)
-#define GCZONE_BLEND		(1 << 10)
+#define GCZONE_INIT		(1 << 0)
+#define GCZONE_MAPPING		(1 << 1)
+#define GCZONE_BUFFER		(1 << 2)
+#define GCZONE_DEST		(1 << 3)
+#define GCZONE_SRC		(1 << 4)
+#define GCZONE_MASK		(1 << 5)
+#define GCZONE_BATCH		(1 << 6)
+#define GCZONE_BLIT		(1 << 7)
+#define GCZONE_CACHE		(1 << 8)
+#define GCZONE_CALLBACK		(1 << 9)
+#define GCZONE_TEMP		(1 << 10)
+#define GCZONE_BLEND		(1 << 11)
 
 GCDBG_FILTERDEF(bv, GCZONE_NONE,
+		"init",
 		"mapping",
 		"buffer",
 		"dest",
@@ -129,8 +131,8 @@ static void dumpbatch(struct gcbatch *gcbatch)
 				(unsigned int) gcfixup, gcfixup->count);
 
 			for (i = 0; i < gcfixup->count; i += 1) {
-				GCDBG(GCZONE_BUFFER, "  [%02d]" \
-					" buffer offset = 0x%08X," \
+				GCDBG(GCZONE_BUFFER, "  [%02d]"
+					" buffer offset = 0x%08X,"
 					" surface offset = 0x%08X\n",
 					i,
 					gcfixup->fixup[i].dataoffset * 4,
@@ -501,12 +503,16 @@ enum bverror set_dst(struct bvbltparams *bvbltparams,
 		     struct bvbuffmap *dstmap)
 {
 	enum bverror bverror = BVERR_NONE;
+	struct gcsurface *dstinfo;
 	struct gcmodst *gcmodst;
 
 	GCENTER(GCZONE_DEST);
 
+	/* Get a shortcut to the destination surface descriptor. */
+	dstinfo = &batch->dstinfo;
+
 	/* Did destination surface change? */
-	if ((batch->batchflags & BVBATCH_DST) != 0) {
+	if (dstinfo->surfdirty) {
 		/* Allocate command buffer. */
 		bverror = claim_buffer(bvbltparams, batch,
 				       sizeof(struct gcmodst),
@@ -516,19 +522,19 @@ enum bverror set_dst(struct bvbltparams *bvbltparams,
 
 		/* Add the address fixup. */
 		add_fixup(bvbltparams, batch, &gcmodst->address,
-			  batch->dstbyteshift);
+			  dstinfo->bytealign1);
 
 		/* Set surface parameters. */
 		gcmodst->config_ldst = gcmodst_config_ldst;
 		gcmodst->address = GET_MAP_HANDLE(dstmap);
-		gcmodst->stride = bvbltparams->dstgeom->virtstride;
+		gcmodst->stride = dstinfo->stride1;
 
 		/* Set surface width and height. */
 		gcmodst->rotation.raw = 0;
-		gcmodst->rotation.reg.surf_width = batch->dstphyswidth;
+		gcmodst->rotation.reg.surf_width = dstinfo->physwidth;
 		gcmodst->rotationheight_ldst = gcmodst_rotationheight_ldst;
 		gcmodst->rotationheight.raw = 0;
-		gcmodst->rotationheight.reg.height = batch->dstphysheight;
+		gcmodst->rotationheight.reg.height = dstinfo->physheight;
 
 		/* Disable hardware clipping. */
 		gcmodst->clip_ldst = gcmodst_clip_ldst;
@@ -550,7 +556,7 @@ exit:
 
 enum bverror set_blending(struct bvbltparams *bvbltparams,
 			  struct gcbatch *batch,
-			  struct surfaceinfo *srcinfo)
+			  struct gcsurface *srcinfo)
 {
 	enum bverror bverror = BVERR_NONE;
 	struct gcmoalphaoff *gcmoalphaoff;
@@ -584,9 +590,9 @@ enum bverror set_blending(struct bvbltparams *bvbltparams,
 
 		gcmoalpha->mode.raw = 0;
 		gcmoalpha->mode.reg.src_global_alpha_mode
-			= gca->src_global_alpha_mode;
+			= srcinfo->srcglobalmode;
 		gcmoalpha->mode.reg.dst_global_alpha_mode
-			= gca->dst_global_alpha_mode;
+			= srcinfo->dstglobalmode;
 
 		gcmoalpha->mode.reg.src_blend
 			= gca->srcconfig->factor_mode;
@@ -609,21 +615,18 @@ enum bverror set_blending(struct bvbltparams *bvbltparams,
 			gcmoalpha->mode.reg.src_blend);
 		GCDBG(GCZONE_BLEND, "  inverse = %d\n",
 			gcmoalpha->mode.reg.src_color_reverse);
+	}
 
-		if ((gca->src_global_alpha_mode
-			!= GCREG_GLOBAL_ALPHA_MODE_NORMAL) ||
-		    (gca->dst_global_alpha_mode
-			!= GCREG_GLOBAL_ALPHA_MODE_NORMAL)) {
-			bverror = claim_buffer(bvbltparams, batch,
-					       sizeof(struct gcmoglobal),
-					       (void **) &gcmoglobal);
-			if (bverror != BVERR_NONE)
-				goto exit;
+	if (srcinfo->globalcolorenable) {
+		bverror = claim_buffer(bvbltparams, batch,
+				       sizeof(struct gcmoglobal),
+				       (void **) &gcmoglobal);
+		if (bverror != BVERR_NONE)
+			goto exit;
 
-			gcmoglobal->color_ldst = gcmoglobal_color_ldst;
-			gcmoglobal->srcglobal.raw = gca->src_global_color;
-			gcmoglobal->dstglobal.raw = gca->dst_global_color;
-		}
+		gcmoglobal->color_ldst = gcmoglobal_color_ldst;
+		gcmoglobal->srcglobal.raw = srcinfo->globalcolor;
+		gcmoglobal->dstglobal.raw = srcinfo->globalcolor;
 	}
 
 exit:
@@ -634,7 +637,7 @@ exit:
 
 enum bverror set_blending_index(struct bvbltparams *bvbltparams,
 				struct gcbatch *batch,
-				struct surfaceinfo *srcinfo,
+				struct gcsurface *srcinfo,
 				unsigned int index)
 {
 	enum bverror bverror = BVERR_NONE;
@@ -670,9 +673,9 @@ enum bverror set_blending_index(struct bvbltparams *bvbltparams,
 		gcmoxsrcalpha->mode_ldst = gcmoxsrcalpha_mode_ldst[index];
 		gcmoxsrcalpha->mode.raw = 0;
 		gcmoxsrcalpha->mode.reg.src_global_alpha_mode
-			= gca->src_global_alpha_mode;
+			= srcinfo->srcglobalmode;
 		gcmoxsrcalpha->mode.reg.dst_global_alpha_mode
-			= gca->dst_global_alpha_mode;
+			= srcinfo->dstglobalmode;
 
 		gcmoxsrcalpha->mode.reg.src_blend
 			= gca->srcconfig->factor_mode;
@@ -695,25 +698,22 @@ enum bverror set_blending_index(struct bvbltparams *bvbltparams,
 			gcmoxsrcalpha->mode.reg.src_blend);
 		GCDBG(GCZONE_BLEND, "  inverse = %d\n",
 			gcmoxsrcalpha->mode.reg.src_color_reverse);
+	}
 
-		if ((gca->src_global_alpha_mode
-			!= GCREG_GLOBAL_ALPHA_MODE_NORMAL) ||
-		    (gca->dst_global_alpha_mode
-			!= GCREG_GLOBAL_ALPHA_MODE_NORMAL)) {
-			bverror = claim_buffer(bvbltparams, batch,
-					       sizeof(struct gcmoxsrcglobal),
-					       (void **) &gcmoxsrcglobal);
-			if (bverror != BVERR_NONE)
-				goto exit;
+	if (srcinfo->globalcolorenable) {
+		bverror = claim_buffer(bvbltparams, batch,
+				       sizeof(struct gcmoxsrcglobal),
+				       (void **) &gcmoxsrcglobal);
+		if (bverror != BVERR_NONE)
+			goto exit;
 
-			gcmoxsrcglobal->srcglobal_ldst
-				= gcmoxsrcglobal_srcglobal_ldst[index];
-			gcmoxsrcglobal->srcglobal.raw = gca->src_global_color;
+		gcmoxsrcglobal->srcglobal_ldst
+			= gcmoxsrcglobal_srcglobal_ldst[index];
+		gcmoxsrcglobal->srcglobal.raw = srcinfo->globalcolor;
 
-			gcmoxsrcglobal->dstglobal_ldst
-				= gcmoxsrcglobal_dstglobal_ldst[index];
-			gcmoxsrcglobal->dstglobal.raw = gca->dst_global_color;
-		}
+		gcmoxsrcglobal->dstglobal_ldst
+			= gcmoxsrcglobal_dstglobal_ldst[index];
+		gcmoxsrcglobal->dstglobal.raw = srcinfo->globalcolor;
 	}
 
 exit:
@@ -726,7 +726,7 @@ exit:
  * Program YUV source.
  */
 
-void set_computeyuv(struct surfaceinfo *srcinfo, int x, int y)
+void set_computeyuv(struct gcsurface *srcinfo, int x, int y)
 {
 	int pixalign, bytealign;
 	unsigned int height1, size1;
@@ -742,14 +742,14 @@ void set_computeyuv(struct surfaceinfo *srcinfo, int x, int y)
 
 	/* Determine the physical height of the first plane. */
 	height1 = ((srcinfo->angle % 2) == 0)
-		? srcinfo->geom->height
-		: srcinfo->geom->width;
+		? srcinfo->height
+		: srcinfo->width;
 
 	/* Determine the size of the first plane. */
-	size1 = srcinfo->geom->virtstride * height1;
+	size1 = srcinfo->stride1 * height1;
 
 	/* Determine the stride of the second plane. */
-	srcinfo->stride2 = srcinfo->geom->virtstride
+	srcinfo->stride2 = srcinfo->stride1
 			 / srcinfo->format.cs.yuv.xsample;
 
 	/* Determine subsample pixel position. */
@@ -807,7 +807,7 @@ void set_computeyuv(struct surfaceinfo *srcinfo, int x, int y)
 
 enum bverror set_yuvsrc(struct bvbltparams *bvbltparams,
 			struct gcbatch *batch,
-			struct surfaceinfo *srcinfo,
+			struct gcsurface *srcinfo,
 			struct bvbuffmap *srcmap)
 {
 	enum bverror bverror = BVERR_NONE;
@@ -906,7 +906,7 @@ exit:
 
 enum bverror set_yuvsrc_index(struct bvbltparams *bvbltparams,
 			      struct gcbatch *batch,
-			      struct surfaceinfo *srcinfo,
+			      struct gcsurface *srcinfo,
 			      struct bvbuffmap *srcmap,
 			      unsigned int index)
 {
@@ -1120,6 +1120,135 @@ static int verify_surface(unsigned int tile,
 
 
 /*******************************************************************************
+ * Operation.
+ */
+
+static enum bverror do_op(struct bvbltparams *bvbltparams,
+			  struct gcbatch *gcbatch,
+			  int srccount,
+			  struct gcsurface *srcinfo,
+			  struct gcalpha *gca)
+{
+	enum bverror bverror = BVERR_NONE;
+	struct gcsurface *dstinfo;
+	int sw, sh, dw, dh;
+
+	GCDBG(GCZONE_BLIT, "processing source %d.\n", srcinfo->index + 1);
+
+	if (gca == NULL) {
+		GCDBG(GCZONE_BLIT,
+		      "  blending disabled.\n");
+
+		srcinfo->gca = NULL;
+		srcinfo->globalcolorenable = false;
+		srcinfo->srcglobalpremul = GCREG_SRC_GLOBAL_PREMULTIPLY_DISABLE;
+		srcinfo->srcglobalmode = GCREG_GLOBAL_ALPHA_MODE_NORMAL;
+		srcinfo->dstglobalmode = GCREG_GLOBAL_ALPHA_MODE_NORMAL;
+	} else {
+		if (srcinfo->index == 0) {
+			/* First source. */
+
+			if (srccount == 1) {
+				/* Only one source. */
+				GCDBG(GCZONE_BLIT,
+				      "  enabling blending.\n");
+
+				srcinfo->gca = gca;
+				gca->srcconfig = gca->k1;
+				gca->dstconfig = gca->k2;
+
+			} else {
+				/* Two sources. */
+				GCDBG(GCZONE_BLIT,
+				      "  disabling blending for src1.\n");
+
+				srcinfo->gca = NULL;
+			}
+
+			if (gca->globalcolorenable) {
+				srcinfo->globalcolorenable = true;
+				srcinfo->globalcolor = gca->globalcolor;
+				srcinfo->srcglobalpremul
+					= GCREG_SRC_GLOBAL_PREMULTIPLY_ALPHA;
+				srcinfo->srcglobalmode
+					= GCREG_GLOBAL_ALPHA_MODE_SCALED;
+				srcinfo->dstglobalmode
+					= GCREG_GLOBAL_ALPHA_MODE_NORMAL;
+			} else {
+				srcinfo->globalcolorenable = false;
+				srcinfo->srcglobalpremul
+					= GCREG_SRC_GLOBAL_PREMULTIPLY_DISABLE;
+				srcinfo->srcglobalmode
+					= GCREG_GLOBAL_ALPHA_MODE_NORMAL;
+				srcinfo->dstglobalmode
+					= GCREG_GLOBAL_ALPHA_MODE_NORMAL;
+			}
+		} else {
+			/* Second source. */
+			GCDBG(GCZONE_BLIT,
+				"  enabling blending.\n");
+
+			srcinfo->gca = gca;
+			gca->srcconfig = gca->k2;
+			gca->dstconfig = gca->k1;
+
+			if (gca->globalcolorenable) {
+				srcinfo->globalcolorenable = true;
+				srcinfo->globalcolor = gca->globalcolor;
+				srcinfo->srcglobalpremul
+					= GCREG_SRC_GLOBAL_PREMULTIPLY_DISABLE;
+				srcinfo->srcglobalmode
+					= GCREG_GLOBAL_ALPHA_MODE_NORMAL;
+				srcinfo->dstglobalmode
+					= GCREG_GLOBAL_ALPHA_MODE_SCALED;
+			} else {
+				srcinfo->globalcolorenable = false;
+				srcinfo->srcglobalpremul
+					= GCREG_SRC_GLOBAL_PREMULTIPLY_DISABLE;
+				srcinfo->srcglobalmode
+					= GCREG_GLOBAL_ALPHA_MODE_NORMAL;
+				srcinfo->dstglobalmode
+					= GCREG_GLOBAL_ALPHA_MODE_NORMAL;
+			}
+		}
+	}
+
+	sw = srcinfo->rect.orig.right  - srcinfo->rect.orig.left;
+	sh = srcinfo->rect.orig.bottom - srcinfo->rect.orig.top;
+
+	dw = bvbltparams->dstrect.width;
+	dh = bvbltparams->dstrect.height;
+
+	GCDBG(GCZONE_BLIT, "  srcsize %dx%d.\n", sw, sh);
+	GCDBG(GCZONE_BLIT, "  dstsize %dx%d.\n", dw, dh);
+
+	if ((sw == 0) || (sh == 0)) {
+		GCDBG(GCZONE_BLIT, "  empty source, skipping.\n");
+	} else if ((dw == 0) || (dh == 0)) {
+		GCDBG(GCZONE_BLIT, "  empty destination, skipping.\n");
+	} else if ((sw == 1) && (sh == 1) && (srcinfo->buf.desc->virtaddr)) {
+		GCDBG(GCZONE_BLIT, "  op: fill.\n");
+		bverror = do_fill(bvbltparams, gcbatch, srcinfo);
+	} else if ((sw == dw) && (sh == dh)) {
+		GCDBG(GCZONE_BLIT, "  op: bitblit.\n");
+		bverror = do_blit(bvbltparams, gcbatch, srcinfo);
+	} else {
+		GCDBG(GCZONE_BLIT, "  op: filter.\n");
+		bverror = do_filter(bvbltparams, gcbatch, srcinfo);
+	}
+
+	/* Reset dirty flags. */
+	dstinfo = &gcbatch->dstinfo;
+	dstinfo->surfdirty = false;
+	dstinfo->rectdirty = false;
+	dstinfo->cliprectdirty = false;
+	dstinfo->destrectdirty = false;
+
+	return bverror;
+}
+
+
+/*******************************************************************************
  * Library constructor and destructor.
  */
 
@@ -1129,13 +1258,15 @@ void bv_init(void)
 	struct gcicaps gcicaps;
 	unsigned i, j;
 
-	GCDBG_REGISTER(bv);
-	GCDBG_REGISTER(parser);
-	GCDBG_REGISTER(map);
-	GCDBG_REGISTER(buffer);
-	GCDBG_REGISTER(fill);
-	GCDBG_REGISTER(blit);
-	GCDBG_REGISTER(filter);
+	GCDBG_REGISTER(bv,     ~GCZONE_BUFFER);
+	GCDBG_REGISTER(parser, GCZONE_ALL);
+	GCDBG_REGISTER(map,    GCZONE_NONE);
+	GCDBG_REGISTER(buffer, GCZONE_NONE);
+	GCDBG_REGISTER(fill,   GCZONE_ALL);
+	GCDBG_REGISTER(blit,   GCZONE_ALL);
+	GCDBG_REGISTER(filter, GCZONE_ALL);
+
+	gcbv_debug_init();
 
 	GCLOCK_INIT(&gccontext->batchlock);
 	GCLOCK_INIT(&gccontext->bufferlock);
@@ -1162,11 +1293,41 @@ void bv_init(void)
 		gccontext->gcrevision = gcicaps.gcrevision;
 		gccontext->gcdate = gcicaps.gcdate;
 		gccontext->gctime = gcicaps.gctime;
-		gccontext->gcfeatures = gcicaps.gcfeatures;
-		gccontext->gcfeatures0 = gcicaps.gcfeatures0;
-		gccontext->gcfeatures1 = gcicaps.gcfeatures1;
-		gccontext->gcfeatures2 = gcicaps.gcfeatures2;
-		gccontext->gcfeatures3 = gcicaps.gcfeatures3;
+
+		gccontext->gccaps.l2cachefor420
+			= (gcicaps.gcfeatures2.reg.l2cachefor420 != 0);
+
+		if (gcicaps.gcfeatures3.reg.newfeatures0) {
+			gccontext->gccaps.maxsource = 8;
+			gccontext->gccaps.strictalign = false;
+		} else {
+			gccontext->gccaps.maxsource = 4;
+			gccontext->gccaps.strictalign = true;
+		}
+
+		gccontext->gccaps.swizzlefixed
+			= (gcicaps.gcfeatures3.reg.deenhancements1 != 0);
+
+		GCDBG(GCZONE_INIT, "chip model: %X\n",
+		      gccontext->gcmodel);
+		GCDBG(GCZONE_INIT, "chip revision: %X\n",
+		      gccontext->gcrevision);
+		GCDBG(GCZONE_INIT, "chip date: %X\n",
+		      gccontext->gcdate);
+		GCDBG(GCZONE_INIT, "chip time: %X\n",
+		      gccontext->gctime);
+		GCDBG(GCZONE_INIT, "max source: %d\n",
+		      gccontext->gccaps.maxsource);
+		GCDBG(GCZONE_INIT, "strict alignment: %d\n",
+		      gccontext->gccaps.strictalign);
+		GCDBG(GCZONE_INIT, "swizzle fixed: %d\n",
+		      gccontext->gccaps.swizzlefixed);
+	} else {
+		GCERR("failed to get chip caps.\n");
+		gccontext->gccaps.l2cachefor420 = false;
+		gccontext->gccaps.maxsource = 4;
+		gccontext->gccaps.strictalign = true;
+		gccontext->gccaps.swizzlefixed = false;
 	}
 }
 
@@ -1228,6 +1389,7 @@ void bv_exit(void)
 	}
 
 	free_temp(false);
+	gcbv_debug_shutdown();
 }
 
 
@@ -1405,10 +1567,10 @@ enum bverror bv_blt(struct bvbltparams *bvbltparams)
 	unsigned int batchexec = 0;
 	bool nop = false;
 	struct gcbatch *gcbatch;
+	struct gcsurface *dstinfo;
 	struct bvrect *dstrect;
-	int src1used, src2used, maskused;
-	struct surfaceinfo srcinfo[2];
-	struct bvrect *srcrect[2];
+	bool dstonly, src1used, src2used, maskused;
+	struct gcsurface srcinfo[2];
 	unsigned short rop;
 	struct gcicommit gcicommit;
 	int i, srccount, res;
@@ -1536,39 +1698,48 @@ enum bverror bv_blt(struct bvbltparams *bvbltparams)
 			GCDBG(GCZONE_BLIT, "BVFLAG_ROP\n");
 
 			rop = bvbltparams->op.rop;
-			src1used = ((rop & 0xCCCC) >> 2)
-				 ^  (rop & 0x3333);
-			src2used = ((rop & 0xF0F0) >> 4)
-				 ^  (rop & 0x0F0F);
-			maskused = ((rop & 0xFF00) >> 8)
-				 ^  (rop & 0x00FF);
+			dstonly = (rop == 0x0000) | (rop == 0x5555)
+				| (rop == 0xAAAA) | (rop == 0xFFFF);
+			src1used = ((((rop & 0xCCCC)  >> 2)
+				 ^    (rop & 0x3333)) != 0);
+			src2used = ((((rop & 0xF0F0)  >> 4)
+				 ^    (rop & 0x0F0F)) != 0);
+			maskused = ((((rop & 0xFF00)  >> 8)
+				 ^    (rop & 0x00FF)) != 0);
 			break;
 
 		case (BVFLAG_BLEND >> BVFLAG_OP_SHIFT):
 			GCDBG(GCZONE_BLIT, "BVFLAG_BLEND\n");
 
 			blend = bvbltparams->op.blend;
-			format = (blend & BVBLENDDEF_FORMAT_MASK)
-			       >> BVBLENDDEF_FORMAT_SHIFT;
+			format = blend & BVBLENDDEF_FORMAT_MASK;
+			maskused = (blend & BVBLENDDEF_REMOTE) != 0;
+			rop = 0xCCCC;
 
-			bverror = parse_blend(bvbltparams, blend, &_gca);
-			if (bverror != BVERR_NONE)
-				goto exit;
+			GCDBG(GCZONE_BLIT, "blend = 0x%08X (%s)\n",
+			      blend, gc_bvblend_name(blend));
 
-			gca = &_gca;
-
-			switch (format) {
-			case (BVBLENDDEF_FORMAT_CLASSIC
-				>> BVBLENDDEF_FORMAT_SHIFT):
-				src1used = gca->src1used;
-				src2used = gca->src2used;
-				maskused = blend & BVBLENDDEF_REMOTE;
-				break;
-
-			default:
+			if (format != BVBLENDDEF_FORMAT_CLASSIC) {
 				BVSETBLTERROR(BVERR_BLEND,
 					      "unrecognized blend format");
 				goto exit;
+			}
+
+			if (blend == BVBLEND_CLEAR) {
+				dstonly = true;
+				src1used = false;
+				src2used = false;
+			} else {
+				bverror = parse_blend(bvbltparams, blend,
+						      &_gca);
+				if (bverror != BVERR_NONE)
+					goto exit;
+
+				gca = &_gca;
+
+				dstonly = false;
+				src1used = gca->src1used;
+				src2used = gca->src2used;
 			}
 			break;
 
@@ -1585,6 +1756,17 @@ enum bverror bv_blt(struct bvbltparams *bvbltparams)
 
 		/* Reset the number of sources. */
 		srccount = 0;
+
+		/* Determine what's changed in the destination. */
+		dstinfo = &gcbatch->dstinfo;
+		dstinfo->surfdirty
+			= ((gcbatch->batchflags & BVBATCH_DST) != 0);
+		dstinfo->cliprectdirty
+			= ((gcbatch->batchflags & BVBATCH_CLIPRECT) != 0);
+		dstinfo->destrectdirty
+			= ((gcbatch->batchflags & BVBATCH_DESTRECT) != 0);
+		dstinfo->rectdirty
+			= dstinfo->cliprectdirty || dstinfo->destrectdirty;
 
 		/* Verify the src1 parameters structure. */
 		if (src1used) {
@@ -1607,23 +1789,13 @@ enum bverror bv_blt(struct bvbltparams *bvbltparams)
 					   &bvbltparams->src1rect,
 					   bvbltparams->dstdesc,
 					   dstrect)) {
-				GCDBG(GCZONE_BLIT, "  same as destination\n");
+				GCDBG(GCZONE_BLIT,
+				      "  src1 same as destination\n");
 			} else {
-				srcinfo[srccount].index = 0;
-				srcinfo[srccount].buf = bvbltparams->src1;
-				srcinfo[srccount].geom = bvbltparams->src1geom;
-				srcinfo[srccount].newgeom
-					= gcbatch->batchflags
-						& BVBATCH_SRC1;
-				srcinfo[srccount].newrect
-					= gcbatch->batchflags
-						& (BVBATCH_SRC1RECT_ORIGIN |
-						   BVBATCH_SRC1RECT_SIZE);
-				srcrect[srccount] = &bvbltparams->src1rect;
-
-				bverror = parse_source(bvbltparams, gcbatch,
-						       &bvbltparams->src1rect,
-						       &srcinfo[srccount]);
+				bverror = parse_source(bvbltparams,
+						       gcbatch,
+						       &srcinfo[srccount],
+						       0, rop);
 				if (bverror != BVERR_NONE)
 					goto exit;
 
@@ -1652,23 +1824,13 @@ enum bverror bv_blt(struct bvbltparams *bvbltparams)
 					   &bvbltparams->src2rect,
 					   bvbltparams->dstdesc,
 					   dstrect)) {
-				GCDBG(GCZONE_BLIT, "  same as destination\n");
+				GCDBG(GCZONE_BLIT,
+				      "  src2 same as destination\n");
 			} else {
-				srcinfo[srccount].index = 1;
-				srcinfo[srccount].buf = bvbltparams->src2;
-				srcinfo[srccount].geom = bvbltparams->src2geom;
-				srcinfo[srccount].newgeom
-					= gcbatch->batchflags
-						& BVBATCH_SRC2;
-				srcinfo[srccount].newrect
-					= gcbatch->batchflags
-						& (BVBATCH_SRC2RECT_ORIGIN |
-						   BVBATCH_SRC2RECT_SIZE);
-				srcrect[srccount] = &bvbltparams->src2rect;
-
-				bverror = parse_source(bvbltparams, gcbatch,
-						       &bvbltparams->src2rect,
-						       &srcinfo[srccount]);
+				bverror = parse_source(bvbltparams,
+						       gcbatch,
+						       &srcinfo[srccount],
+						       1, rop);
 				if (bverror != BVERR_NONE)
 					goto exit;
 
@@ -1697,71 +1859,54 @@ enum bverror bv_blt(struct bvbltparams *bvbltparams)
 			goto exit;
 		}
 
-		GCDBG(GCZONE_BLIT, "srccount = %d\n", srccount);
+		/* Destination only? */
+		if (dstonly) {
+			static unsigned int pixel[8];
+			static struct bvbuffdesc dummysrcdesc;
+			static struct gcsurface dummysrcinfo;
+			static bool dummyinit;
 
-		if (srccount == 0) {
-			BVSETBLTERROR(BVERR_OP,
-				      "operation not supported");
-			goto exit;
-		} else {
-			for (i = 0; i < srccount; i += 1) {
-				int srcw, srch;
+			GCDBG(GCZONE_BLIT, "target only operation.\n");
+
+			if (!dummyinit) {
 				GCDBG(GCZONE_BLIT,
-				      "processing source %d.\n",
-				      srcinfo[i].index + 1);
+				      "initializing dummy source.\n");
 
-				if (gca == NULL) {
-					GCDBG(GCZONE_BLIT,
-					      "  blending disabled.\n");
-					srcinfo[i].rop = bvbltparams->op.rop;
-					srcinfo[i].gca = NULL;
-				} else if ((i + 1) != srccount) {
-					GCDBG(GCZONE_BLIT,
-					      "  disabling blending for "
-					      "the first source.\n");
-					srcinfo[i].rop = 0xCC;
-					srcinfo[i].gca = NULL;
-				} else {
-					GCDBG(GCZONE_BLIT,
-					      "  enabling blending.\n");
-					srcinfo[i].rop = 0xCC;
-					srcinfo[i].gca = gca;
+				dummysrcdesc.structsize
+					= sizeof(struct bvbuffdesc);
+				dummysrcdesc.virtaddr = pixel;
+				dummysrcdesc.length = sizeof(pixel);
 
-					if (srccount == 1) {
-						gca->srcconfig = gca->k1;
-						gca->dstconfig = gca->k2;
-					} else {
-						gca->srcconfig = gca->k2;
-						gca->dstconfig = gca->k1;
-					}
-				}
+				dummysrcinfo.buf.desc = &dummysrcdesc;
+				dummysrcinfo.width = 1;
+				dummysrcinfo.height = 1;
+				dummysrcinfo.stride1 = sizeof(pixel);
+				dummysrcinfo.rect.orig.right = 1;
+				dummysrcinfo.rect.orig.bottom = 1;
 
-				GCDBG(GCZONE_BLIT, "  srcsize %dx%d.\n",
-				      srcrect[i]->width, srcrect[i]->height);
-				GCDBG(GCZONE_BLIT, "  dstsize %dx%d.\n",
-				      dstrect->width, dstrect->height);
+				parse_format(bvbltparams, OCDFMT_RGBA24,
+					     &dummysrcinfo.format);
 
-				srcw = srcrect[i]->width;
-				srch = srcrect[i]->height;
-				if ((srcw == 1) && (srch == 1) &&
-				    (bvbltparams->src1.desc->virtaddr)) {
-					GCDBG(GCZONE_BLIT, "  op: fill.\n");
-					bverror = do_fill(bvbltparams,
-							  gcbatch,
-							  &srcinfo[i]);
-				} else if ((srcw == dstrect->width) &&
-					   (srch == dstrect->height)) {
-					GCDBG(GCZONE_BLIT, "  op: bitblit.\n");
-					bverror = do_blit(bvbltparams,
-							  gcbatch,
-							  &srcinfo[i]);
-				} else {
-					GCDBG(GCZONE_BLIT, "  op: filter.\n");
-					bverror = do_filter(bvbltparams,
-							    gcbatch,
-							    &srcinfo[i]);
-				}
+				dummyinit = true;
+			}
 
+			dummysrcinfo.rop = rop;
+			bverror = do_op(bvbltparams, gcbatch,
+					1, &dummysrcinfo, NULL);
+			if (bverror != BVERR_NONE)
+				goto exit;
+		} else {
+			GCDBG(GCZONE_BLIT, "srccount = %d\n", srccount);
+
+			if (srccount == 0) {
+				BVSETBLTERROR(BVERR_OP,
+					      "operation not supported");
+				goto exit;
+			}
+
+			for (i = 0; i < srccount; i += 1) {
+				bverror = do_op(bvbltparams, gcbatch,
+						srccount, &srcinfo[i], gca);
 				if (bverror != BVERR_NONE)
 					goto exit;
 			}

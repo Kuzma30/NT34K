@@ -283,7 +283,7 @@ void omap44xx_prm_reconfigure_io_chain(void)
 		pending_irq = _read_pending_irq_reg(
 					OMAP4_PRM_IRQENABLE_MPU_OFFSET,
 					OMAP4_PRM_IRQSTATUS_MPU_OFFSET);
-		if (pending_irq & (1<<9))
+		if (pending_irq & OMAP4430_IO_ST_MASK)
 			return;
 	}
 

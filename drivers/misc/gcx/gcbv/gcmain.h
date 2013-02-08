@@ -25,6 +25,7 @@
 #include <linux/gccore.h>
 #include <linux/bltsville.h>
 #include <linux/bvinternal.h>
+#include "gcbvdebug.h"
 
 #define GC_DEV_NAME	"gc2d"
 

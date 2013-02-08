@@ -8,4 +8,5 @@ gcbv2d-y := \
 	gcbuffer.o \
 	gcfill.o \
 	gcblit.o \
-	gcfilter.o
+	gcfilter.o \
+	gcbvdebug.o

@@ -1090,7 +1090,7 @@ static int mod_init(void)
 		goto failed;
 	}
 
-	GCDBG_REGISTER(ioctl);
+	GCDBG_REGISTER(ioctl, GCZONE_NONE);
 
 	GCDBG(GCZONE_INIT, "device number = %d\n", dev_major);
 	GCDBG(GCZONE_INIT, "device class = 0x%08X\n",

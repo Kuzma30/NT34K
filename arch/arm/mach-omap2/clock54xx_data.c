@@ -484,6 +484,7 @@ static const struct clksel_rate div63_1to63_rates[] = {
 
 static const struct clksel dpll_core_h21x2_div[] = {
 	{ .parent = &dpll_core_x2_ck, .rates = div63_1to63_rates },
+	{ .parent = &dpll_core_ck, .rates = div31_1to31_rates },
 	{ .parent = NULL },
 };
 
@@ -560,7 +561,7 @@ static struct clk dpll_core_h13x2_ck = {
 
 static struct clk dpll_core_h14x2_ck = {
 	.name		= "dpll_core_h14x2_ck",
-	.parent		= &dpll_core_x2_ck,
+	.parent         = &dpll_core_ck,
 	.clksel		= dpll_core_h21x2_div,
 	.clksel_reg	= OMAP54XX_CM_DIV_H14_DPLL_CORE,
 	.clksel_mask	= OMAP54XX_DIVHS_MASK,
@@ -777,6 +778,9 @@ static struct dpll_data dpll_mpu_dd = {
 	.enable_mask	= OMAP54XX_DPLL_EN_MASK,
 	.autoidle_mask	= OMAP54XX_AUTO_DPLL_MODE_MASK,
 	.idlest_mask	= OMAP54XX_ST_DPLL_CLK_MASK,
+	.dcc_mask	= OMAP54XX_DCC_EN_MASK,
+	/* rate bigger than 1.4 GHz will use DCC */
+	.dcc_rate	= 1400000000 + 1,
 	.max_multiplier	= 2047,
 	.max_divider	= 128,
 	.min_divider	= 1,

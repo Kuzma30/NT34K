@@ -65,7 +65,8 @@ GCDBG_FILTERDEF(fill, GCZONE_NONE,
 
 
 static inline unsigned int extract_component(unsigned int pixel,
-					     const struct bvcomponent *desc)
+					     const struct bvcomponent *desc,
+					     bool zerofill)
 {
 	unsigned int component;
 	unsigned int component8;
@@ -76,7 +77,7 @@ static inline unsigned int extract_component(unsigned int pixel,
 
 	switch (desc->size) {
 	case 0:
-		component8 = 0xFF;
+		component8 = zerofill ? 0x00 : 0xFF;
 		GCDBG(GCZONE_COLOR, "component8=0x%08X\n", component8);
 		break;
 
@@ -129,10 +130,14 @@ static unsigned int getinternalcolor(void *ptr, struct bvformatxlate *format)
 		GCDBG(GCZONE_COLOR, "srcpixel=0x%08X\n", srcpixel);
 	}
 
-	r = extract_component(srcpixel, &format->cs.rgb.comp->r);
-	g = extract_component(srcpixel, &format->cs.rgb.comp->g);
-	b = extract_component(srcpixel, &format->cs.rgb.comp->b);
-	a = extract_component(srcpixel, &format->cs.rgb.comp->a);
+	r = extract_component(srcpixel, &format->cs.rgb.comp->r,
+			      format->zerofill);
+	g = extract_component(srcpixel, &format->cs.rgb.comp->g,
+			      format->zerofill);
+	b = extract_component(srcpixel, &format->cs.rgb.comp->b,
+			      format->zerofill);
+	a = extract_component(srcpixel, &format->cs.rgb.comp->a,
+			      format->zerofill);
 
 	GCDBG(GCZONE_COLOR, "(r,g,b,a)=0x%02X,0x%02X,0x%02X,0x%02X\n",
 	      r, g, b, a);
@@ -146,16 +151,31 @@ static unsigned int getinternalcolor(void *ptr, struct bvformatxlate *format)
 
 enum bverror do_fill(struct bvbltparams *bvbltparams,
 		     struct gcbatch *batch,
-		     struct surfaceinfo *srcinfo)
+		     struct gcsurface *srcinfo)
 {
 	enum bverror bverror;
 	struct gccontext *gccontext = get_context();
-	struct surfaceinfo *dstinfo;
+	struct gcsurface *dstinfo;
 	struct gcmofill *gcmofill;
 	unsigned char *fillcolorptr;
 	struct bvbuffmap *dstmap = NULL;
+	int physleft, phystop;
+	struct gcrect *srcorig;
+	struct gcrect *dstadj;
 
 	GCENTER(GCZONE_FILL);
+
+	/* Get a shortcut to the destination surface descriptor. */
+	dstinfo = &batch->dstinfo;
+
+	/* Only RGB source is supported. */
+	if (srcinfo->format.type != BVFMT_RGB) {
+		BVSETBLTERROR((srcinfo->index == 0)
+					? BVERR_SRC1GEOM_FORMAT
+					: BVERR_SRC2GEOM_FORMAT,
+			      "only RGB source is supported for fill.");
+		goto exit;
+	}
 
 	/* Finish previous batch if any. */
 	bverror = batch->batchend(bvbltparams, batch);
@@ -167,23 +187,10 @@ enum bverror do_fill(struct bvbltparams *bvbltparams,
 	if (bverror != BVERR_NONE)
 		goto exit;
 
-	/* Setup rotation. */
-	process_dest_rotation(bvbltparams, batch);
-
-	/* Get a shortcut to the destination surface. */
-	dstinfo = &batch->dstinfo;
-
-	/* Verify if the destination parameter have been modified. */
-	if ((batch->dstbyteshift != dstinfo->bytealign) ||
-	    (batch->dstphyswidth != dstinfo->physwidth) ||
-	    (batch->dstphysheight != dstinfo->physheight)) {
-		/* Set new values. */
-		batch->dstbyteshift = dstinfo->bytealign;
-		batch->dstphyswidth = dstinfo->physwidth;
-		batch->dstphysheight = dstinfo->physheight;
-
-		/* Mark as modified. */
-		batch->batchflags |= BVBATCH_DST;
+	/* Ignore the blit if destination rectangle is empty. */
+	if (null_rect(&dstinfo->rect.clip)) {
+		GCDBG(GCZONE_FILL, "empty destination rectangle.\n");
+		goto exit;
 	}
 
 	/* Map the destination. */
@@ -197,11 +204,6 @@ enum bverror do_fill(struct bvbltparams *bvbltparams,
 	bverror = set_dst(bvbltparams, batch, dstmap);
 	if (bverror != BVERR_NONE)
 		goto exit;
-
-	/* Reset the modified flag. */
-	batch->batchflags &= ~(BVBATCH_DST |
-			       BVBATCH_CLIPRECT |
-			       BVBATCH_DESTRECT);
 
 	/***********************************************************************
 	** Allocate command buffer.
@@ -226,7 +228,7 @@ enum bverror do_fill(struct bvbltparams *bvbltparams,
 	gcmofill->src.rotationheight_ldst = gcmofillsrc_rotationheight_ldst;
 	gcmofill->src.rotationheight.reg.height = 1;
 	gcmofill->src.rotationangle.raw = 0;
-	gcmofill->src.rotationangle.reg.dst = GCREG_ROT_ANGLE_ROT0;
+	gcmofill->src.rotationangle.reg.dst = rotencoding[dstinfo->angle];
 	gcmofill->src.rotationangle.reg.dst_mirror = GCREG_MIRROR_NONE;
 
 	/* Disable alpha blending. */
@@ -238,10 +240,40 @@ enum bverror do_fill(struct bvbltparams *bvbltparams,
 	** Set fill color.
 	*/
 
+	/* Get source rectangle shortcut. */
+	srcorig = &srcinfo->rect.orig;
+
+	switch (srcinfo->angle) {
+	case ROT_ANGLE_0:
+		physleft = srcorig->left;
+		phystop  = srcorig->top;
+		break;
+
+	case ROT_ANGLE_90:
+		physleft = srcorig->top;
+		phystop  = srcinfo->width - srcorig->left - 1;
+		break;
+
+	case ROT_ANGLE_180:
+		physleft = srcinfo->width  - srcorig->left - 1;
+		phystop  = srcinfo->height - srcorig->top  - 1;
+		break;
+
+	case ROT_ANGLE_270:
+		physleft = srcinfo->height - srcorig->top  - 1;
+		phystop  = srcorig->left;
+		break;
+
+	default:
+		physleft = 0;
+		phystop  = 0;
+		GCERR("invalid source angle %d.\n", srcinfo->angle);
+	}
+
 	fillcolorptr
 		= (unsigned char *) srcinfo->buf.desc->virtaddr
-		+ srcinfo->rect.top * srcinfo->geom->virtstride
-		+ srcinfo->rect.left * srcinfo->format.bitspp / 8;
+		+ phystop * srcinfo->stride1
+		+ physleft * srcinfo->format.bitspp / 8;
 
 	gcmofill->clearcolor_ldst = gcmofill_clearcolor_ldst;
 	gcmofill->clearcolor.raw = getinternalcolor(fillcolorptr,
@@ -256,22 +288,24 @@ enum bverror do_fill(struct bvbltparams *bvbltparams,
 	gcmofill->dstconfig.raw = 0;
 	gcmofill->dstconfig.reg.swizzle = dstinfo->format.swizzle;
 	gcmofill->dstconfig.reg.format = dstinfo->format.format;
+	gcmofill->dstconfig.reg.endian = dstinfo->format.endian;
 	gcmofill->dstconfig.reg.command = GCREG_DEST_CONFIG_COMMAND_CLEAR;
 
 	/* Set ROP3. */
 	gcmofill->rop_ldst = gcmofill_rop_ldst;
 	gcmofill->rop.raw = 0;
 	gcmofill->rop.reg.type = GCREG_ROP_TYPE_ROP3;
-	gcmofill->rop.reg.fg = (unsigned char) bvbltparams->op.rop;
+	gcmofill->rop.reg.fg = srcinfo->rop;
 
 	/* Set START_DE command. */
 	gcmofill->startde.cmd.fld = gcfldstartde;
 
 	/* Set destination rectangle. */
-	gcmofill->rect.left = batch->dstadjusted.left;
-	gcmofill->rect.top = batch->dstadjusted.top;
-	gcmofill->rect.right = batch->dstadjusted.right;
-	gcmofill->rect.bottom = batch->dstadjusted.bottom;
+	dstadj = &dstinfo->rect.adj;
+	gcmofill->rect.left = dstadj->left;
+	gcmofill->rect.top = dstadj->top;
+	gcmofill->rect.right = dstadj->right;
+	gcmofill->rect.bottom = dstadj->bottom;
 
 exit:
 	GCEXITARG(GCZONE_FILL, "bv%s = %d\n",

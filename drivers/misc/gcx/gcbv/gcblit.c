@@ -58,7 +58,7 @@
 #define GCZONE_ALL		(~0U)
 #define GCZONE_BLEND		(1 << 0)
 #define GCZONE_SURF		(1 << 1)
-#define GCZONE_BLIT		(1 << 3)
+#define GCZONE_BLIT		(1 << 2)
 
 GCDBG_FILTERDEF(blit, GCZONE_NONE,
 		"blend",
@@ -119,6 +119,7 @@ static enum bverror do_blit_end(struct bvbltparams *bvbltparams,
 	gcmobltconfig->dstconfig.raw = 0;
 	gcmobltconfig->dstconfig.reg.swizzle = gcblit->swizzle;
 	gcmobltconfig->dstconfig.reg.format = gcblit->format;
+	gcmobltconfig->dstconfig.reg.endian = gcblit->endian;
 	gcmobltconfig->dstconfig.reg.command = gcblit->multisrc
 		? GCREG_DEST_CONFIG_COMMAND_MULTI_SOURCE_BLT
 		: GCREG_DEST_CONFIG_COMMAND_BIT_BLT;
@@ -150,9 +151,9 @@ static enum bverror do_blit_end(struct bvbltparams *bvbltparams,
 	/* Reset the finalizer. */
 	batch->batchend = do_end;
 
-	gc_debug_blt(gcblit->srccount,
-		     abs(gcblit->dstrect.right - gcblit->dstrect.left),
-		     abs(gcblit->dstrect.bottom - gcblit->dstrect.top));
+	gcbv_debug_blt(gcblit->srccount,
+		       abs(gcblit->dstrect.right - gcblit->dstrect.left),
+		       abs(gcblit->dstrect.bottom - gcblit->dstrect.top));
 
 exit:
 	GCEXITARG(GCZONE_BLIT, "bv%s = %d\n",
@@ -162,7 +163,7 @@ exit:
 
 enum bverror do_blit(struct bvbltparams *bvbltparams,
 		     struct gcbatch *batch,
-		     struct surfaceinfo *srcinfo)
+		     struct gcsurface *srcinfo)
 {
 	enum bverror bverror = BVERR_NONE;
 	struct gccontext *gccontext = get_context();
@@ -175,17 +176,22 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 	struct bvbuffmap *dstmap = NULL;
 	struct bvbuffmap *srcmap = NULL;
 
-	struct surfaceinfo *dstinfo;
+	struct gcsurface *dstinfo;
 	int dstshiftX, dstshiftY;
 	int dstpixalign, dstbyteshift;
 	int dstoffsetX, dstoffsetY;
 
-	int srcshiftX, srcshiftY, srctopedge;
-	struct gcrect srcclipped;
-	int srcsurfwidth, srcsurfheight;
+	int adjust, srcshiftX, srcshiftY;
 	unsigned int physwidth, physheight;
-	int orthogonal;
-	int multisrc;
+	bool orthogonal;
+	bool multisrc;
+	unsigned int batchfinalize;
+
+	int srcleftedge, srctopedge;
+	int dstleftedge, dsttopedge;
+
+	struct gcrect *srcorig, *srcclip, *srcadj;
+	struct gcrect *dstorig, *dstclip, *dstadj;
 
 	GCENTER(GCZONE_BLIT);
 
@@ -200,35 +206,71 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 		goto exit;
 	}
 
+	/* Zero-fill for source is not supported. */
+	if (srcinfo->format.zerofill) {
+		BVSETBLTERROR((srcinfo->index == 0)
+					? BVERR_SRC1GEOM_FORMAT
+					: BVERR_SRC2GEOM_FORMAT,
+			      "0 filling is not supported.");
+		goto exit;
+	}
+
+	/***********************************************************************
+	 * Parse destination.
+	 */
+
 	/* Get a shortcut to the destination surface. */
 	dstinfo = &batch->dstinfo;
+
+	/* Get destination rectangle shortcuts. */
+	dstorig = &dstinfo->rect.orig;
+	dstclip = &dstinfo->rect.clip;
+	dstadj = &dstinfo->rect.adj;
 
 	/* Parse destination parameters. */
 	bverror = parse_destination(bvbltparams, batch);
 	if (bverror != BVERR_NONE)
 		goto exit;
 
-	/* Setup rotation. */
-	process_dest_rotation(bvbltparams, batch);
+	/* Ignore the blit if destination rectangle is empty. */
+	if (null_rect(dstclip)) {
+		GCDBG(GCZONE_SURF, "empty destination rectangle.\n");
+		goto exit;
+	}
+
+	/* Adjust surface angles if necessary. */
+	adjust_angle(srcinfo, dstinfo);
 
 
 	/***********************************************************************
 	 * Determine source surface alignment offset.
 	 */
 
+	/* Assume multi-source is possible. */
+	multisrc = true;
+
+	/* Assume no additional shift is necessary. */
+	srcshiftX = 0;
+	srcshiftY = 0;
+
+	/* Get source rectangle shortcuts. */
+	srcorig = &srcinfo->rect.orig;
+	srcclip = &srcinfo->rect.clip;
+	srcadj = &srcinfo->rect.adj;
+
 	/* Determine whether the source and the destination are orthogonal
 	 * to each other. */
 	orthogonal = (srcinfo->angle % 2) != (dstinfo->angle % 2);
 
 	/* Compute clipped source rectangle. */
-	srcclipped.left   = srcinfo->rect.left   + batch->clipdelta.left;
-	srcclipped.top    = srcinfo->rect.top    + batch->clipdelta.top;
-	srcclipped.right  = srcinfo->rect.right  + batch->clipdelta.right;
-	srcclipped.bottom = srcinfo->rect.bottom + batch->clipdelta.bottom;
-	GCPRINT_RECT(GCZONE_SURF, "clipped source", &srcclipped);
+	srcclip->left   = srcorig->left   + batch->clipdelta.left;
+	srcclip->top    = srcorig->top    + batch->clipdelta.top;
+	srcclip->right  = srcorig->right  + batch->clipdelta.right;
+	srcclip->bottom = srcorig->bottom + batch->clipdelta.bottom;
+	GCPRINT_RECT(GCZONE_SURF, "clipped source", srcclip);
 
 	/* Validate the source rectangle. */
-	if (!valid_rect(srcinfo->geom, &srcclipped)) {
+	if (!valid_rect(srcinfo, srcclip)) {
 		BVSETBLTERROR((srcinfo->index == 0)
 					? BVERR_SRC1RECT
 					: BVERR_SRC2RECT,
@@ -236,97 +278,86 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 		goto exit;
 	}
 
-	/* Compute the source surface shift. */
+	/* Ignore the blit if source rectangle is empty. */
+	if (null_rect(srcclip)) {
+		GCDBG(GCZONE_SURF, "empty source rectangle.\n");
+		goto exit;
+	}
+
+	/* Determine source and destination physical origin. */
 	switch (srcinfo->angle) {
 	case ROT_ANGLE_0:
-		srctopedge = srcclipped.top;
-		srcshiftX = srcclipped.left - batch->dstadjusted.left;
-		srcshiftY = srctopedge - batch->dstadjusted.top;
+		srcleftedge = srcclip->left;
+		srctopedge  = srcclip->top;
+		dstleftedge = dstadj->left;
+		dsttopedge  = dstadj->top;
 		break;
 
 	case ROT_ANGLE_90:
-		srctopedge = srcinfo->geom->width - srcclipped.left;
-		srcshiftX = srcclipped.top - batch->dstadjusted.top;
-		srcshiftY = srctopedge
-			  - (batch->dstwidth - batch->dstadjusted.left);
-		srctopedge += 1;
+		srcleftedge = srcclip->top;
+		srctopedge  = srcinfo->width - srcclip->left;
+		dstleftedge = dstadj->top;
+		dsttopedge  = dstinfo->adjwidth - dstadj->left;
 		break;
 
 	case ROT_ANGLE_180:
-		srctopedge = srcinfo->geom->height - srcclipped.top;
-		srcshiftX = (srcinfo->geom->width - srcclipped.left)
-			  - (batch->dstwidth - batch->dstadjusted.left);
-		srcshiftY = srctopedge
-			  - (batch->dstheight - batch->dstadjusted.top);
-		srctopedge += 1;
+		srcleftedge = srcinfo->width - srcclip->left;
+		srctopedge  = srcinfo->height - srcclip->top;
+		dstleftedge = dstinfo->adjwidth - dstadj->left;
+		dsttopedge  = dstinfo->adjheight - dstadj->top;
 		break;
 
 	case ROT_ANGLE_270:
-		srctopedge = srcclipped.left;
-		srcshiftX = (srcinfo->geom->height - srcclipped.top)
-			  - (batch->dstheight - batch->dstadjusted.top);
-		srcshiftY = srctopedge - batch->dstadjusted.left;
+		srcleftedge = srcinfo->height - srcclip->top;
+		srctopedge  = srcclip->left;
+		dstleftedge = dstinfo->adjheight - dstadj->top;
+		dsttopedge  = dstadj->left;
 		break;
 
 	default:
-		srctopedge = 0;
-		srcshiftX = 0;
-		srcshiftY = 0;
+		srcleftedge = 0;
+		srctopedge  = 0;
+		dstleftedge = 0;
+		dsttopedge  = 0;
 	}
 
-	/* We cannot be in the middle of a sample, currently only YUV formats
-	 * can have subsamples. Adjust vertical position as necessary.
-	 * Horizontal position will be adjusted based on the byte offset and
-	 * base address alignment requirement. This assumes that if we are
-	 * aligned on the base address, then we are also aligned at the
-	 * beginning of a sample. */
-	if (srcinfo->format.type == BVFMT_YUV) {
-		int mody = (srctopedge + srcshiftY)
-			 % srcinfo->format.cs.yuv.ysample;
-
-		if (mody < 0)
-			mody = srcinfo->format.cs.yuv.ysample + mody;
-
-		srcshiftY -= mody;
-		srcinfo->ypixalign = -mody;
-	} else {
-		srcinfo->ypixalign = 0;
-	}
+	/* Compute the source surface shift. */
+	srcinfo->xpixalign = srcleftedge - dstleftedge;
+	srcinfo->ypixalign = srctopedge  - dsttopedge;
 
 	/* Compute the source surface offset in bytes. */
-	srcinfo->bytealign = srcshiftY * (int) srcinfo->geom->virtstride
-			   + srcshiftX * (int) srcinfo->format.bitspp / 8;
-
-	/* Compute the source offset in pixels needed to compensate
-	 * for the surface base address misalignment if any. */
-	srcinfo->xpixalign = get_pixel_offset(srcinfo, srcinfo->bytealign);
+	srcinfo->bytealign1
+		= srcinfo->ypixalign * (int) srcinfo->stride1
+		+ srcinfo->xpixalign * (int) srcinfo->format.bitspp / 8;
 
 	GCDBG(GCZONE_SURF, "source surface %d:\n", srcinfo->index + 1);
 	GCDBG(GCZONE_SURF, "  surface offset (pixels) = %d,%d\n",
-	      srcshiftX, srcshiftY);
-	GCDBG(GCZONE_SURF, "  surface offset (bytes) = 0x%08X\n",
-	      srcinfo->bytealign);
-	GCDBG(GCZONE_SURF, "  srcpixalign = %d,%d\n",
 	      srcinfo->xpixalign, srcinfo->ypixalign);
+	GCDBG(GCZONE_SURF, "  surface offset (bytes) = 0x%08X\n",
+	      srcinfo->bytealign1);
 
-	/* Apply the source alignment. */
-	srcinfo->bytealign += srcinfo->xpixalign
-			   * (int) srcinfo->format.bitspp / 8;
-	srcshiftX += srcinfo->xpixalign;
+	/* Compute the source offset in pixels needed to compensate
+	 * for the surface base address misalignment if any. */
+	adjust = get_pixel_offset(srcinfo, srcinfo->bytealign1);
 
-	/* NOTE: at this point the source is ready to be presented,
-	 * srcinfo->xpixalign and srcinfo->ypixalign represent additional
-	 * adjustments for the DESTINATION. */
+	/* Account for the newly created misalignment if any. */
+	srcinfo->bytealign1 += adjust * (int) srcinfo->format.bitspp / 8;
+	srcinfo->xpixalign += adjust;
+	srcshiftX += adjust;
 
+	GCDBG(GCZONE_SURF, "  horizontal alignment adjustment (pixels) = %d\n",
+	      adjust);
 	GCDBG(GCZONE_SURF, "  adjusted surface offset (pixels) = %d,%d\n",
+	      srcinfo->xpixalign, srcinfo->ypixalign);
+	GCDBG(GCZONE_SURF, "  additional surface offset (pixels) = %d,%d\n",
 	      srcshiftX, srcshiftY);
 	GCDBG(GCZONE_SURF, "  adjusted surface offset (bytes) = 0x%08X\n",
-	      srcinfo->bytealign);
+	      srcinfo->bytealign1);
 
 	/* Compute U/V plane offsets. */
 	if ((srcinfo->format.type == BVFMT_YUV) &&
 	    (srcinfo->format.cs.yuv.planecount > 1))
-		set_computeyuv(srcinfo, srcshiftX, srcshiftY);
+		set_computeyuv(srcinfo, srcinfo->xpixalign, srcinfo->ypixalign);
 
 	/* Set precomputed destination adjustments based on the destination
 	 * base address misalignment only. */
@@ -335,16 +366,16 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 
 	/* Apply source adjustemnts. */
 	if (srcinfo->angle == dstinfo->angle) {
-		dstshiftX += srcinfo->xpixalign;
-		dstshiftY += srcinfo->ypixalign;
+		dstshiftX += srcshiftX;
+		dstshiftY += srcshiftY;
 	} else if (((srcinfo->angle + 3) % 4) == dstinfo->angle) {
-		dstshiftY += srcinfo->xpixalign;
+		dstshiftY += srcshiftX;
 	} else if (((srcinfo->angle + 1) % 4) == dstinfo->angle) {
-		dstshiftX += srcinfo->ypixalign;
+		dstshiftX += srcshiftY;
 	}
 
 	/* Compute the destination surface offset in bytes. */
-	dstbyteshift = dstshiftY * (int) dstinfo->geom->virtstride
+	dstbyteshift = dstshiftY * (int) dstinfo->stride1
 		     + dstshiftX * (int) dstinfo->format.bitspp / 8;
 
 	/* Compute the destination offset in pixels needed to compensate
@@ -352,6 +383,12 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 	 * comes out anything other than zero, multisource blit cannot be
 	 * performed. */
 	dstpixalign = get_pixel_offset(dstinfo, dstbyteshift);
+	if (dstpixalign != 0) {
+		GCDBG(GCZONE_SURF,
+		      "  disabling multi-source, "
+		      "destination needs to be realigned again.\n");
+		multisrc = false;
+	}
 
 	GCDBG(GCZONE_SURF, "destination surface:\n");
 	GCDBG(GCZONE_SURF, "  surface offset (pixels) = %d,%d\n",
@@ -361,115 +398,50 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 	GCDBG(GCZONE_SURF, "  realignment = %d\n",
 	      dstpixalign);
 
-	if ((dstpixalign != 0) ||
-	    ((srcinfo->xpixalign != 0) && (srcinfo->angle == dstinfo->angle))) {
-		/* Adjust the destination to match the source geometry. */
-		switch (srcinfo->angle) {
-		case ROT_ANGLE_0:
-			/* Adjust coordinates. */
-			srcclipped.left -= srcshiftX;
-			srcclipped.top  -= srcshiftY;
+	if (multisrc) {
+		GCDBG(GCZONE_SURF, "multi-source enabled.\n");
 
-			/* Determine source size. */
-			srcsurfwidth = srcinfo->geom->width
-				     - srcinfo->xpixalign;
-			srcsurfheight = srcinfo->geom->height;
-			break;
-
-		case ROT_ANGLE_90:
-			/* Adjust top coordinate. */
-			srcclipped.top -= srcshiftX;
-
-			/* Determine source size. */
-			srcsurfwidth = srcinfo->geom->height
-				     - srcinfo->xpixalign;
-			srcsurfheight = srcinfo->geom->width;
-			break;
-
-		case ROT_ANGLE_180:
-			/* Determine source size. */
-			srcsurfwidth = srcinfo->geom->width
-				     - srcinfo->xpixalign;
-			srcsurfheight = srcinfo->geom->height;
-			break;
-
-		case ROT_ANGLE_270:
-			/* Adjust coordinates. */
-			srcclipped.left -= srcshiftY;
-
-			/* Determine source size. */
-			srcsurfwidth = srcinfo->geom->height
-				     - srcinfo->xpixalign;
-			srcsurfheight = srcinfo->geom->width;
-			break;
-
-		default:
-			srcsurfwidth = 0;
-			srcsurfheight = 0;
-		}
-
-		GCDBG(GCZONE_SURF, "srcrect origin = %d,%d\n",
-		      srcclipped.left, srcclipped.top);
-		GCDBG(GCZONE_SURF, "source physical size = %dx%d\n",
-		      srcsurfwidth, srcsurfheight);
-
-		/* Overwrite destination byte offset. */
-		dstbyteshift = dstinfo->bytealign;
-
-		/* No adjustment necessary for single-source. */
-		dstoffsetX = 0;
-		dstoffsetY = 0;
-
-		/* Set the physical destination size. */
-		physwidth = dstinfo->physwidth;
-		physheight = dstinfo->physheight;
-
-		/* Disable multi source for the cases where the destination
-		 * and the source address alignments do not match. */
-		multisrc = 0;
-		GCDBG(GCZONE_SURF, "multi-source disabled.\n");
-	} else {
 		/* Source origin is not used in multi-source setup. */
-		srcclipped.left = 0;
-		srcclipped.top = 0;
+		srcadj->left = 0;
+		srcadj->top = 0;
+
+		/* Set new surface shift. */
+		if (dstinfo->bytealign1 != dstbyteshift) {
+			GCDBG(GCZONE_SURF,
+			      "destination alignment changed.\n");
+			dstinfo->bytealign1 = dstbyteshift;
+			dstinfo->surfdirty = true;
+		}
 
 		/* Adjust the destination to match the source geometry. */
 		switch (srcinfo->angle) {
 		case ROT_ANGLE_0:
 			/* Adjust the destination horizontally. */
-			dstoffsetX = srcinfo->xpixalign;
-			dstoffsetY = srcinfo->ypixalign;
+			dstoffsetX = srcshiftX;
+			dstoffsetY = srcshiftY;
 
 			/* Apply the source alignment. */
 			if ((dstinfo->angle % 2) == 0) {
-				physwidth  = dstinfo->physwidth
-					   - srcinfo->xpixalign;
-				physheight = dstinfo->physheight
-					   - srcinfo->ypixalign;
+				physwidth  = dstinfo->physwidth  - srcshiftX;
+				physheight = dstinfo->physheight - srcshiftY;
 			} else {
-				physwidth  = dstinfo->physwidth
-					   - srcinfo->ypixalign;
-				physheight = dstinfo->physheight
-					   - srcinfo->xpixalign;
+				physwidth  = dstinfo->physwidth  - srcshiftY;
+				physheight = dstinfo->physheight - srcshiftX;
 			}
 			break;
 
 		case ROT_ANGLE_90:
 			/* Adjust the destination vertically. */
-			dstoffsetX = srcinfo->ypixalign;
-			dstoffsetY = srcinfo->xpixalign;
+			dstoffsetX = srcshiftY;
+			dstoffsetY = srcshiftX;
 
 			/* Apply the source alignment. */
 			if ((dstinfo->angle % 2) == 0) {
-				physwidth  = dstinfo->physwidth
-					   - srcinfo->ypixalign;
-				physheight = dstinfo->physheight
-					   - srcinfo->xpixalign;
+				physwidth  = dstinfo->physwidth  - srcshiftY;
+				physheight = dstinfo->physheight - srcshiftX;
 			} else {
-				physwidth  = dstinfo->physwidth
-					   - srcinfo->xpixalign;
-				physheight = dstinfo->physheight
-					   - srcinfo->ypixalign;
+				physwidth  = dstinfo->physwidth  - srcshiftX;
+				physheight = dstinfo->physheight - srcshiftY;
 			}
 			break;
 
@@ -480,15 +452,11 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 
 			/* Apply the source alignment. */
 			if ((dstinfo->angle % 2) == 0) {
-				physwidth  = dstinfo->physwidth
-					   - srcinfo->xpixalign;
-				physheight = dstinfo->physheight
-					   - srcinfo->ypixalign;
+				physwidth  = dstinfo->physwidth  - srcshiftX;
+				physheight = dstinfo->physheight - srcshiftY;
 			} else {
-				physwidth  = dstinfo->physwidth
-					   - srcinfo->ypixalign;
-				physheight = dstinfo->physheight
-					   - srcinfo->xpixalign;
+				physwidth  = dstinfo->physwidth  - srcshiftY;
+				physheight = dstinfo->physheight - srcshiftX;
 			}
 			break;
 
@@ -499,15 +467,11 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 
 			/* Apply the source alignment. */
 			if ((dstinfo->angle % 2) == 0) {
-				physwidth  = dstinfo->physwidth
-					   - srcinfo->ypixalign;
-				physheight = dstinfo->physheight
-					   - srcinfo->xpixalign;
+				physwidth  = dstinfo->physwidth  - srcshiftY;
+				physheight = dstinfo->physheight - srcshiftX;
 			} else {
-				physwidth  = dstinfo->physwidth
-					   - srcinfo->xpixalign;
-				physheight = dstinfo->physheight
-					   - srcinfo->ypixalign;
+				physwidth  = dstinfo->physwidth  - srcshiftX;
+				physheight = dstinfo->physheight - srcshiftY;
 			}
 			break;
 
@@ -520,45 +484,72 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 
 		/* Source geometry is now the same as the destination. */
 		if (orthogonal) {
-			srcsurfwidth = physheight;
-			srcsurfheight = physwidth;
+			srcinfo->physwidth  = physheight;
+			srcinfo->physheight = physwidth;
 		} else {
-			srcsurfwidth = physwidth;
-			srcsurfheight = physheight;
+			srcinfo->physwidth  = physwidth;
+			srcinfo->physheight = physheight;
 		}
 
-		/* Enable multi-source. */
-		multisrc = 1;
-		GCDBG(GCZONE_SURF, "multi-source enabled.\n");
+		/* Set new surface size. */
+		if ((physwidth  != dstinfo->physwidth) ||
+		    (physheight != dstinfo->physheight)) {
+			dstinfo->physwidth  = physwidth;
+			dstinfo->physheight = physheight;
+			dstinfo->surfdirty = true;
+		}
+
+		/* Set new offset. */
+		if ((batch->dstoffsetX != dstoffsetX) ||
+		    (batch->dstoffsetY != dstoffsetY)) {
+			batch->dstoffsetX = dstoffsetX;
+			batch->dstoffsetY = dstoffsetY;
+			dstinfo->surfdirty = true;
+		}
+	} else {
+		GCDBG(GCZONE_SURF, "multi-source disabled.\n");
+
+		/* Determine surface size and render rectangle. */
+		process_rotation(srcinfo);
+
+		/* No adjustment necessary for single-source. */
+		dstoffsetX = 0;
+		dstoffsetY = 0;
 	}
 
-	/* Misaligned source may cause the destination parameters
-	 * to change, verify whether this has happened. */
-	if ((batch->dstbyteshift != dstbyteshift) ||
-	    (batch->dstphyswidth != physwidth) ||
-	    (batch->dstphysheight != physheight) ||
-	    (batch->dstoffsetX != dstoffsetX) ||
-	    (batch->dstoffsetY != dstoffsetY)) {
-		/* Set new values. */
-		batch->dstbyteshift = dstbyteshift;
-		batch->dstphyswidth = physwidth;
-		batch->dstphysheight = physheight;
-		batch->dstoffsetX = dstoffsetX;
-		batch->dstoffsetY = dstoffsetY;
+	batchfinalize = 0;
 
-		/* Now we need to end the current batch and program
-		 * the hardware with the new destination. */
-		batch->batchflags |= BVBATCH_DST;
-	}
+	/* Reached maximum number of sources? */
+	if (batch->op.blit.srccount == gccontext->gccaps.maxsource)
+		batchfinalize |= GCBV_BATCH_FINALIZE_SRCCOUNT;
+
+	/* Previous operation was not blit? */
+	if (batch->batchend != do_blit_end)
+		batchfinalize |= GCBV_BATCH_FINALIZE_OPERATION;
+
+	/* Previous blit was not multi-sourced? */
+	else if (!batch->op.blit.multisrc)
+		batchfinalize |= GCBV_BATCH_FINALIZE_MULTISRC;
+
+	/* Current blit is not multi-sourced? */
+	if (!multisrc)
+		batchfinalize |= GCBV_BATCH_FINALIZE_ALIGN;
+
+	/* Destination has changed? */
+	if (dstinfo->surfdirty)
+		batchfinalize |= GCBV_BATCH_FINALIZE_FLAGS_DST;
+
+	if (dstinfo->cliprectdirty)
+		batchfinalize |= GCBV_BATCH_FINALIZE_FLAGS_CLIPRECT;
+
+	if (dstinfo->destrectdirty)
+		batchfinalize |= GCBV_BATCH_FINALIZE_FLAGS_DESTRECT;
 
 	/* Check if we need to finalize existing batch. */
-	if ((batch->batchend != do_blit_end) ||
-	    (batch->op.blit.srccount == 4) ||
-	    (batch->op.blit.multisrc == 0) ||
-	    (multisrc == 0) ||
-	    ((batch->batchflags & (BVBATCH_DST |
-				   BVBATCH_CLIPRECT |
-				   BVBATCH_DESTRECT)) != 0)) {
+	if (batchfinalize) {
+		if (batch->batchend == do_blit_end)
+			gcbv_debug_finalize_batch(batchfinalize);
+
 		/* Finalize existing batch if any. */
 		bverror = batch->batchend(bvbltparams, batch);
 		if (bverror != BVERR_NONE)
@@ -569,20 +560,23 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 
 		/* Initialize the new batch. */
 		gcblit = &batch->op.blit;
-		gcblit->blockenable = 0;
+		gcblit->blockenable = false;
 		gcblit->srccount = 0;
 		gcblit->multisrc = multisrc;
 
 		/* Set the destination format. */
 		gcblit->format  = dstinfo->format.format;
 		gcblit->swizzle = dstinfo->format.swizzle;
+		gcblit->endian = dstinfo->format.endian;
 
 		/* Set the destination coordinates. */
-		gcblit->dstrect.left   = batch->dstadjusted.left   - dstoffsetX;
-		gcblit->dstrect.top    = batch->dstadjusted.top    - dstoffsetY;
-		gcblit->dstrect.right  = batch->dstadjusted.right  - dstoffsetX;
-		gcblit->dstrect.bottom = batch->dstadjusted.bottom - dstoffsetY;
+		gcblit->dstrect.left   = dstadj->left   - dstoffsetX;
+		gcblit->dstrect.top    = dstadj->top    - dstoffsetY;
+		gcblit->dstrect.right  = dstadj->right  - dstoffsetX;
+		gcblit->dstrect.bottom = dstadj->bottom - dstoffsetY;
+	}
 
+	if (dstinfo->surfdirty) {
 		/* Map the destination. */
 		bverror = do_map(dstinfo->buf.desc, batch, &dstmap);
 		if (bverror != BVERR_NONE) {
@@ -594,11 +588,6 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 		bverror = set_dst(bvbltparams, batch, dstmap);
 		if (bverror != BVERR_NONE)
 			goto exit;
-
-		/* Reset the modified flag. */
-		batch->batchflags &= ~(BVBATCH_DST |
-				       BVBATCH_CLIPRECT |
-				       BVBATCH_DESTRECT);
 	}
 
 	/* Map the source. */
@@ -614,7 +603,8 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 
 	/* We need to walk in blocks if the source and the destination
 	 * surfaces are orthogonal to each other. */
-	batch->op.blit.blockenable |= orthogonal;
+	if (orthogonal)
+		batch->op.blit.blockenable = true;
 
 	/* Shortcut to the register index. */
 	index = batch->op.blit.srccount;
@@ -629,22 +619,23 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 			goto exit;
 
 		add_fixup(bvbltparams, batch, &gcmosrc0->address,
-			  srcinfo->bytealign);
+			  srcinfo->bytealign1);
 
 		gcmosrc0->config_ldst = gcmosrc0_config_ldst;
 		gcmosrc0->address = GET_MAP_HANDLE(srcmap);
-		gcmosrc0->stride = srcinfo->geom->virtstride;
+		gcmosrc0->stride = srcinfo->stride1;
 		gcmosrc0->rotation.raw = 0;
-		gcmosrc0->rotation.reg.surf_width = srcsurfwidth;
+		gcmosrc0->rotation.reg.surf_width = srcinfo->physwidth;
 		gcmosrc0->config.raw = 0;
 		gcmosrc0->config.reg.swizzle = srcinfo->format.swizzle;
 		gcmosrc0->config.reg.format = srcinfo->format.format;
-		gcmosrc0->origin.reg.x = srcclipped.left;
-		gcmosrc0->origin.reg.y = srcclipped.top;
+		gcmosrc0->config.reg.endian = srcinfo->format.endian;
+		gcmosrc0->origin.reg.x = srcadj->left;
+		gcmosrc0->origin.reg.y = srcadj->top;
 		gcmosrc0->size.reg = gcregsrcsize_max;
 
 		gcmosrc0->rotation_ldst = gcmosrc0_rotation_ldst;
-		gcmosrc0->rotationheight.reg.height = srcsurfheight;
+		gcmosrc0->rotationheight.reg.height = srcinfo->physheight;
 		gcmosrc0->rotationangle.raw = 0;
 		gcmosrc0->rotationangle.reg.src = rotencoding[srcinfo->angle];
 		gcmosrc0->rotationangle.reg.dst = rotencoding[dstinfo->angle];
@@ -658,8 +649,7 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 
 		gcmosrc0->mult_ldst = gcmosrc0_mult_ldst;
 		gcmosrc0->mult.raw = 0;
-		gcmosrc0->mult.reg.srcglobalpremul
-		= GCREG_COLOR_MULTIPLY_MODES_SRC_GLOBAL_PREMULTIPLY_DISABLE;
+		gcmosrc0->mult.reg.srcglobalpremul = srcinfo->srcglobalpremul;
 
 		if (srcinfo->format.premultiplied)
 			gcmosrc0->mult.reg.srcpremul
@@ -703,32 +693,33 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 			goto exit;
 
 		add_fixup(bvbltparams, batch, &gcmosrc->address,
-			  srcinfo->bytealign);
+			  srcinfo->bytealign1);
 
 		gcmosrc->address_ldst = gcmosrc_address_ldst[index];
 		gcmosrc->address = GET_MAP_HANDLE(srcmap);
 		gcmosrc->stride_ldst = gcmosrc_stride_ldst[index];
-		gcmosrc->stride = srcinfo->geom->virtstride;
+		gcmosrc->stride = srcinfo->stride1;
 
 		gcmosrc->rotation_ldst = gcmosrc_rotation_ldst[index];
 		gcmosrc->rotation.raw = 0;
-		gcmosrc->rotation.reg.surf_width = srcsurfwidth;
+		gcmosrc->rotation.reg.surf_width = srcinfo->physwidth;
 
 		gcmosrc->config_ldst = gcmosrc_config_ldst[index];
 		gcmosrc->config.raw = 0;
 		gcmosrc->config.reg.swizzle = srcinfo->format.swizzle;
 		gcmosrc->config.reg.format = srcinfo->format.format;
+		gcmosrc->config.reg.endian = srcinfo->format.endian;
 
 		gcmosrc->origin_ldst = gcmosrc_origin_ldst[index];
-		gcmosrc->origin.reg.x = srcclipped.left;
-		gcmosrc->origin.reg.y = srcclipped.top;
+		gcmosrc->origin.reg.x = srcadj->left;
+		gcmosrc->origin.reg.y = srcadj->top;
 
 		gcmosrc->size_ldst = gcmosrc_size_ldst[index];
 		gcmosrc->size.reg = gcregsrcsize_max;
 
 		gcmosrc->rotationheight_ldst
 			= gcmosrc_rotationheight_ldst[index];
-		gcmosrc->rotationheight.reg.height = srcsurfheight;
+		gcmosrc->rotationheight.reg.height = srcinfo->physheight;
 
 		gcmosrc->rotationangle_ldst
 			= gcmosrc_rotationangle_ldst[index];
@@ -745,8 +736,7 @@ enum bverror do_blit(struct bvbltparams *bvbltparams,
 
 		gcmosrc->mult_ldst = gcmosrc_mult_ldst[index];
 		gcmosrc->mult.raw = 0;
-		gcmosrc->mult.reg.srcglobalpremul
-		= GCREG_COLOR_MULTIPLY_MODES_SRC_GLOBAL_PREMULTIPLY_DISABLE;
+		gcmosrc->mult.reg.srcglobalpremul = srcinfo->srcglobalpremul;
 
 		if (srcinfo->format.premultiplied)
 			gcmosrc->mult.reg.srcpremul

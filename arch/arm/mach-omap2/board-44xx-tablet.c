@@ -32,6 +32,7 @@
 #include <linux/regulator/fixed.h>
 #include <linux/platform_data/omap-abe-twl6040.h>
 #include <linux/platform_data/thermistor_sensor.h>
+#include <linux/platform_data/lm75_platform_data.h>
 #include <linux/leds-omap4430sdp-display.h>
 #include <linux/omap4_duty_cycle_governor.h>
 
@@ -482,7 +483,8 @@ static int __init omap4_i2c_init(void)
 
 	omap4_pmic_get_config(&tablet_twldata, TWL_COMMON_PDATA_USB |
 			TWL_COMMON_PDATA_MADC | \
-			TWL_COMMON_PDATA_BCI,
+			TWL_COMMON_PDATA_BCI |
+			TWL_COMMON_PDATA_THERMAL,
 			TWL_COMMON_REGULATOR_VDAC |
 			TWL_COMMON_REGULATOR_VAUX1 |
 			TWL_COMMON_REGULATOR_VAUX2 |
@@ -563,6 +565,8 @@ static struct omap_board_mux board_mux[] __initdata = {
 					| OMAP_OFF_PULL_EN),
 	OMAP4_MUX(GPMC_NCS1, OMAP_MUX_MODE3 | OMAP_INPUT_EN | OMAP_WAKEUP_EN),
 	OMAP4_MUX(GPMC_A24, OMAP_MUX_MODE3 | OMAP_INPUT_EN | OMAP_WAKEUP_EN),
+
+	OMAP4_MUX(ABE_MCBSP1_DR, OMAP_MUX_MODE0 | OMAP_PIN_INPUT_PULLDOWN),
 	{ .reg_offset = OMAP_MUX_TERMINATOR },
 };
 
@@ -732,16 +736,24 @@ static void __init omap_tablet_reserve(void)
 	omap_ram_console_init(OMAP_RAM_CONSOLE_START_DEFAULT,
 			OMAP_RAM_CONSOLE_SIZE_DEFAULT);
 	omap_rproc_reserve_cma(RPROC_CMA_OMAP4);
+	tablet_android_display_setup();
 	omap4_ion_init();
 	omap4_secure_workspace_addr_default();
 	omap_reserve();
 }
 
-MACHINE_START(OMAP_BLAZE, "OMAP4 Blaze board")
+static void __init omap_tablet_init_early(void)
+{
+	omap4430_init_early();
+	if (cpu_is_omap446x())
+		omap_tps6236x_gpio_no_reset_wa(TPS62361_GPIO, -1, 32);
+}
+
+MACHINE_START(OMAP_BLAZE, "OMAP44XX Tablet board")
 	.atag_offset	= 0x100,
 	.reserve	= omap_tablet_reserve,
 	.map_io		= omap4_map_io,
-	.init_early	= omap4430_init_early,
+	.init_early	= omap_tablet_init_early,
 	.init_irq	= gic_init_irq,
 	.handle_irq	= gic_handle_irq,
 	.init_machine	= omap_tablet_init,

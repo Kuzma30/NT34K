@@ -81,7 +81,7 @@ void gc_debug_cache_gpu_id(void)
 static int gc_debug_show_gpu_id(struct seq_file *s, void *unused)
 {
 	if (!g_gcGpuId.valid) {
-		seq_printf(s, "GC gpu id cache not valid.  " \
+		seq_printf(s, "GC gpu id cache not valid.  "
 			   "GC must be powered on once.\n");
 		return 0;
 	}
@@ -366,94 +366,6 @@ static const struct file_operations gc_debug_fops_gpu_last_error = {
 
 /*****************************************************************************/
 
-#define MAX_BLT_SOURCES   8
-
-struct gc_blt_status {
-	int totalCount;
-	long long int totalPixels;
-	int srcCount[MAX_BLT_SOURCES + 1];
-	long long int srcCountPixels[MAX_BLT_SOURCES + 1];
-};
-
-static struct gc_blt_status g_gcBltStats;
-
-void gc_debug_blt(int srccount, int dstWidth, int dstHeight)
-{
-	int pixels;
-
-	if (srccount > MAX_BLT_SOURCES)
-		return;
-
-	pixels = dstWidth * dstHeight;
-
-	g_gcBltStats.srcCount[srccount]++;
-	g_gcBltStats.srcCountPixels[srccount] += pixels;
-
-	g_gcBltStats.totalPixels += pixels;
-	g_gcBltStats.totalCount++;
-}
-
-static void gc_debug_reset_blt_stats(void)
-{
-	int i;
-
-	for (i = 1; i <= MAX_BLT_SOURCES; i++) {
-		g_gcBltStats.srcCount[i] = 0;
-		g_gcBltStats.srcCountPixels[i] = 0;
-	}
-
-	g_gcBltStats.totalCount = 0;
-	g_gcBltStats.totalPixels = 0;
-}
-
-static int gc_debug_show_blt_stats(struct seq_file *s, void *data)
-{
-	int i;
-
-	seq_printf(s, "total blts: %d\n", g_gcBltStats.totalCount);
-
-	if (g_gcBltStats.totalCount) {
-		for (i = 1; i <= MAX_BLT_SOURCES; i++) {
-			int count = g_gcBltStats.srcCount[i];
-			int total = g_gcBltStats.totalPixels;
-
-			seq_printf(s, " %d src: %d (%d%%)\n",
-					   i, count, count * 100 / total);
-		}
-	}
-
-	seq_printf(s, "total dst pixels: %lld\n", g_gcBltStats.totalPixels);
-
-	if (g_gcBltStats.totalPixels) {
-		for (i = 1; i <= MAX_BLT_SOURCES; i++) {
-			long long int count = g_gcBltStats.srcCountPixels[i];
-			long long int total = g_gcBltStats.totalPixels;
-
-			seq_printf(s, " %d src: %lld (%lld%%)\n",
-					   i, count,
-					   div64_s64(count * 100, total));
-		}
-	}
-
-	gc_debug_reset_blt_stats();
-
-	return 0;
-}
-
-static int gc_debug_open_blt_stats(struct inode *inode, struct file *file)
-{
-	return single_open(file, gc_debug_show_blt_stats, 0);
-}
-
-static const struct file_operations gc_debug_fops_blt_stats = {
-	.open = gc_debug_open_blt_stats,
-	.read = seq_read,
-	.llseek = seq_lseek,
-	.release = single_release,
-};
-
-/*****************************************************************************/
-
 static int gc_debug_show_log_dump(struct seq_file *s, void *data)
 {
 	GCDBG_FLUSHDUMP(s);
@@ -610,8 +522,6 @@ void gc_debug_init(void)
 			    &gc_debug_fops_gpu_id);
 	debugfs_create_file("status", 0664, debug_root, NULL,
 			    &gc_debug_fops_gpu_status);
-	debugfs_create_file("blt_stats", 0664, debug_root, NULL,
-			    &gc_debug_fops_blt_stats);
 	debugfs_create_file("last_error", 0664, debug_root, NULL,
 			    &gc_debug_fops_gpu_last_error);
 	debugfs_create_bool("cache_status_every_irq", 0664, debug_root,

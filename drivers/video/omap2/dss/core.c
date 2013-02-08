@@ -279,7 +279,6 @@ static int omap_dss_remove(struct platform_device *pdev)
 	struct omap_dss_board_info *pdata = pdev->dev.platform_data;
 	int i;
 
-	dss_uninitialize_debugfs();
 
 	if (dss_has_feature(FEAT_WB))
 		dss_uninit_writeback(pdev);
@@ -639,6 +638,7 @@ err_dss:
 
 static void __exit omap_dss_unregister_drivers(void)
 {
+	dss_uninitialize_debugfs();
 	hdmi_uninit_platform_driver();
 	dsi_uninit_platform_driver();
 	venc_uninit_platform_driver();

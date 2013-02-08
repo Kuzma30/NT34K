@@ -617,312 +617,6 @@ static inline unsigned int get_scale_factor(unsigned int srcsize,
 
 
 /*******************************************************************************
- * Rotates the specified rectangle to the specified angle.
- */
-
-static void rotate_gcrect(int angle,
-			  struct bvsurfgeom *srcgeom, struct gcrect *srcrect,
-			  struct bvsurfgeom *dstgeom, struct gcrect *dstrect)
-{
-	unsigned int width, height;
-	struct gcrect rect;
-
-	GCENTER(GCZONE_SURF);
-
-	GCDBG(GCZONE_SURF, "src geom size = %dx%d\n",
-	      srcgeom->width, srcgeom->height);
-
-	switch (angle) {
-	case ROT_ANGLE_0:
-		GCDBG(GCZONE_SURF, "ROT_ANGLE_0\n");
-
-		if (dstgeom != srcgeom) {
-			dstgeom->width  = srcgeom->width;
-			dstgeom->height = srcgeom->height;
-		}
-
-		if (dstrect != srcrect)
-			*dstrect = *srcrect;
-		break;
-
-	case ROT_ANGLE_90:
-		GCDBG(GCZONE_SURF, "ROT_ANGLE_90\n");
-
-		width  = srcgeom->width;
-		height = srcgeom->height;
-
-		dstgeom->width  = height;
-		dstgeom->height = width;
-
-		rect.left   = height - srcrect->bottom;
-		rect.top    = srcrect->left;
-		rect.right  = height - srcrect->top;
-		rect.bottom = srcrect->right;
-
-		*dstrect = rect;
-		break;
-
-	case ROT_ANGLE_180:
-		GCDBG(GCZONE_SURF, "ROT_ANGLE_180\n");
-
-		width  = srcgeom->width;
-		height = srcgeom->height;
-
-		if (dstgeom != srcgeom) {
-			dstgeom->width  = width;
-			dstgeom->height = height;
-		}
-
-		rect.left   = width  - srcrect->right;
-		rect.top    = height - srcrect->bottom;
-		rect.right  = width  - srcrect->left;
-		rect.bottom = height - srcrect->top;
-
-		*dstrect = rect;
-		break;
-
-	case ROT_ANGLE_270:
-		GCDBG(GCZONE_SURF, "ROT_ANGLE_270\n");
-
-		width  = srcgeom->width;
-		height = srcgeom->height;
-
-		dstgeom->width  = height;
-		dstgeom->height = width;
-
-		rect.left   = srcrect->top;
-		rect.top    = width - srcrect->right;
-		rect.right  = srcrect->bottom;
-		rect.bottom = width - srcrect->left;
-
-		*dstrect = rect;
-		break;
-	}
-
-	GCEXIT(GCZONE_SURF);
-}
-
-
-/*******************************************************************************
- * Setup destination rotation parameters.
- */
-
-void process_rotation(struct bvbltparams *bvbltparams,
-		      struct gcbatch *batch,
-		      struct surfaceinfo *srcinfo,
-		      int adjangle)
-{
-	GCENTER(GCZONE_DEST);
-
-	if (srcinfo->newgeom ||
-	    ((batch->batchflags & (BVBATCH_CLIPRECT |
-				   BVBATCH_DESTRECT |
-				   BVBATCH_DST)) != 0)) {
-		bool orthogonal;
-		struct gcfilter *gcfilter;
-		struct surfaceinfo *dstinfo;
-		int dstoffsetX, dstoffsetY;
-
-		/* Get some shortcuts. */
-		dstinfo = &batch->dstinfo;
-		gcfilter = &batch->op.filter;
-
-		/* Compute the adjusted destination angle. */
-		gcfilter->dstangle
-			= (dstinfo->angle + (4 - srcinfo->angle)) % 4;
-		GCDBG(GCZONE_DEST, "dstangle = %d\n", gcfilter->dstangle);
-
-		/* Determine whether the new and the old destination angles
-		 * are orthogonal to each other. */
-		orthogonal = (gcfilter->dstangle % 2) != (dstinfo->angle % 2);
-
-		switch (gcfilter->dstangle) {
-		case ROT_ANGLE_0:
-			/* Determine the origin offset. */
-			dstoffsetX = dstinfo->xpixalign;
-			dstoffsetY = dstinfo->ypixalign;
-
-			/* Determine geometry size. */
-			if (orthogonal) {
-				batch->dstwidth  = dstinfo->geom->height
-						 - dstinfo->xpixalign;
-				batch->dstheight = dstinfo->geom->width
-						 - dstinfo->ypixalign;
-			} else {
-				batch->dstwidth  = dstinfo->geom->width
-						 - dstinfo->xpixalign;
-				batch->dstheight = dstinfo->geom->height
-						 - dstinfo->ypixalign;
-			}
-
-			/* Determine the physical size. */
-			dstinfo->physwidth  = batch->dstwidth;
-			dstinfo->physheight = batch->dstheight;
-			break;
-
-		case ROT_ANGLE_90:
-			/* Determine the origin offset. */
-			dstoffsetX = dstinfo->ypixalign;
-			dstoffsetY = dstinfo->xpixalign;
-
-			if (orthogonal) {
-				/* Determine geometry size. */
-				batch->dstwidth  = dstinfo->geom->height
-						 - dstinfo->ypixalign;
-				batch->dstheight = dstinfo->geom->width
-						 - dstinfo->xpixalign;
-
-				/* Determine the physical size. */
-				dstinfo->physwidth  = dstinfo->geom->width
-						    - dstinfo->xpixalign;
-				dstinfo->physheight = dstinfo->geom->height
-						    - dstinfo->ypixalign;
-			} else {
-				/* Determine geometry size. */
-				batch->dstwidth  = dstinfo->geom->width
-						 - dstinfo->ypixalign;
-				batch->dstheight = dstinfo->geom->height
-						 - dstinfo->xpixalign;
-
-				/* Determine the physical size. */
-				dstinfo->physwidth  = dstinfo->geom->height
-						    - dstinfo->xpixalign;
-				dstinfo->physheight = dstinfo->geom->width
-						    - dstinfo->ypixalign;
-			}
-			break;
-
-		case ROT_ANGLE_180:
-			/* Determine the origin offset. */
-			dstoffsetX = 0;
-			dstoffsetY = 0;
-
-			/* Determine geometry size. */
-			if (orthogonal) {
-				batch->dstwidth  = dstinfo->geom->height
-						 - dstinfo->xpixalign;
-				batch->dstheight = dstinfo->geom->width
-						 - dstinfo->ypixalign;
-			} else {
-				batch->dstwidth  = dstinfo->geom->width
-						 - dstinfo->xpixalign;
-				batch->dstheight = dstinfo->geom->height
-						 - dstinfo->ypixalign;
-			}
-
-			/* Determine the physical size. */
-			dstinfo->physwidth  = batch->dstwidth;
-			dstinfo->physheight = batch->dstheight;
-			break;
-
-		case ROT_ANGLE_270:
-			/* Determine the origin offset. */
-			dstoffsetX = 0;
-			dstoffsetY = 0;
-
-			if (orthogonal) {
-				/* Determine geometry size. */
-				batch->dstwidth  = dstinfo->geom->height
-						 = dstinfo->ypixalign;
-				batch->dstheight = dstinfo->geom->width
-						 - dstinfo->xpixalign;
-
-				/* Determine the physical size. */
-				dstinfo->physwidth  = dstinfo->geom->width
-						    - dstinfo->xpixalign;
-				dstinfo->physheight = dstinfo->geom->height
-						    - dstinfo->ypixalign;
-			} else {
-				/* Determine geometry size. */
-				batch->dstwidth  = dstinfo->geom->width
-						 - dstinfo->ypixalign;
-				batch->dstheight = dstinfo->geom->height
-						 - dstinfo->xpixalign;
-
-				/* Determine the physical size. */
-				dstinfo->physwidth  = dstinfo->geom->height
-						    - dstinfo->xpixalign;
-				dstinfo->physheight = dstinfo->geom->width
-						    - dstinfo->ypixalign;
-			}
-			break;
-
-		default:
-			dstoffsetX = 0;
-			dstoffsetY = 0;
-		}
-
-		/* Rotate the original destination rectangle
-		 * to match the new angle. */
-		rotate_gcrect(adjangle,
-			      dstinfo->geom, &dstinfo->rect,
-			      &gcfilter->dstgeom, &gcfilter->dstrect);
-
-		/* Rotate the clipped destination rectangle. */
-		rotate_gcrect(adjangle,
-			      dstinfo->geom, &batch->dstclipped,
-			      &gcfilter->dstgeom, &gcfilter->dstclipped);
-
-		/* Compute the adjusted the destination rectangle. */
-		gcfilter->dstadjusted.left
-			= gcfilter->dstclipped.left - dstoffsetX;
-		gcfilter->dstadjusted.top
-			= gcfilter->dstclipped.top - dstoffsetY;
-		gcfilter->dstadjusted.right
-			= gcfilter->dstclipped.right - dstoffsetX;
-		gcfilter->dstadjusted.bottom
-			= gcfilter->dstclipped.bottom - dstoffsetY;
-
-		GCPRINT_RECT(GCZONE_DEST, "rotated dstrect",
-			     &gcfilter->dstrect);
-		GCPRINT_RECT(GCZONE_DEST, "rotated dstclipped",
-			     &gcfilter->dstclipped);
-		GCPRINT_RECT(GCZONE_DEST, "rotated dstadjusted",
-			     &gcfilter->dstadjusted);
-
-		if (batch->haveaux) {
-			/* Rotate the original aux destination rectangle
-			 * to match the new angle. */
-			rotate_gcrect(adjangle, dstinfo->geom,
-				      &batch->dstrectaux, &gcfilter->dstgeom,
-				      &gcfilter->dstrectaux);
-
-			/* Rotate the aux destination rectangle. */
-			rotate_gcrect(adjangle, dstinfo->geom,
-				      &batch->dstclippedaux, &gcfilter->dstgeom,
-				      &gcfilter->dstclippedaux);
-
-			/* Compute the adjust the aux destination rectangle. */
-			gcfilter->dstadjustedaux.left
-				= batch->dstclippedaux.left - dstoffsetX;
-			gcfilter->dstadjustedaux.top
-				= batch->dstclippedaux.top - dstoffsetY;
-			gcfilter->dstadjustedaux.right
-				= batch->dstclippedaux.right - dstoffsetX;
-			gcfilter->dstadjustedaux.bottom
-				= batch->dstclippedaux.bottom - dstoffsetY;
-
-			GCPRINT_RECT(GCZONE_DEST, "rotated dstrectaux",
-				     &gcfilter->dstrectaux);
-			GCPRINT_RECT(GCZONE_DEST, "rotated dstclippedaux",
-				     &gcfilter->dstclippedaux);
-			GCPRINT_RECT(GCZONE_DEST, "rotated dstadjustedaux",
-				     &gcfilter->dstadjustedaux);
-		}
-
-		GCDBG(GCZONE_DEST, "aligned geometry size = %dx%d\n",
-		      batch->dstwidth, batch->dstheight);
-		GCDBG(GCZONE_DEST, "aligned physical size = %dx%d\n",
-		      dstinfo->physwidth, dstinfo->physheight);
-		GCDBG(GCZONE_DEST, "origin offset (pixels) = %d,%d\n",
-		      dstoffsetX, dstoffsetY);
-	}
-
-	GCEXIT(GCZONE_DEST);
-}
-
-
-/*******************************************************************************
  * Rasterizer setup.
  */
 
@@ -930,8 +624,8 @@ static enum bverror startvr(struct bvbltparams *bvbltparams,
 			    struct gcbatch *batch,
 			    struct bvbuffmap *srcmap,
 			    struct bvbuffmap *dstmap,
-			    struct surfaceinfo *srcinfo,
-			    struct surfaceinfo *dstinfo,
+			    struct gcsurface *srcinfo,
+			    struct gcsurface *dstinfo,
 			    unsigned int srcx,
 			    unsigned int srcy,
 			    struct gcrect *dstrect,
@@ -947,7 +641,7 @@ static enum bverror startvr(struct bvbltparams *bvbltparams,
 	struct gcmovrsrc *gcmovrsrc;
 	struct gcmostartvr *gcmostartvr;
 
-	struct gcrect srcrect;
+	struct gcrect srcorig;
 
 	GCENTERARG(GCZONE_FILTER, "scaletype = %d\n", scaletype);
 
@@ -962,10 +656,11 @@ static enum bverror startvr(struct bvbltparams *bvbltparams,
 	GCDBG(GCZONE_FILTER, "  angle = %d\n", dstangle);
 	GCDBG(GCZONE_FILTER, "  pixalign = %d,%d\n",
 	      dstinfo->xpixalign, dstinfo->ypixalign);
-	GCDBG(GCZONE_FILTER, "  bytealign = %d\n", dstinfo->bytealign);
-	GCDBG(GCZONE_FILTER, "  virtstride = %d\n", dstinfo->geom->virtstride);
+	GCDBG(GCZONE_FILTER, "  bytealign = %d\n", dstinfo->bytealign1);
+	GCDBG(GCZONE_FILTER, "  virtstride = %d\n", dstinfo->stride1);
 	GCDBG(GCZONE_FILTER, "  format = %d\n", dstinfo->format.format);
 	GCDBG(GCZONE_FILTER, "  swizzle = %d\n", dstinfo->format.swizzle);
+	GCDBG(GCZONE_FILTER, "  endian = %d\n", dstinfo->format.endian);
 	GCDBG(GCZONE_FILTER, "  premul = %d\n", dstinfo->format.premultiplied);
 	GCDBG(GCZONE_FILTER, "  physwidth = %d\n", dstinfo->physwidth);
 	GCDBG(GCZONE_FILTER, "  physheight = %d\n", dstinfo->physheight);
@@ -979,15 +674,16 @@ static enum bverror startvr(struct bvbltparams *bvbltparams,
 		goto exit;
 
 	/* Add the address fixup. */
-	add_fixup(bvbltparams, batch, &gcmovrdst->address, dstinfo->bytealign);
+	add_fixup(bvbltparams, batch, &gcmovrdst->address, dstinfo->bytealign1);
 
 	/* Set surface parameters. */
 	gcmovrdst->config_ldst = gcmovrdst_config_ldst;
 	gcmovrdst->address = GET_MAP_HANDLE(dstmap);
-	gcmovrdst->stride = dstinfo->geom->virtstride;
+	gcmovrdst->stride = dstinfo->stride1;
 	gcmovrdst->config.raw = 0;
 	gcmovrdst->config.reg.swizzle = dstinfo->format.swizzle;
 	gcmovrdst->config.reg.format = dstinfo->format.format;
+	gcmovrdst->config.reg.endian = dstinfo->format.endian;
 
 	/* Set surface width and height. */
 	gcmovrdst->rotation.raw = 0;
@@ -1001,23 +697,24 @@ static enum bverror startvr(struct bvbltparams *bvbltparams,
 	 */
 
 	/* Determine adjusted source bounding rectangle and origin. */
-	srcrect = srcinfo->rect;
-	srcrect.left  -=  srcinfo->xpixalign;
-	srcrect.right -=  srcinfo->xpixalign;
+	srcorig = srcinfo->rect.orig;
+	srcorig.left  -=  srcinfo->xpixalign;
+	srcorig.right -=  srcinfo->xpixalign;
 	srcx          -= (srcinfo->xpixalign << 16);
 
 	GCDBG(GCZONE_FILTER, "source:\n");
 	GCDBG(GCZONE_FILTER, "  angle = %d\n", srcangle);
 	GCDBG(GCZONE_FILTER, "  pixalign = %d,%d\n",
 	      srcinfo->xpixalign, srcinfo->ypixalign);
-	GCDBG(GCZONE_FILTER, "  bytealign = %d\n", srcinfo->bytealign);
-	GCDBG(GCZONE_FILTER, "  virtstride = %d\n", srcinfo->geom->virtstride);
+	GCDBG(GCZONE_FILTER, "  bytealign = %d\n", srcinfo->bytealign1);
+	GCDBG(GCZONE_FILTER, "  virtstride = %d\n", srcinfo->stride1);
 	GCDBG(GCZONE_FILTER, "  format = %d\n", srcinfo->format.format);
 	GCDBG(GCZONE_FILTER, "  swizzle = %d\n", srcinfo->format.swizzle);
+	GCDBG(GCZONE_FILTER, "  endian = %d\n", srcinfo->format.endian);
 	GCDBG(GCZONE_FILTER, "  premul = %d\n", srcinfo->format.premultiplied);
 	GCDBG(GCZONE_FILTER, "  physwidth = %d\n", srcinfo->physwidth);
 	GCDBG(GCZONE_FILTER, "  physheight = %d\n", srcinfo->physheight);
-	GCPRINT_RECT(GCZONE_FILTER, "  rect", &srcrect);
+	GCPRINT_RECT(GCZONE_FILTER, "  rect", &srcorig);
 
 	GCDBG(GCZONE_FILTER, "src origin: 0x%08X,0x%08X\n", srcx, srcy);
 
@@ -1028,12 +725,12 @@ static enum bverror startvr(struct bvbltparams *bvbltparams,
 	if (bverror != BVERR_NONE)
 		goto exit;
 
-	add_fixup(bvbltparams, batch, &gcmovrsrc->address, srcinfo->bytealign);
+	add_fixup(bvbltparams, batch, &gcmovrsrc->address, srcinfo->bytealign1);
 
 	gcmovrsrc->config_ldst = gcmovrsrc_config_ldst;
 
 	gcmovrsrc->address = GET_MAP_HANDLE(srcmap);
-	gcmovrsrc->stride = srcinfo->geom->virtstride;
+	gcmovrsrc->stride = srcinfo->stride1;
 
 	gcmovrsrc->rotation.raw = 0;
 	gcmovrsrc->rotation.reg.surf_width = srcinfo->physwidth;
@@ -1041,8 +738,9 @@ static enum bverror startvr(struct bvbltparams *bvbltparams,
 	gcmovrsrc->config.raw = 0;
 	gcmovrsrc->config.reg.swizzle = srcinfo->format.swizzle;
 	gcmovrsrc->config.reg.format = srcinfo->format.format;
+	gcmovrsrc->config.reg.endian = srcinfo->format.endian;
 
-	if (gccontext->gcfeatures2.reg.l2cachefor420 &&
+	if (gccontext->gccaps.l2cachefor420 &&
 	    (srcinfo->format.type == BVFMT_YUV) &&
 	    (srcinfo->format.cs.yuv.planecount > 1) &&
 	    ((srcinfo->angle & 1) != 0))
@@ -1052,10 +750,10 @@ static enum bverror startvr(struct bvbltparams *bvbltparams,
 	gcmovrsrc->pos_ldst = gcmovrsrc_pos_ldst;
 
 	/* Source image bounding box. */
-	gcmovrsrc->lt.reg.left = srcrect.left;
-	gcmovrsrc->lt.reg.top = srcrect.top;
-	gcmovrsrc->rb.reg.right = srcrect.right;
-	gcmovrsrc->rb.reg.bottom = srcrect.bottom;
+	gcmovrsrc->lt.reg.left = srcorig.left;
+	gcmovrsrc->lt.reg.top = srcorig.top;
+	gcmovrsrc->rb.reg.right = srcorig.right;
+	gcmovrsrc->rb.reg.bottom = srcorig.bottom;
 
 	/* Fractional origin. */
 	gcmovrsrc->x = srcx;
@@ -1078,8 +776,7 @@ static enum bverror startvr(struct bvbltparams *bvbltparams,
 	/* Program multiply modes. */
 	gcmovrsrc->mult_ldst = gcmovrsrc_mult_ldst;
 	gcmovrsrc->mult.raw = 0;
-	gcmovrsrc->mult.reg.srcglobalpremul
-	= GCREG_COLOR_MULTIPLY_MODES_SRC_GLOBAL_PREMULTIPLY_DISABLE;
+	gcmovrsrc->mult.reg.srcglobalpremul = srcinfo->srcglobalpremul;
 
 	if (srcinfo->format.premultiplied)
 		gcmovrsrc->mult.reg.srcpremul
@@ -1181,28 +878,23 @@ exit:
 
 enum bverror do_filter(struct bvbltparams *bvbltparams,
 		       struct gcbatch *batch,
-		       struct surfaceinfo *srcinfo)
+		       struct gcsurface *srcinfo)
 {
 	enum bverror bverror = BVERR_NONE;
 	struct gccontext *gccontext = get_context();
 
 	struct gcfilter *gcfilter;
-	struct surfaceinfo *dstinfo;
+	struct gcsurface *dstinfo;
 
 	bool scalex, scaley;
 	bool singlepass, twopass;
 
-	struct gcrect *srcrect;
-	struct gcrect *dstrect;
-	struct gcrect *dstclipped;
-	struct gcrect *dstadjusted;
-
-	struct bvsurfgeom dstrotated0geom;
-	struct gcrect  dstrotated0;
+	struct gcrect *tmporig;
+	struct gcrect *srcorig, *srcclip;
+	struct gcrect *dstorig, *dstclip, *dstadj;
 
 	struct gcrect dstdelta;
 	struct gcrect srcdelta;
-	struct gcrect srcclipped;
 
 	struct bvbuffmap *srcmap = NULL;
 	struct bvbuffmap *tmpmap = NULL;
@@ -1210,12 +902,12 @@ enum bverror do_filter(struct bvbltparams *bvbltparams,
 
 	struct gcmovrconfigex *gcmovrconfigex;
 
-	int adjangle;
 	unsigned int srcx, srcy;
 	unsigned int srcwidth, srcheight;
 	unsigned int dstwidth, dstheight;
 	unsigned int horscalefactor, verscalefactor;
 	unsigned int kernelsize;
+	int angle;
 
 	GCENTER(GCZONE_FILTER);
 
@@ -1235,6 +927,15 @@ enum bverror do_filter(struct bvbltparams *bvbltparams,
 		goto exit;
 	}
 
+	/* Zero-fill for source is not supported. */
+	if (srcinfo->format.zerofill) {
+		BVSETBLTERROR((srcinfo->index == 0)
+					? BVERR_SRC1GEOM_FORMAT
+					: BVERR_SRC2GEOM_FORMAT,
+			      "0 filling is not supported.");
+		goto exit;
+	}
+
 	/* Parse the scale mode. */
 	bverror = parse_scalemode(bvbltparams, batch);
 	if (bverror != BVERR_NONE)
@@ -1245,74 +946,78 @@ enum bverror do_filter(struct bvbltparams *bvbltparams,
 	if (bverror != BVERR_NONE)
 		goto exit;
 
+	/* Ignore the blit if destination rectangle is empty. */
+	if (null_rect(&dstinfo->rect.clip)) {
+		GCDBG(GCZONE_DEST, "empty destination rectangle.\n");
+		goto exit;
+	}
+
+	/* Get rectangle shortcuts. */
+	srcorig = &srcinfo->rect.orig;
+	srcclip = &srcinfo->rect.clip;
+
+	if ((srcinfo->index == 1) && dstinfo->haveaux) {
+		GCDBG(GCZONE_FILTER, "picking aux set");
+		dstorig = &dstinfo->auxrect.orig;
+		dstclip = &dstinfo->auxrect.clip;
+		dstadj = &dstinfo->auxrect.adj;
+	} else {
+		GCDBG(GCZONE_FILTER, "picking main set");
+		dstorig = &dstinfo->rect.orig;
+		dstclip = &dstinfo->rect.clip;
+		dstadj = &dstinfo->rect.adj;
+	}
+
+	GCPRINT_RECT(GCZONE_FILTER, "original src", srcorig);
+	GCPRINT_RECT(GCZONE_FILTER, "original dst", dstorig);
+	GCPRINT_RECT(GCZONE_FILTER, "clipped dst", dstclip);
+	GCPRINT_RECT(GCZONE_FILTER, "adjusted dst", dstadj);
+
 	/* Compute the source alignments needed to compensate
 	 * for the surface base address misalignment if any. */
 	srcinfo->xpixalign = get_pixel_offset(srcinfo, 0);
 	srcinfo->ypixalign = 0;
-	srcinfo->bytealign = (srcinfo->xpixalign
-			   * (int) srcinfo->format.bitspp) / 8;
+	srcinfo->bytealign1 = (srcinfo->xpixalign
+			    * (int) srcinfo->format.bitspp) / 8;
 	GCDBG(GCZONE_SRC, "source surface offset (pixels) = %d,%d\n",
 		srcinfo->xpixalign, srcinfo->ypixalign);
 	GCDBG(GCZONE_SRC, "source surface offset (bytes) = %d\n",
-		srcinfo->bytealign);
+		srcinfo->bytealign1);
+
+	/* Determine physical size. */
+	if ((srcinfo->angle % 2) == 0) {
+		srcinfo->physwidth  = srcinfo->width
+				    - srcinfo->xpixalign;
+		srcinfo->physheight = srcinfo->height
+				    - srcinfo->ypixalign;
+	} else {
+		srcinfo->physwidth  = srcinfo->height
+				    - srcinfo->xpixalign;
+		srcinfo->physheight = srcinfo->width
+				    - srcinfo->ypixalign;
+	}
+	GCDBG(GCZONE_SRC, "source physical size = %dx%d\n",
+	      srcinfo->physwidth, srcinfo->physheight);
+
+	/* OPF does not support source rotation, which can be compensated by
+	 * using destination rotation. Compute the adjustment angle.
+	 * For simplicity use the same algorythm for both OPF and TPF. */
+	srcinfo->adjangle = (4 - srcinfo->angle) % 4;
+	adjust_angle(srcinfo, dstinfo);
+
+	/* Set rotation angle. */
+	angle = dstinfo->angle;
 
 	/* Compute U/V plane offsets. */
 	if ((srcinfo->format.type == BVFMT_YUV) &&
 	    (srcinfo->format.cs.yuv.planecount > 1))
 		set_computeyuv(srcinfo, 0, 0);
 
-	/* Determine physical size. */
-	if ((srcinfo->angle % 2) == 0) {
-		srcinfo->physwidth  = srcinfo->geom->width
-				    - srcinfo->xpixalign;
-		srcinfo->physheight = srcinfo->geom->height
-				    - srcinfo->ypixalign;
-	} else {
-		srcinfo->physwidth  = srcinfo->geom->height
-				    - srcinfo->xpixalign;
-		srcinfo->physheight = srcinfo->geom->width
-				    - srcinfo->ypixalign;
-	}
-	GCDBG(GCZONE_SRC, "source physical size = %dx%d\n",
-		srcinfo->physwidth, srcinfo->physheight);
-
-	/* OPF does not support source rotation, which can be compensated by
-	 * using destination rotation. Compute the adjustment angle.
-	 * For simplicity use the same algorythm for both OPF and TPF. */
-	adjangle = (4 - srcinfo->angle) % 4;
-	GCDBG(GCZONE_DEST, "adjangle = %d\n", adjangle);
-
-	/* Compute destination rotation. */
-	process_rotation(bvbltparams, batch, srcinfo, adjangle);
-
-	/* Rotate the source rectangle to 0 degree. */
-	srcrect = &srcinfo->rect;
-	GCPRINT_RECT(GCZONE_FILTER, "full src", srcrect);
-	rotate_gcrect(adjangle,
-		      srcinfo->geom, srcrect,
-		      srcinfo->geom, srcrect);
-	GCPRINT_RECT(GCZONE_FILTER, "full adjusted src", srcrect);
-
-	/* Get destination rect shortcuts. */
-	if ((srcinfo->index == 1) && batch->haveaux) {
-		dstrect = &gcfilter->dstrectaux;
-		dstclipped = &gcfilter->dstclippedaux;
-		dstadjusted = &gcfilter->dstadjustedaux;
-	} else {
-		dstrect = &gcfilter->dstrect;
-		dstclipped = &gcfilter->dstclipped;
-		dstadjusted = &gcfilter->dstadjusted;
-	}
-
-	GCPRINT_RECT(GCZONE_FILTER, "full adjusted dst", dstrect);
-	GCPRINT_RECT(GCZONE_FILTER, "clipped adjusted dst", dstclipped);
-	GCPRINT_RECT(GCZONE_FILTER, "aligned adjusted dst", dstadjusted);
-
 	/* Determine the source and destination rectangles. */
-	srcwidth  = srcrect->right  - srcrect->left;
-	srcheight = srcrect->bottom - srcrect->top;
-	dstwidth  = dstrect->right  - dstrect->left;
-	dstheight = dstrect->bottom - dstrect->top;
+	srcwidth  = srcorig->right  - srcorig->left;
+	srcheight = srcorig->bottom - srcorig->top;
+	dstwidth  = dstorig->right  - dstorig->left;
+	dstheight = dstorig->bottom - dstorig->top;
 
 	GCDBG(GCZONE_FILTER, "adjusted input src size: %dx%d\n",
 	      srcwidth, srcheight);
@@ -1345,6 +1050,8 @@ enum bverror do_filter(struct bvbltparams *bvbltparams,
 		singlepass = false;
 	}
 
+	gcbv_debug_scaleblt(scalex, scaley, singlepass);
+
 	/* Compute the scale factors. */
 	gcfilter->horscalefactor =
 	horscalefactor = get_scale_factor(srcwidth, dstwidth);
@@ -1355,10 +1062,10 @@ enum bverror do_filter(struct bvbltparams *bvbltparams,
 	GCDBG(GCZONE_FILTER, "verscalefactor = 0x%08X\n", verscalefactor);
 
 	/* Compute the destination offsets. */
-	dstdelta.left   = dstclipped->left   - dstrect->left;
-	dstdelta.top    = dstclipped->top    - dstrect->top;
-	dstdelta.right  = dstclipped->right  - dstrect->left;
-	dstdelta.bottom = dstclipped->bottom - dstrect->top;
+	dstdelta.left   = dstclip->left   - dstorig->left;
+	dstdelta.top    = dstclip->top    - dstorig->top;
+	dstdelta.right  = dstclip->right  - dstorig->left;
+	dstdelta.bottom = dstclip->bottom - dstorig->top;
 	GCDBG(GCZONE_FILTER, "dst deltas = (%d,%d)-(%d,%d)\n",
 	      dstdelta.left, dstdelta.top, dstdelta.right, dstdelta.bottom);
 
@@ -1377,7 +1084,7 @@ enum bverror do_filter(struct bvbltparams *bvbltparams,
 	srcdelta.top    += 0x00008000;
 	srcdelta.right  += 0x00008000;
 	srcdelta.bottom += 0x00008000;
-	GCDBG(GCZONE_FILTER, "src deltas = " \
+	GCDBG(GCZONE_FILTER, "src deltas = "
 	      "(0x%08X,0x%08X)-(0x%08X,0x%08X)\n",
 	      srcdelta.left, srcdelta.top, srcdelta.right, srcdelta.bottom);
 	GCDBG(GCZONE_FILTER, "src deltas (int) = (%d,%d)-(%d,%d)\n",
@@ -1385,33 +1092,35 @@ enum bverror do_filter(struct bvbltparams *bvbltparams,
 	      srcdelta.right >> 16, srcdelta.bottom >> 16);
 
 	/* Determine clipped source rectangle. */
-	srcclipped.left   = srcrect->left   + (srcdelta.left   >> 16);
-	srcclipped.top    = srcrect->top    + (srcdelta.top    >> 16);
-	srcclipped.right  = srcrect->left   + (srcdelta.right  >> 16);
-	srcclipped.bottom = srcrect->top    + (srcdelta.bottom >> 16);
+	srcclip->left   = srcorig->left + (srcdelta.left   >> 16);
+	srcclip->top    = srcorig->top  + (srcdelta.top    >> 16);
+	srcclip->right  = srcorig->left + (srcdelta.right  >> 16);
+	srcclip->bottom = srcorig->top  + (srcdelta.bottom >> 16);
 
 	GCDBG(GCZONE_FILTER, "source:\n");
 	GCDBG(GCZONE_FILTER, "  stride = %d, geom = %dx%d\n",
-	      srcinfo->geom->virtstride,
-	      srcinfo->geom->width, srcinfo->geom->height);
-	GCDBG(GCZONE_FILTER, "  rotation = %d\n",
-	      srcinfo->angle);
-	GCPRINT_RECT(GCZONE_FILTER, "  clipped rect", &srcclipped);
+	      srcinfo->stride1, srcinfo->width, srcinfo->height);
+	GCDBG(GCZONE_FILTER, "  rotation = %d\n", srcinfo->angle);
+	GCPRINT_RECT(GCZONE_FILTER, "  clipped rect", srcclip);
 
 	GCDBG(GCZONE_FILTER, "destination:\n");
 	GCDBG(GCZONE_FILTER, "  stride = %d, geom size = %dx%d\n",
-	      dstinfo->geom->virtstride,
-	      dstinfo->geom->width, dstinfo->geom->height);
-	GCDBG(GCZONE_FILTER, "  rotation = %d\n",
-	      dstinfo->angle);
-	GCPRINT_RECT(GCZONE_FILTER, "  clipped rect", dstclipped);
+	      dstinfo->stride1, dstinfo->width, dstinfo->height);
+	GCDBG(GCZONE_FILTER, "  rotation = %d\n", dstinfo->angle);
+	GCPRINT_RECT(GCZONE_FILTER, "  clipped rect", dstclip);
 
 	/* Validate the source rectangle. */
-	if (!valid_rect(srcinfo->geom, &srcclipped)) {
+	if (!valid_rect(srcinfo, srcclip)) {
 		BVSETBLTERROR((srcinfo->index == 0)
 					? BVERR_SRC1RECT
 					: BVERR_SRC2RECT,
 			      "invalid source rectangle.");
+		goto exit;
+	}
+
+	/* Ignore the blit if source rectangle is empty. */
+	if (null_rect(srcclip)) {
+		GCDBG(GCZONE_SURF, "empty source rectangle.\n");
 		goto exit;
 	}
 
@@ -1451,8 +1160,8 @@ enum bverror do_filter(struct bvbltparams *bvbltparams,
 			= GCREG_VR_CONFIG_EX_MASK_FILTER_TAP_ENABLED;
 
 		/* Setup single pass. */
-		srcx = (srcrect->left << 16) + srcdelta.left;
-		srcy = (srcrect->top  << 16) + srcdelta.top;
+		srcx = (srcorig->left << 16) + srcdelta.left;
+		srcy = (srcorig->top  << 16) + srcdelta.top;
 		GCDBG(GCZONE_SRC, "src origin: 0x%08X,0x%08X\n", srcx, srcy);
 
 		/* Load the horizontal filter. */
@@ -1478,8 +1187,8 @@ enum bverror do_filter(struct bvbltparams *bvbltparams,
 		/* Start the operation. */
 		bverror = startvr(bvbltparams, batch,
 				  srcmap, dstmap, srcinfo, dstinfo,
-				  srcx, srcy, dstadjusted,
-				  ROT_ANGLE_0, gcfilter->dstangle,
+				  srcx, srcy, dstadj,
+				  ROT_ANGLE_0, angle,
 				  GC_SCALE_OPF);
 	} else if (twopass) {
 		unsigned int horkernelhalf;
@@ -1487,21 +1196,13 @@ enum bverror do_filter(struct bvbltparams *bvbltparams,
 		unsigned int tmprectwidth, tmprectheight;
 		unsigned int tmpalignmask, dstalignmask;
 		unsigned int tmpsize;
-		struct surfaceinfo tmpinfo;
-		struct bvsurfgeom tmpgeom;
+		struct gcsurface tmpinfo;
 
 		GCDBG(GCZONE_TYPE, "two pass\n");
 
-		/* Initialize the temporaty surface geometry. */
-		tmpgeom.structsize = sizeof(struct bvsurfgeom);
-		tmpgeom.orientation = 0;
-		tmpgeom.paletteformat = 0;
-		tmpgeom.palette = NULL;
-
 		/* Initialize the temporaty surface descriptor. */
 		tmpinfo.index = -1;
-		tmpinfo.geom = &tmpgeom;
-		tmpinfo.angle = gcfilter->dstangle;
+		tmpinfo.angle = angle;
 		tmpinfo.mirror = GCREG_MIRROR_NONE;
 		tmpinfo.rop = 0;
 		GCDBG(GCZONE_FILTER, "tmp angle = %d\n", tmpinfo.angle);
@@ -1517,18 +1218,16 @@ enum bverror do_filter(struct bvbltparams *bvbltparams,
 			if (tmpinfo.angle == ROT_ANGLE_0) {
 				GCDBG(GCZONE_FILTER,
 				      "tmp format = 4:2:2\n");
-				tmpgeom.format = OCDFMT_YUYV;
-				parse_format(bvbltparams, &tmpinfo);
+				parse_format(bvbltparams, OCDFMT_YUYV,
+					     &tmpinfo.format);
 			} else {
 				GCDBG(GCZONE_FILTER,
 				      "tmp format = dst format\n");
-				tmpgeom.format = dstinfo->geom->format;
 				tmpinfo.format = dstinfo->format;
 			}
 		} else {
 			GCDBG(GCZONE_FILTER,
 			      "tmp format = src format\n");
-			tmpgeom.format = srcinfo->geom->format;
 			tmpinfo.format = srcinfo->format;
 		}
 
@@ -1557,8 +1256,8 @@ enum bverror do_filter(struct bvbltparams *bvbltparams,
 		      leftextra, rightextra);
 
 		/* Determine the source origin. */
-		srcx = ((srcrect->left - leftextra) << 16) + srcdelta.left;
-		srcy =  (srcrect->top << 16) + srcdelta.top;
+		srcx = ((srcorig->left - leftextra) << 16) + srcdelta.left;
+		srcy =  (srcorig->top << 16) + srcdelta.top;
 		GCDBG(GCZONE_SRC, "src origin: 0x%08X,0x%08X\n", srcx, srcy);
 		GCDBG(GCZONE_SRC, "src origin (int): %d,%d\n",
 		      srcx >> 16, srcy >> 16);
@@ -1566,73 +1265,74 @@ enum bverror do_filter(struct bvbltparams *bvbltparams,
 		/* Determine the size of the temporary rectangle. */
 		tmprectwidth = leftextra + rightextra
 			     + ((srcdelta.right >> 16) - (srcdelta.left >> 16));
-		tmprectheight = dstadjusted->bottom - dstadjusted->top;
+		tmprectheight = dstadj->bottom - dstadj->top;
 		GCDBG(GCZONE_FILTER, "tmp rect size: %dx%d\n",
 		      tmprectwidth, tmprectheight);
 
+		/* Shortcut to temporary rectangle. */
+		tmporig = &tmpinfo.rect.orig;
+
 		/* Determine the temporary destination coordinates. */
-		switch (tmpinfo.angle) {
+		switch (angle) {
 		case ROT_ANGLE_0:
 		case ROT_ANGLE_180:
-			tmpinfo.rect.left   = (srcx >> 16) & tmpalignmask;
-			tmpinfo.rect.top    = 0;
-			tmpinfo.rect.right  = tmpinfo.rect.left + tmprectwidth;
-			tmpinfo.rect.bottom = tmprectheight;
+			tmporig->left   = (srcx >> 16) & tmpalignmask;
+			tmporig->top    = 0;
+			tmporig->right  = tmporig->left + tmprectwidth;
+			tmporig->bottom = tmprectheight;
 
-			tmpgeom.width  = (tmpinfo.rect.right + tmpalignmask)
+			tmpinfo.width  = (tmporig->right + tmpalignmask)
 				       & ~tmpalignmask;
-			tmpgeom.height = tmprectheight;
+			tmpinfo.height = tmprectheight;
 
-			tmpinfo.physwidth  = tmpgeom.width;
-			tmpinfo.physheight = tmpgeom.height;
+			tmpinfo.physwidth  = tmpinfo.width;
+			tmpinfo.physheight = tmpinfo.height;
 			break;
 
 		case ROT_ANGLE_90:
-			tmpinfo.rect.left   = 0;
-			tmpinfo.rect.top    = dstadjusted->left & dstalignmask;
-			tmpinfo.rect.right  = tmprectwidth;
-			tmpinfo.rect.bottom = tmpinfo.rect.top  + tmprectheight;
+			tmporig->left   = 0;
+			tmporig->top    = dstadj->left & dstalignmask;
+			tmporig->right  = tmprectwidth;
+			tmporig->bottom = tmporig->top  + tmprectheight;
 
-			tmpgeom.width  = tmprectwidth;
-			tmpgeom.height = (tmpinfo.rect.bottom + tmpalignmask)
+			tmpinfo.width  = tmprectwidth;
+			tmpinfo.height = (tmporig->bottom + tmpalignmask)
 				       & ~tmpalignmask;
 
-			tmpinfo.physwidth  = tmpgeom.height;
-			tmpinfo.physheight = tmpgeom.width;
+			tmpinfo.physwidth  = tmpinfo.height;
+			tmpinfo.physheight = tmpinfo.width;
 			break;
 
 		case ROT_ANGLE_270:
-			tmpinfo.rect.left   = 0;
-			tmpinfo.rect.right  = tmprectwidth;
-			tmpinfo.rect.bottom = dstadjusted->left & dstalignmask;
+			tmporig->left   = 0;
+			tmporig->right  = tmprectwidth;
+			tmporig->bottom = dstadj->left & dstalignmask;
 
-			tmpgeom.width  = tmprectwidth;
-			tmpgeom.height = (tmpinfo.rect.bottom + tmprectheight
+			tmpinfo.width  = tmprectwidth;
+			tmpinfo.height = (tmporig->bottom + tmprectheight
 				       + tmpalignmask) & ~tmpalignmask;
 
-			tmpinfo.rect.bottom = tmpgeom.height
-					    - tmpinfo.rect.bottom;
-			tmpinfo.rect.top    = tmpinfo.rect.bottom
-					    - tmprectheight;
+			tmporig->bottom = tmpinfo.height - tmporig->bottom;
+			tmporig->top    = tmporig->bottom - tmprectheight;
 
-			tmpinfo.physwidth  = tmpgeom.height;
-			tmpinfo.physheight = tmpgeom.width;
+			tmpinfo.physwidth  = tmpinfo.height;
+			tmpinfo.physheight = tmpinfo.width;
 			break;
 		}
 
-		GCPRINT_RECT(GCZONE_DEST, "tmp dest", &tmpinfo.rect);
+		GCPRINT_RECT(GCZONE_DEST, "tmp dest", tmporig);
 		GCDBG(GCZONE_FILTER, "tmp geometry size = %dx%d\n",
-		      tmpgeom.width, tmpgeom.height);
+		      tmpinfo.width, tmpinfo.height);
 		GCDBG(GCZONE_FILTER, "tmp physical size = %dx%d\n",
 		      tmpinfo.physwidth, tmpinfo.physheight);
 
 		/* Determine the size of the temporaty surface. */
-		tmpgeom.virtstride = (tmpinfo.physwidth
-				   *  tmpinfo.format.bitspp) / 8;
-		tmpsize = tmpgeom.virtstride * tmpinfo.physheight;
+		tmpinfo.stride1 = (tmpinfo.physwidth
+				*  tmpinfo.format.bitspp) / 8;
+		tmpsize = tmpinfo.stride1 * tmpinfo.physheight;
 		tmpsize += GC_BYTES_PER_CACHELINE;
 		tmpsize = (tmpsize + ~PAGE_MASK) & PAGE_MASK;
-		GCDBG(GCZONE_FILTER, "tmp stride = %d\n", tmpgeom.virtstride);
+		GCDBG(GCZONE_FILTER, "tmp stride = %d\n", tmpinfo.stride1);
 		GCDBG(GCZONE_FILTER, "tmp size (bytes) = %d\n", tmpsize);
 
 		/* Allocate the temporary buffer. */
@@ -1652,12 +1352,12 @@ enum bverror do_filter(struct bvbltparams *bvbltparams,
 		 * for the surface base address misalignment if any. */
 		tmpinfo.xpixalign = 0;
 		tmpinfo.ypixalign = 0;
-		tmpinfo.bytealign = (get_pixel_offset(&tmpinfo, 0)
-				  * (int) tmpinfo.format.bitspp) / 8;
+		tmpinfo.bytealign1 = (get_pixel_offset(&tmpinfo, 0)
+				   * (int) tmpinfo.format.bitspp) / 8;
 		GCDBG(GCZONE_SRC, "tmp offset (pixels) = %d,%d\n",
 			tmpinfo.xpixalign, tmpinfo.ypixalign);
 		GCDBG(GCZONE_SRC, "tmp offset (bytes) = %d\n",
-			tmpinfo.bytealign);
+			tmpinfo.bytealign1);
 
 		/* Load the vertical filter. */
 		bverror = load_filter(bvbltparams, batch,
@@ -1673,59 +1373,39 @@ enum bverror do_filter(struct bvbltparams *bvbltparams,
 		GCDBG(GCZONE_TYPE, "vertical pass\n");
 		bverror = startvr(bvbltparams, batch,
 				  srcmap, tmpmap, srcinfo, &tmpinfo,
-				  srcx, srcy, &tmpinfo.rect,
-				  ROT_ANGLE_0, tmpinfo.angle,
+				  srcx, srcy, tmporig,
+				  ROT_ANGLE_0, angle,
 				  GC_SCALE_VER);
 		if (bverror != BVERR_NONE)
 			goto exit;
 
-		/* Fake no rotation. */
-		adjangle = (4 - tmpinfo.angle) % 4;
-		GCDBG(GCZONE_DEST, "adjangle = %d\n", adjangle);
-
-		/* Rotate the source rectangle to 0 degree. */
-		rotate_gcrect(adjangle,
-			      tmpinfo.geom, &tmpinfo.rect,
-			      tmpinfo.geom, &tmpinfo.rect);
-		GCPRINT_RECT(GCZONE_DEST, "tmp src", &tmpinfo.rect);
-
-		/* Rotate the destination rectangle to 0 degree. */
-		rotate_gcrect(adjangle,
-			      &gcfilter->dstgeom, dstclipped,
-			      &dstrotated0geom, &dstrotated0);
-		GCPRINT_RECT(GCZONE_DEST, "dest", &dstrotated0);
-
-		/* Apply adjustment. */
-		dstrotated0.left  -= dstinfo->xpixalign;
-		dstrotated0.right -= dstinfo->xpixalign;
+		/* Rotation is done in the first pass. */
+		tmpinfo.adjangle = (4 - angle) % 4;
+		adjust_angle(&tmpinfo, dstinfo);
 
 		/* Determine the source origin. */
-		switch (tmpinfo.angle) {
+		switch (angle) {
 		case ROT_ANGLE_0:
-			srcx = ((tmpinfo.rect.left + leftextra) << 16)
+			srcx = ((tmporig->left + leftextra) << 16)
 			     + (srcdelta.left & 0xFFFF);
-			srcy = (tmpinfo.rect.top << 16)
-			     + (srcdelta.top & 0xFFFF);
+			srcy = tmporig->top << 16;
 			break;
 
 		case ROT_ANGLE_90:
-			srcx = (tmpinfo.rect.left << 16)
-			     + (srcdelta.top & 0xFFFF);
-			srcy = ((tmpinfo.rect.top + rightextra) << 16)
-			     + (srcdelta.left & 0xFFFF);
+			srcx = tmporig->left << 16;
+			srcy = ((tmporig->top + rightextra) << 16)
+			     + ((~srcdelta.right + 1) & 0xFFFF);
 			break;
 
 		case ROT_ANGLE_180:
-			srcx = ((tmpinfo.rect.left + rightextra) << 16)
-			     + (srcdelta.left & 0xFFFF);
-			srcy = (tmpinfo.rect.top << 16)
-			     + (srcdelta.top & 0xFFFF);
+			srcx = ((tmporig->left + rightextra) << 16)
+			     + ((~srcdelta.right + 1) & 0xFFFF);
+			srcy = tmporig->top << 16;
 			break;
 
 		case ROT_ANGLE_270:
-			srcx = (tmpinfo.rect.left << 16)
-			     + (srcdelta.top & 0xFFFF);
-			srcy = ((tmpinfo.rect.top + leftextra) << 16)
+			srcx = tmporig->left << 16;
+			srcy = ((tmporig->top + leftextra) << 16)
 			     + (srcdelta.left & 0xFFFF);
 			break;
 		}
@@ -1746,9 +1426,9 @@ enum bverror do_filter(struct bvbltparams *bvbltparams,
 		GCDBG(GCZONE_TYPE, "horizontal pass\n");
 		bverror = startvr(bvbltparams, batch,
 				  tmpmap, dstmap, &tmpinfo, dstinfo,
-				  srcx, srcy, &dstrotated0,
+				  srcx, srcy, dstadj,
 				  ROT_ANGLE_0, ROT_ANGLE_0,
-				  ((gcfilter->dstangle % 2) == 0)
+				  ((angle % 2) == 0)
 					? GC_SCALE_HOR
 					: GC_SCALE_HOR_FLIPPED);
 		if (bverror != BVERR_NONE)
@@ -1758,8 +1438,8 @@ enum bverror do_filter(struct bvbltparams *bvbltparams,
 		      scalex ? "horizontal" : "vertical");
 
 		/* Setup single pass. */
-		srcx = (srcrect->left << 16) + srcdelta.left;
-		srcy = (srcrect->top  << 16) + srcdelta.top;
+		srcx = (srcorig->left << 16) + srcdelta.left;
+		srcy = (srcorig->top  << 16) + srcdelta.top;
 		GCDBG(GCZONE_SRC, "src origin: 0x%08X,0x%08X\n", srcx, srcy);
 
 		if (scalex) {
@@ -1776,8 +1456,8 @@ enum bverror do_filter(struct bvbltparams *bvbltparams,
 			/* Start the operation. */
 			bverror = startvr(bvbltparams, batch,
 					  srcmap, dstmap, srcinfo, dstinfo,
-					  srcx, srcy, dstadjusted,
-					  ROT_ANGLE_0, gcfilter->dstangle,
+					  srcx, srcy, dstadj,
+					  ROT_ANGLE_0, angle,
 					  GC_SCALE_HOR);
 			if (bverror != BVERR_NONE)
 				goto exit;
@@ -1795,8 +1475,8 @@ enum bverror do_filter(struct bvbltparams *bvbltparams,
 			/* Start the operation. */
 			bverror = startvr(bvbltparams, batch,
 					  srcmap, dstmap, srcinfo, dstinfo,
-					  srcx, srcy, dstadjusted,
-					  ROT_ANGLE_0, gcfilter->dstangle,
+					  srcx, srcy, dstadj,
+					  ROT_ANGLE_0, angle,
 					  GC_SCALE_VER);
 			if (bverror != BVERR_NONE)
 				goto exit;
