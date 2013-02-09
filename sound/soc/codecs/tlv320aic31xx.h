@@ -32,12 +32,12 @@
 #if 1
 #ifdef DEBUG
 	#define dprintk(x...)   printk(x)
-	#define DBG(x...)       printk(KERN_INFO x)
-	#define dev_dbg(x...)   printk(x)
+//	#define DBG(x...)       printk(KERN_INFO x)
+//	#define dev_dbg(x...)   printk(x)
 #else
 	#define dprintk(x...)
-	#define DBG(x...)
-	#define dev_dbg(x...)
+//	#define DBG(x...)
+//	#define dev_dbg(x...)
 #endif
 #endif
 
@@ -469,7 +469,7 @@ int aic3xxx_write(struct snd_soc_codec *codec, unsigned int reg,
 				unsigned int value);
 int aic31xx_mute_codec(struct snd_soc_codec *codec, int mute);
 
-int aic31xx_mic_check(struct snd_soc_codec *codec);
+extern int aic31xx_mic_check(struct snd_soc_codec *codec);
 #ifdef AIC31XX_TiLoad
 	int aic31xx_driver_init(struct snd_soc_codec *codec);
 #endif

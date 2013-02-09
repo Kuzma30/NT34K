@@ -175,6 +175,7 @@ static struct i2c_board_info __initdata panda_i2c_codec[] = {
 
 static void omap4_mcbsp3_init(void)
 {
+#if 0
 	omap_mux_init_signal("abe_pdm_ul_data",
 	OMAP_PIN_INPUT_PULLDOWN |OMAP_MUX_MODE1);
 	omap_mux_init_signal("abe_pdm_dl_data",
@@ -184,6 +185,7 @@ static void omap4_mcbsp3_init(void)
 	OMAP_PIN_INPUT_PULLDOWN |OMAP_MUX_MODE1);
 	omap_mux_init_signal("abe_pdm_lb_clk",
 	OMAP_PIN_INPUT_PULLDOWN |OMAP_MUX_MODE1);
+#endif
 }
 
 static void acclaim_panel_init(void);

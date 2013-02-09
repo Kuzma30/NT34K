@@ -194,7 +194,7 @@ static int aic31xx_set_mode_put(struct snd_kcontrol *kcontrol,
 		dev_err(codec->dev, "\nFirmware not loaded,"
 					"no mode switch can occur\n");
 	else
-//		ret = aic3xxx_cfw_setmode_cfg(priv_ds->cfw_p, next_mode, next_cfg);
+		ret = aic3xxx_cfw_setmode_cfg(priv_ds->cfw_p, next_mode, next_cfg);
 
 	return ret;
 }
@@ -455,7 +455,7 @@ unsigned int aic31xx_codec_read(struct snd_soc_codec *codec, unsigned int reg)
 	u8 value;
 	aic31xx_reg_union *aic_reg = (aic31xx_reg_union *)&reg;
 	value = aic3xxx_reg_read(codec->control_data, reg);
-	printk(codec->dev, "p%d , r 30%x %x\n", aic_reg->aic3xxx_register.page,
+	dev_dbg(codec->dev, "p%d , r 30%x %x\n", aic_reg->aic3xxx_register.page,
 			aic_reg->aic3xxx_register.offset, value);
 	return value;
 }
@@ -471,7 +471,7 @@ int aic31xx_codec_write(struct snd_soc_codec *codec, unsigned int reg,
 			unsigned int value)
 {
 	aic31xx_reg_union *aic_reg = (aic31xx_reg_union *)&reg;
-	printk(codec->dev, "p %d, w 30 %x %x\n",
+	dev_dbg(codec->dev, "p %d, w 30 %x %x\n",
 			aic_reg->aic3xxx_register.page,
 			aic_reg->aic3xxx_register.offset, value);
 	return aic3xxx_reg_write(codec->control_data, reg, value);
@@ -487,13 +487,13 @@ void debug_print_registers(struct snd_soc_codec *codec)
 
 	for (i = 0 ; i < 118 ; i++) {
 		data = snd_soc_read(codec, i);
-		printk("reg = %d val = %x\n", i, data);
+		dev_dbg(codec->dev,"reg = %d val = %x\n", i, data);
 	}
 	/* for ADC registers */
-	printk(codec->dev, "*** Page 1:\n");
+	dev_dbg(codec->dev, "*** Page 1:\n");
 	for (i = AIC31XX_HPHONE_DRIVERS ; i <= AIC31XX_MICPGA_CM_REG ; i++) {
 		data = snd_soc_read(codec, i);
-		printk("reg = %d val = %x\n", i, data);
+		dev_dbg(codec->dev,"reg = %d val = %x\n", i, data);
 	}
 }
 
@@ -501,7 +501,7 @@ void debug_print_one_register(struct snd_soc_codec *codec, unsigned int i)
 {
 	u32 data;
 	data = snd_soc_read(codec, i);
-	printk(codec->dev, "reg = %d val = %x\n", i, data);
+	dev_dbg(codec->dev, "reg = %d val = %x\n", i, data);
 
 }
 
@@ -669,11 +669,12 @@ static int aic31xx_hp_power_up_event(struct snd_soc_dapm_widget *w,
 			}
 		}
 
-
+#if 0
 		if (aic31xx->from_resume) {
 			aic31xx_mute(codec, 0);
 			aic31xx->from_resume = 0;
 		}
+#endif
 	}
 
 	if (event & SND_SOC_DAPM_PRE_PMD) {
@@ -963,8 +964,10 @@ void aic31xx_firmware_load(const struct firmware *fw, void *context)
 	if (fw == NULL) {
 		/* either request_firmware or reload failed */
 		dev_dbg(codec->dev, "Default firmware load\n");
+		printk("Size of AUDIO default firmware = %d", sizeof(default_firmware));
 		ret = aic3xxx_cfw_reload(private_ds->cfw_p, default_firmware,
 			sizeof(default_firmware));
+
 		if (ret < 0)
 			dev_err(codec->dev, "Default firmware load failed\n");
 		else
@@ -1429,9 +1432,9 @@ static int aic31xx_set_dai_pll(struct snd_soc_dai *dai,
 		AIC31XX_PLL_CLKIN_MASK, source << AIC31XX_PLL_CLKIN_SHIFT);
 	/*  TODO: How to select low/high clock range? */
 
-//	mutex_lock(&aic31xx->cfw_mutex);
-//	aic3xxx_cfw_set_pll(aic31xx->cfw_p, dai->id);
-//	mutex_unlock(&aic31xx->cfw_mutex);
+	mutex_lock(&aic31xx->cfw_mutex);
+	aic3xxx_cfw_set_pll(aic31xx->cfw_p, dai->id);
+	mutex_unlock(&aic31xx->cfw_mutex);
 
 	dev_dbg(codec->dev, "%s: DAI ID %d PLL_ID %d InFreq %d OutFreq %d\n",
 		__func__, pll_id, dai->id, freq_in, freq_out);
@@ -1483,7 +1486,7 @@ static int aic31xx_set_bias_level(struct snd_soc_codec *codec,
 }
 
 
-static int aic31xx_suspend(struct snd_soc_codec *codec, pm_message_t state)
+static int aic31xx_suspend(struct snd_soc_codec *codec)//, pm_message_t state)
 {
 	int val, lv, rv;
 	struct aic31xx_priv *aic31xx = snd_soc_codec_get_drvdata(codec);
@@ -1504,7 +1507,7 @@ static int aic31xx_suspend(struct snd_soc_codec *codec, pm_message_t state)
 			mdelay(1);
 		}
 		aic31xx->from_resume = 0;
-		aic31xx_mute(codec, 1);
+		//aic31xx_mute(codec, 1);
 		aic31xx_set_bias_level(codec, SND_SOC_BIAS_OFF);
 
 		/* Bit 7 of Page 1/ Reg 46 gives the soft powerdown control.
@@ -1640,7 +1643,7 @@ static int aic31xx_codec_probe(struct snd_soc_codec *codec)
 	aic31xx->cfw_p = &(aic31xx->cfw_ps);
 	aic31xx_codec_write(codec, AIC31XX_RESET_REG , 0x01);
 	mdelay(10);
-//	aic3xxx_cfw_init(aic31xx->cfw_p, &aic31xx_cfw_codec_ops, aic31xx);
+	aic3xxx_cfw_init(aic31xx->cfw_p, &aic31xx_cfw_codec_ops, aic31xx);
 	aic31xx->workqueue = create_singlethread_workqueue("aic31xx-codec");
 	if (!aic31xx->workqueue) {
 		ret = -ENOMEM;
@@ -1685,7 +1688,7 @@ static int aic31xx_codec_probe(struct snd_soc_codec *codec)
 
 	aic31xx_add_controls(codec);
 	aic31xx_add_widgets(codec);
-//	ret = aic31xx_driver_init(codec);
+	ret = aic31xx_driver_init(codec);
 	if (ret < 0)
 		dev_dbg(codec->dev,
 	"\nAIC31xx CODEC: aic31xx_probe: TiLoad Initialization failed\n");

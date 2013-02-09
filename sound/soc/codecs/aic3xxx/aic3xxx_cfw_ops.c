@@ -46,7 +46,8 @@ static cfw_project *aic3xxx_cfw_unpickle(void *pcfw, int n);
  * in sync at the time of host testing.
  */
 #undef CFW_FW_IF_ID
-#define CFW_FW_IF_ID 0x3FA6D547
+#define CFW_FW_IF_ID 0x5DDB8192
+// 0x3FA6D547
 static int aic3xxx_cfw_dlimage(cfw_state *ps, cfw_image *pim);
 static int aic3xxx_cfw_dlcfg(cfw_state *ps, cfw_image *pim);
 static int aic3xxx_cfw_dlctl(cfw_state *ps, cfw_block *pb,
