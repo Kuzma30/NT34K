@@ -332,11 +332,11 @@ extern struct usb_phy *otg_get_transceiver(void);
 extern void otg_put_transceiver(struct usb_phy *);
 extern const char *otg_state_string(enum usb_otg_state state);
 #else
-static inline struct usb_otg *otg_get_transceiver(void)
+static inline struct usb_phy *otg_get_transceiver(void)
 {
 	return NULL;
 }
-static inline void otg_put_transceiver(struct usb_otg *x)
+static inline void otg_put_transceiver(struct usb_phy *x)
 {
 }
 static inline const char *otg_state_string(enum usb_otg_state state)

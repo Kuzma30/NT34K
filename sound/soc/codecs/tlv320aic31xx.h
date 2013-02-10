@@ -307,7 +307,7 @@ int aic31xx_dsp_pwrdwn_status(void *);
 
 int aic31xx_ops_reg_read(void *p, unsigned int reg);
 
-int aic31xx_ops_reg_write(void *p, unsigned int reg, unsigned char mval);
+int aic31xx_ops_reg_write(void *p, unsigned int reg, unsigned int mval);
 
 int aic31xx_ops_set_bits(void *p, unsigned int reg, unsigned char mask,
 				unsigned char val);

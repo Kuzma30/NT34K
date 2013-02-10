@@ -162,16 +162,16 @@ static int omap4_hw_params(struct snd_pcm_substream *substream,
 	
 	
 	if (params != NULL) {
+		struct omap_mcbsp *mcbsp = snd_soc_dai_get_drvdata(cpu_dai);
 		/* Configure McBSP internal buffer usage */
 		/* this need to be done for playback and/or record */
 		channels = params_channels(params);
 
 		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
-			omap_mcbsp_set_tx_threshold(cpu_dai->id, channels);
+			omap_mcbsp_set_tx_threshold(mcbsp, channels);
 		else
-			omap_mcbsp_set_rx_threshold(cpu_dai->id, channels);
-	} else
-		pr_debug(" params in else statement is %d\n", params);
+			omap_mcbsp_set_rx_threshold(mcbsp, channels);
+	}
 
 	if (ret < 0)
 		pr_debug(KERN_ERR "can't set cpu system clock\n");
