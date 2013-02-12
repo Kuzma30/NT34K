@@ -930,6 +930,7 @@ static const struct snd_soc_dapm_widget aic31xx_dapm_widgets[] = {
 
 };
 
+#if 0
 /**
  * aic31xx_audio_handler: audio interrupt handler called
  *              when interupt is generated
@@ -947,7 +948,7 @@ static irqreturn_t aic31xx_audio_handler(int irq, void *data)
                            msecs_to_jiffies(200));
         return IRQ_HANDLED;
 }
-
+#endif
 
 /* aic31xx_firmware_load
    This function is called by the request_firmware_nowait function as soon
@@ -1642,7 +1643,6 @@ static int aic31xx_codec_probe(struct snd_soc_codec *codec)
 	control = codec->control_data;
 
 	aic31xx = kzalloc(sizeof(struct aic31xx_priv), GFP_KERNEL);
-
 	if (aic31xx == NULL)
 		return -ENOMEM;
 
@@ -1660,7 +1660,7 @@ static int aic31xx_codec_probe(struct snd_soc_codec *codec)
 	aic31xx->cfw_p = &(aic31xx->cfw_ps);
 	aic31xx_codec_write(codec, AIC31XX_RESET_REG , 0x01);
 	mdelay(10);
-	aic3xxx_cfw_init(aic31xx->cfw_p, &aic31xx_cfw_codec_ops, aic31xx);
+	aic3xxx_cfw_init(aic31xx->cfw_p, &aic31xx_cfw_codec_ops, aic31xx->codec);
 	aic31xx->workqueue = create_singlethread_workqueue("aic31xx-codec");
 	if (!aic31xx->workqueue) {
 		ret = -ENOMEM;
@@ -1696,6 +1696,7 @@ static int aic31xx_codec_probe(struct snd_soc_codec *codec)
 		goto input_dev_err;
 	}
 	
+#if 0
 	if (control->irq) {
 		ret = aic3xxx_request_irq(codec->control_data,
 					AIC31XX_IRQ_HEADSET_DETECT,
@@ -1708,11 +1709,13 @@ static int aic31xx_codec_probe(struct snd_soc_codec *codec)
 			goto irq_err;
 			} else {
 			/*  Dynamic Headset Detection Enabled */
+#endif
 			snd_soc_update_bits(codec, AIC31XX_HS_DETECT_REG,
 			AIC31XX_HEADSET_IN_MASK, AIC31XX_HEADSET_IN_MASK);
+#if 0
 		}
 	}
-
+#endif
 	/* off, with power on */
 	aic31xx_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 	aic31xx->mute_asi = 0;
@@ -1729,18 +1732,18 @@ static int aic31xx_codec_probe(struct snd_soc_codec *codec)
 	ret=request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG,
 		"tlv320aic31xx_fw_v1.bin", codec->dev, GFP_KERNEL, codec,
 		aic31xx_firmware_load);
-	if (ret < 0) {
-		dev_err(codec->dev, "Firmware request failed\n");
-		goto firm_err;
-	}
+//	if (ret < 0) {
+//		dev_err(codec->dev, "Firmware request failed\n");
+//		goto firm_err;
+//	}
 
 	return 0;
 
-firm_err:
-	aic3xxx_free_irq(control,
-                         AIC31XX_IRQ_HEADSET_DETECT, codec);
-irq_err:
-	destroy_workqueue(aic31xx->workqueue);
+//firm_err:
+//	aic3xxx_free_irq(control,
+//                         AIC31XX_IRQ_HEADSET_DETECT, codec);
+//irq_err:
+//	destroy_workqueue(aic31xx->workqueue);
 input_dev_err:
 	input_unregister_device(aic31xx->idev);
 	input_free_device(aic31xx->idev);
@@ -1767,8 +1770,8 @@ static int aic31xx_codec_remove(struct snd_soc_codec *codec)
 	switch (control->type) {
 	case TLV320AIC31XX:
 		if (control->irq) {
-			aic3xxx_free_irq(control, AIC31XX_IRQ_HEADSET_DETECT,
-				codec);
+//			aic3xxx_free_irq(control, AIC31XX_IRQ_HEADSET_DETECT,
+//				codec);
 //			aic3xxx_free_irq(control, AIC31XX_IRQ_BUTTON_PRESS,
 //				codec);
 		}
