@@ -1792,6 +1792,62 @@ static int aic31xx_codec_remove(struct snd_soc_codec *codec)
 	return 0;
 }
 
+#if 1
+/**
+ * Methods for CFW Operations
+ *
+ * Due to incompatibilites between structures used by MFD and CFW
+ * we need to transform the register format before linking to
+ * CFW operations.
+ */
+static inline unsigned int aic31xx_ops_cfw2reg(unsigned int reg)
+{
+        union cfw_register *c = (union cfw_register *) &reg;
+        union aic3xxx_reg_union mreg;
+
+        mreg.aic3xxx_register.offset = c->offset;
+        mreg.aic3xxx_register.page = c->page;
+        mreg.aic3xxx_register.book = c->book;
+        mreg.aic3xxx_register.reserved = 0;
+
+        return mreg.aic3xxx_register_int;
+}
+static int aic31xx_ops_reg_read(struct snd_soc_codec *codec, unsigned int reg)
+{
+        return aic3xxx_reg_read(codec->control_data, aic31xx_ops_cfw2reg(reg));
+}
+
+static int aic31xx_ops_reg_write(struct snd_soc_codec *codec, unsigned int reg,
+                          unsigned char val)
+{
+        return aic3xxx_reg_write(codec->control_data,
+                                        aic31xx_ops_cfw2reg(reg), val);
+}
+
+static int aic31xx_ops_set_bits(struct snd_soc_codec *codec, unsigned int reg,
+                                unsigned char mask, unsigned char val)
+{
+        return aic3xxx_set_bits(codec->control_data,
+                                        aic31xx_ops_cfw2reg(reg), mask, val);
+
+}
+
+static int aic31xx_ops_bulk_read(struct snd_soc_codec *codec, unsigned int reg,
+                                 int count, u8 *buf)
+{
+        return aic3xxx_bulk_read(codec->control_data,
+                                        aic31xx_ops_cfw2reg(reg), count, buf);
+}
+
+static int aic31xx_ops_bulk_write(struct snd_soc_codec *codec, unsigned int reg,
+                           int count, const u8 *buf)
+{
+        return aic3xxx_bulk_write(codec->control_data,
+                                        aic31xx_ops_cfw2reg(reg), count, buf);
+}
+#endif
+#if 0
+
 
 int aic31xx_ops_reg_read(void *p, unsigned int reg)
 {
@@ -1873,7 +1929,7 @@ int aic31xx_ops_bulk_write(void *p, unsigned int reg , int count, const u8 *buf)
 		mreg.aic3xxx_register_int, count, buf);
 	return 0;
 }
-
+#endif
 /*****************************************************************************
   Function Name : aic31xx_ops_lock
 Argument      : pointer argument to the codec

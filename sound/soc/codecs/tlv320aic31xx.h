@@ -305,6 +305,7 @@ int aic31xx_pwr_down(void *, int , int , int , int);
 
 int aic31xx_dsp_pwrdwn_status(void *);
 
+#if 0
 int aic31xx_ops_reg_read(void *p, unsigned int reg);
 
 int aic31xx_ops_reg_write(void *p, unsigned int reg, unsigned int mval);
@@ -315,7 +316,7 @@ int aic31xx_ops_set_bits(void *p, unsigned int reg, unsigned char mask,
 int aic31xx_ops_bulk_read(void *p, unsigned int reg, int count, u8 *buf);
 
 int aic31xx_ops_bulk_write(void *p, unsigned int reg, int count, const u8 *buf);
-
+#endif
 int aic31xx_ops_lock(void *pv);
 
 int aic31xx_ops_unlock(void *pv);
