@@ -660,6 +660,15 @@ static struct __devinitdata emif_custom_configs custom_configs = {
 };
 #endif
 
+static void set_osc_timings(void)
+{
+	/* Device Oscilator
+	 * tstart = 2ms + 2ms = 4ms.
+	 * tshut = Not defined in oscillator data sheet so setting to 1us
+	 */
+	omap_pm_setup_oscillator(4000, 1);
+}
+
 static void __init omap_tablet_init(void)
 {
 	int status;
@@ -690,6 +699,8 @@ static void __init omap_tablet_init(void)
 	omap4_mux_init(board_mux, NULL, package);
 	omap_init_board_version(0);
 	omap_create_board_props();
+
+	set_osc_timings();
 	omap4_i2c_init();
 	platform_add_devices(tablet_devices, ARRAY_SIZE(tablet_devices));
 	omap4_board_serial_init();
@@ -736,7 +747,6 @@ static void __init omap_tablet_reserve(void)
 	omap_ram_console_init(OMAP_RAM_CONSOLE_START_DEFAULT,
 			OMAP_RAM_CONSOLE_SIZE_DEFAULT);
 	omap_rproc_reserve_cma(RPROC_CMA_OMAP4);
-	tablet_android_display_setup();
 	omap4_ion_init();
 	omap4_secure_workspace_addr_default();
 	omap_reserve();

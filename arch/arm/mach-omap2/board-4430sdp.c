@@ -1302,6 +1302,15 @@ static struct __devinitdata emif_custom_configs custom_configs = {
 };
 #endif
 
+static void set_osc_timings(void)
+{
+	/* Device Oscilator
+	 * tstart = 2ms + 2ms = 4ms.
+	 * tshut = Not defined in oscillator data sheet so setting to 1us
+	 */
+	omap_pm_setup_oscillator(4000, 1);
+}
+
 static void __init omap_4430sdp_init(void)
 {
 	int status;
@@ -1335,6 +1344,8 @@ static void __init omap_4430sdp_init(void)
 	omap4_mux_init(board_mux, NULL, package);
 	omap_init_board_version(0);
 	omap_create_board_props();
+
+	set_osc_timings();
 	omap4_i2c_init();
 	blaze_sensor_init();
 	blaze_touch_init();
@@ -1398,7 +1409,7 @@ static void __init omap_4430sdp_init_early(void)
 }
 
 
-MACHINE_START(OMAP_4430SDP, "OMAP4430 4430SDP board")
+MACHINE_START(OMAP_4430SDP, "OMAP4 Blaze board")
 	/* Maintainer: Santosh Shilimkar - Texas Instruments Inc */
 	.atag_offset	= 0x100,
 	.reserve	= omap_4430sdp_reserve,

@@ -114,11 +114,10 @@ struct twl6030_usb {
 
 	enum omap_musb_vbus_id_status prev_status;
 
+	struct wake_lock	charger_det_lock;
 };
 
 static BLOCKING_NOTIFIER_HEAD(notifier_list);
-
-static struct phy_companion	*comparator;
 
 #define	comparator_to_twl(x) container_of((x), struct twl6030_usb, comparator)
 /*-------------------------------------------------------------------------*/
@@ -258,6 +257,7 @@ static irqreturn_t twl6030_usb_irq(int irq, void *_twl)
 		if (vbus_state & VBUS_DET) {
 			if (twl->prev_status == OMAP_MUSB_VBUS_VALID)
 				return IRQ_HANDLED;
+			wake_lock(&twl->charger_det_lock);
 			twl6030_enable_ldo_input_supply(twl, true);
 			regulator_enable(twl->usb3v3);
 			charger_type = omap_usb2_charger_detect(
@@ -271,6 +271,7 @@ static irqreturn_t twl6030_usb_irq(int irq, void *_twl)
 			omap_musb_mailbox(status);
 			blocking_notifier_call_chain(&notifier_list,
 						     event, &charger_type);
+			wake_unlock(&twl->charger_det_lock);
 		} else {
 			if (twl->prev_status != OMAP_MUSB_UNKNOWN) {
 				if (twl->prev_status == OMAP_MUSB_VBUS_OFF)
@@ -386,9 +387,8 @@ static int __devinit twl6030_usb_probe(struct platform_device *pdev)
 
 	twl->comparator.set_vbus	= twl6030_set_vbus;
 	twl->comparator.start_srp	= twl6030_start_srp;
-	comparator			= &twl->comparator;
 
-	omap_usb2_set_comparator(comparator);
+	omap_usb2_set_comparator(&twl->comparator);
 
 	/* init spinlock for workqueue */
 	spin_lock_init(&twl->lock);
@@ -405,7 +405,8 @@ static int __devinit twl6030_usb_probe(struct platform_device *pdev)
 		dev_warn(&pdev->dev, "could not create sysfs file\n");
 
 	INIT_WORK(&twl->set_vbus_work, otg_set_vbus_work);
-
+	wake_lock_init(&twl->charger_det_lock,
+		       WAKE_LOCK_SUSPEND, "charger_detector");
 	twl->irq_enabled = true;
 	status = request_threaded_irq(twl->irq1, NULL, twl6030_usbotg_irq,
 			IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING,
@@ -413,6 +414,7 @@ static int __devinit twl6030_usb_probe(struct platform_device *pdev)
 	if (status < 0) {
 		dev_err(&pdev->dev, "can't get IRQ %d, err %d\n",
 			twl->irq1, status);
+		wake_lock_destroy(&twl->charger_det_lock);
 		device_remove_file(twl->dev, &dev_attr_vbus);
 		kfree(twl);
 		return status;
@@ -425,6 +427,7 @@ static int __devinit twl6030_usb_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "can't get IRQ %d, err %d\n",
 			twl->irq2, status);
 		free_irq(twl->irq1, twl);
+		wake_lock_destroy(&twl->charger_det_lock);
 		device_remove_file(twl->dev, &dev_attr_vbus);
 		kfree(twl);
 		return status;
@@ -450,6 +453,7 @@ static int __exit twl6030_usb_remove(struct platform_device *pdev)
 	regulator_put(twl->usb3v3);
 	device_remove_file(twl->dev, &dev_attr_vbus);
 	cancel_work_sync(&twl->set_vbus_work);
+	wake_lock_destroy(&twl->charger_det_lock);
 	kfree(twl);
 
 	return 0;

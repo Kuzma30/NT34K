@@ -36,6 +36,8 @@
 
 static int control_reg = -1;
 
+static int control_reg;
+
 /**
  * omap4_usb_phy_power - power on/off the phy using control module reg
  * @dev: struct device *
@@ -85,15 +87,18 @@ EXPORT_SYMBOL_GPL(omap4_usb_phy_mailbox);
 static int __devinit omap_usb_phy_probe(struct platform_device *pdev)
 {
 	struct omap_control *omap_control;
+	struct omap_control_data *control_data;
 
 	omap_control = dev_get_drvdata(pdev->dev.parent);
+	control_data = dev_get_platdata(omap_control->dev);
 
-	if (cpu_is_omap44xx())
+	if (control_data->rev == 1)
 		control_reg = OMAP4_CONTROL_USB2PHYCORE;
-	else if (cpu_is_omap54xx())
+	else if (control_data->rev == 2)
 		control_reg = OMAP5_CONTROL_USB2PHYCORE;
 	else
-		dev_err(&pdev->dev, "not supported OMAP version\n");
+		dev_err(&pdev->dev, "not supported OMAP version rev=%u\n",
+			control_data->rev);
 
 	/* just for the sake */
 	if (!omap_control) {
