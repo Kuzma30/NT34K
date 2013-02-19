@@ -1301,7 +1301,7 @@ static void enable_rtc_gpio(void)
 	return;
 }
 
-static void omap4_tablet_wifi_mux_init(void)
+static void __init omap4_tablet_wifi_mux_init(void)
 {
 	omap_mux_init_gpio(GPIO_WIFI_IRQ, OMAP_PIN_INPUT |
 			   OMAP_PIN_OFF_WAKEUPENABLE);
@@ -1335,7 +1335,7 @@ static struct wl12xx_platform_data omap4_tablet_wlan_data __initdata = {
 	.set_power = wlan_set_power,
 };
 
-static void omap4_sdp4430_wifi_init(void)
+static void __init omap4_sdp4430_wifi_init(void)
 {
 	int status = 0;
 
@@ -1484,7 +1484,7 @@ static inline void ramconsole_reserve_sdram(void)
 #define LCD_CABC1_GPIO 45
 #define LCD_BL_PWR_EN_GPIO      	38
 #define DEFAULT_BACKLIGHT_BRIGHTNESS	105
-static void acclaim_init_display_led(void)
+static inline void acclaim_init_display_led(void)
 {
 	if (acclaim_board_type() >= EVT2) {
 		printk(KERN_INFO "init_display_led: evt2 hardware\n");
