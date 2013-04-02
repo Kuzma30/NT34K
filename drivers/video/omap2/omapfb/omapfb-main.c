@@ -1414,16 +1414,11 @@ static int omapfb_blank(int blank, struct fb_info *fbi)
 
 	case FB_BLANK_NORMAL:
 		/* FB_BLANK_NORMAL could be implemented.
-		 * Do not suspend for HDMI in case of early
-		 * suspend since HDMI audio can be active */
-		if (display && display->name &&
-			strcmp(display->name, "hdmi") == 0) {
-			DBG("HDMI not suspended\n");
-			break;
-		}
+		 * Needs DSS additions. */
 	case FB_BLANK_VSYNC_SUSPEND:
 	case FB_BLANK_HSYNC_SUSPEND:
 	case FB_BLANK_POWERDOWN:
+
 		if (fbdev->vsync_active)
 			omapfb_enable_vsync(fbdev, display->channel, false);
 
@@ -2081,11 +2076,18 @@ static int omapfb_create_framebuffers(struct omapfb2_device *fbdev)
 	DBG("fb_infos allocated\n");
 
 	/* assign overlays for the fbs */
-	for (i = 0; i < min(fbdev->num_fbs, fbdev->num_overlays); i++) {
+	for (i = 0; i < min3(fbdev->num_fbs, fbdev->num_overlays,
+				fbdev->num_managers); i++) {
 		struct omapfb_info *ofbi = FB2OFB(fbdev->fbs[i]);
-
+		struct omap_overlay_manager *mgr = fbdev->managers[i];
 		ofbi->overlays[0] = fbdev->overlays[i];
 		ofbi->num_overlays = 1;
+		if (mgr->device) {
+			ofbi->overlays[0]->unset_manager(ofbi->overlays[0]);
+			ofbi->overlays[0]->set_manager(ofbi->overlays[0], mgr);
+			DBG("ofbi%d assigned dev %s",
+						ofbi->id, mgr->device->name);
+		}
 	}
 
 	/* allocate fb memories */

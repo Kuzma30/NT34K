@@ -772,7 +772,7 @@ err:
 
 static void twl6030_start_usb_charger(struct twl6030_bci_device_info *di)
 {
-	if (di->cell.cc)
+	if (di->cell.full)
 		return;
 
 	if (!delayed_work_pending(&di->twl6030_watchdog_work))
@@ -812,7 +812,7 @@ static void twl6030_start_ac_charger(struct twl6030_bci_device_info *di)
 	long int events;
 	int ret;
 
-	if (di->cell.cc)
+	if (di->cell.full)
 		return;
 
 	if (!is_battery_present(di)) {
@@ -1046,6 +1046,7 @@ static irqreturn_t twl6030charger_ctrl_interrupt(int irq, void *_di)
 
 	if (stat_set & CONTROLLER_STAT1_FAULT_WDG) {
 		charger_fault = 1;
+		di->stat1 &= ~CONTROLLER_STAT1_FAULT_WDG;
 		dev_dbg(di->dev, "Fault watchdog fired\n");
 	}
 	if (stat_reset & CONTROLLER_STAT1_FAULT_WDG)
@@ -1066,7 +1067,7 @@ static irqreturn_t twl6030charger_ctrl_interrupt(int irq, void *_di)
 		twl6032_charger_ctrl_interrupt(di);
 
 	if (charger_fault) {
-		twl6030_stop_usb_charger(di);
+		twl6030_stop_charger(di);
 		di->charge_status = POWER_SUPPLY_STATUS_NOT_CHARGING;
 		dev_err(di->dev, "Charger Fault stop charging\n");
 	}
@@ -1139,7 +1140,7 @@ static irqreturn_t twl6030charger_fault_interrupt(int irq, void *_di)
 		dev_dbg(di->dev, "USB ANTICOLLAPSE\n");
 
 	if (charger_fault) {
-		twl6030_stop_usb_charger(di);
+		twl6030_stop_charger(di);
 		di->charge_status = POWER_SUPPLY_STATUS_NOT_CHARGING;
 		dev_err(di->dev, "Charger Fault stop charging\n");
 	}
@@ -1726,7 +1727,7 @@ static int capacity_changed(struct twl6030_bci_device_info *di)
 
 	/* Stop the charger */
 	if ((di->charge_status == POWER_SUPPLY_STATUS_CHARGING) &&
-	    di->cell.cc)
+	    di->cell.full)
 		twl6030_stop_charger(di);
 
 	/* Gas gauge requested CC autocalibration */
@@ -1740,6 +1741,8 @@ static int capacity_changed(struct twl6030_bci_device_info *di)
 	/* Battery state changes needs to be sent to the OS */
 	if (di->cell.updated) {
 		di->cell.updated = 0;
+		if (di->charge_status != POWER_SUPPLY_STATUS_CHARGING)
+			di->charge_status = twl6030_get_discharge_status(di);
 		return 1;
 	}
 
@@ -2118,6 +2121,7 @@ static int twl6030_usb_notifier_call(struct notifier_block *nb,
 		di->usb_max_power = *((unsigned int *)data);
 		break;
 	case USB_EVENT_CHARGER:
+		break;
 	case USB_EVENT_NONE:
 		return NOTIFY_OK;
 	case USB_EVENT_ID:
