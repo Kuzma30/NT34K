@@ -32,8 +32,8 @@
 #include <linux/io.h>
 #include <linux/device.h>
 #include <linux/regulator/consumer.h>
-//#include <plat/omap_hwmod.h>
-//#include <plat/omap-pm.h>
+#include <plat/omap_hwmod.h>
+#include <plat/omap-pm.h>
 #include <linux/earlysuspend.h>
 
 #include <video/omapdss.h>
