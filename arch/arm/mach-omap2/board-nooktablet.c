@@ -143,11 +143,11 @@
 #include <linux/mfd/tlv320aic3xxx-core.h>
 #include <linux/platform_data/omap-abe-aic31xx.h>
 
-static void omap4_audio_conf(void)
+/*static void omap4_audio_conf(void)
 {
-	/* aic31xx naudint */
+	// aic31xx naudint 
 	omap_mux_init_signal("kpd_row1.gpio_2", OMAP_PIN_INPUT_PULLDOWN);
-}
+}*/
 
 static struct aic3xxx_gpio_setup aic3xxx_gpio[] ={
         {
@@ -158,11 +158,21 @@ static struct aic3xxx_gpio_setup aic3xxx_gpio[] ={
 
 static struct aic3xxx_pdata aic31xx_codec_pdata ={
         .audio_mclk1 = 19200000,
+#if 0
 	.num_gpios = ARRAY_SIZE(aic3xxx_gpio),
         .gpio_irq = 1,
         .gpio_defaults = aic3xxx_gpio,
         .naudint_irq = 0,//102,
         .irq_base = AIC31XX_CODEC_IRQ_BASE,
+#endif
+        .regulator_name = "audio-pwr",
+        .regulator_min_uV = 3000000,
+        .regulator_max_uV = 3000000,
+};
+
+static struct platform_device sdp4430_aic3110 = {
+        .name   = "omap4-panda-aic31xx",
+        .id     = -1,
 };
 
 static struct i2c_board_info __initdata panda_i2c_codec[] = {
@@ -620,7 +630,7 @@ static struct platform_device acclaim_lcd_regulator = {
 static struct platform_device *sdp4430_devices[] __initdata = {
 	//&sdp4430_leds_gpio,
 	//&sdp4430_leds_pwm,
-//	&sdp4430_aic3110,
+	&sdp4430_aic3110,
 	&acclaim_keys_gpio,
 //      &wl128x_device,
 //      &btwilink_device,
@@ -879,7 +889,7 @@ static struct regulator_init_data sdp4430_vpp = {
 static struct regulator_init_data sdp4430_vusim = {
 	.constraints = {
 			.min_uV = 1200000,
-			.max_uV = 2900000,
+			.max_uV = 3300000,
 			.apply_uV = true,
 			.valid_modes_mask = REGULATOR_MODE_NORMAL
 			| REGULATOR_MODE_STANDBY,
@@ -1390,7 +1400,7 @@ static void __init omap_4430sdp_init(void)
 	omap4_mux_init(board_mux, NULL, package);
 
 	omap4_i2c_init();
-	omap4_audio_conf();
+//	omap4_audio_conf();
 	
 	platform_add_devices(sdp4430_devices, ARRAY_SIZE(sdp4430_devices));
 	board_serial_init();	//omap_serial_init();
@@ -1447,7 +1457,7 @@ static void __init omap_4430sdp_init(void)
 	omap_init_dmm_tiler();
 	omap4_register_ion();
 	
-	omap4_mcbsp3_init();
+//	omap4_mcbsp3_init();
 	
 	acclaim_panel_init();
 	omap_enable_smartreflex_on_init();
