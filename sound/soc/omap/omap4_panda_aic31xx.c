@@ -93,9 +93,10 @@ static int omap_abe_mcbsp_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
 	int ret = 0, err = 0;
 	unsigned int channels;
-#ifdef CONFIG_MACH_OMAP_4430_KC1
+//#ifdef CONFIG_MACH_OMAP_4430_KC1
 	void __iomem *phymux_base = NULL;
-#endif
+	u32 phy_val;
+//#endif
 
 
 #ifdef AIC31XX_MCBSP_SLAVE
@@ -121,6 +122,13 @@ static int omap_abe_mcbsp_hw_params(struct snd_pcm_substream *substream,
 			return ret;
 		}
 		
+		/* Enabling the 19.2 Mhz Master Clock Output
+                from OMAP4 for Acclaim Board */
+		phymux_base = ioremap(0x4A30A000, 0x1000);
+		phy_val = __raw_readl(phymux_base + 0x0314);
+		phy_val = (phy_val & 0xFFF0FEFF) | (0x00010100);
+		__raw_writel(phy_val, phymux_base + 0x0314);
+		iounmap(phymux_base);
 #ifdef CONFIG_MACH_OMAP_4430_KC1
 		/* Enabling the 19.2 Mhz Master Clock Output from OMAP4 for KC1 Board */
 		phymux_base = ioremap(0x4a30a000, 0x1000);
@@ -428,10 +436,9 @@ static int Qoo_headset_jack_status_check(void)
 	}
 	return ret;
 }
-
 static struct snd_soc_dai_link omap4_dai_abe[] = {
 	{
-		.name = "tlv320aic3110 Media1 LP",
+		.name = "tlv320aic31xx Media1 LP",
 		.stream_name = "Multimedia",
 		/* ABE components - MM-DL (mmap) */
 		.cpu_dai_name = "MultiMedia1 LP",
@@ -442,7 +449,7 @@ static struct snd_soc_dai_link omap4_dai_abe[] = {
 		.trigger = {SND_SOC_DPCM_TRIGGER_BESPOKE, SND_SOC_DPCM_TRIGGER_BESPOKE},
 	},
 	{
-		.name = "tlv320aic3110 Media",
+		.name = "tlv320aic31xx Media",
 		.stream_name = "Multimedia",
 		/* ABE components - MM-UL & MM_DL */
 		.cpu_dai_name = "MultiMedia1",
@@ -453,7 +460,7 @@ static struct snd_soc_dai_link omap4_dai_abe[] = {
 		.trigger = {SND_SOC_DPCM_TRIGGER_BESPOKE, SND_SOC_DPCM_TRIGGER_BESPOKE},
 	},
 	{
-		.name = "tlv320aic3110 Media Capture",
+		.name = "tlv320aic31xx Media Capture",
 		.stream_name = "Multimedia Capture",
 		/* ABE components - MM-UL2 */
 		.cpu_dai_name = "MultiMedia2",
@@ -465,10 +472,10 @@ static struct snd_soc_dai_link omap4_dai_abe[] = {
 	},
 	{
 
-		.name = "Legacy McBSP3",
+		.name = "Legacy McBSP2",
 		.stream_name = "MultiMedia",
 		/* ABE components - MCBSP2 - MM-EXT */
-		.cpu_dai_name = "omap-mcbsp.2",
+		.cpu_dai_name = "omap-mcbsp.1",
 		.codec_dai_name = "tlv320aic31xx-MM_EXT",
 		.platform_name = "omap-pcm-audio",
 		.codec_name = "tlv320aic31xx-codec",
@@ -485,7 +492,7 @@ static struct snd_soc_dai_link omap4_dai_abe[] = {
 		.stream_name = "FM Capture",
 
 		/* ABE components - MCBSP2 - MM-EXT */
-		.cpu_dai_name = "omap-mcbsp.2",
+		.cpu_dai_name = "omap-mcbsp.1",
 		.platform_name = "aess",
 
 		/* FM */
@@ -502,7 +509,7 @@ static struct snd_soc_dai_link omap4_dai_abe[] = {
 		.stream_name = "FM Playback",
 
 		/* ABE components - MCBSP2 - MM-EXT */
-		.cpu_dai_name = "omap-mcbsp.2",
+		.cpu_dai_name = "omap-mcbsp.1",
 		.platform_name = "aess",
 
 		/* FM */
@@ -515,7 +522,122 @@ static struct snd_soc_dai_link omap4_dai_abe[] = {
 		.be_id = OMAP_ABE_DAI_MM_FM,
 	},
 };
+#if 0
+static struct snd_soc_dai_link omap4_dai_abe[] = {
+  	{
+		.name = "tlv320aic3110 Media1 LP",
+		.stream_name = "Multimedia",
 
+		/* ABE components - MM-DL (mmap) */
+		.cpu_dai_name = "MultiMedia1 LP",
+		.platform_name = "aess",
+
+		/* BE is dynamic */
+		.dynamic = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_BESPOKE, SND_SOC_DPCM_TRIGGER_BESPOKE},
+
+		//.dsp_link = &fe_lp_media,
+		//.supported_be = mm_lp_be,
+		//.num_be = ARRAY_SIZE(mm_lp_be),
+	},
+	{
+		.name = "tlv320aic3110 Media",
+		.stream_name = "Multimedia",
+
+		/* ABE components - MM-UL & MM_DL */
+		.cpu_dai_name = "MultiMedia1",
+		.platform_name = "omap-pcm-audio",
+
+		/* BE is dynamic */
+		.dynamic = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_BESPOKE, SND_SOC_DPCM_TRIGGER_BESPOKE},
+
+		//.dsp_link = &fe_media,
+		//.supported_be = mm1_be,
+		//.num_be = ARRAY_SIZE(mm1_be),
+	},
+	{
+		.name = "tlv320aic3110 Media Capture",
+		.stream_name = "Multimedia Capture",
+
+		/* ABE components - MM-UL2 */
+		.cpu_dai_name = "MultiMedia2",
+		.platform_name = "omap-pcm-audio",
+
+		.dynamic = 1, /* BE is dynamic */
+		.trigger = {SND_SOC_DPCM_TRIGGER_BESPOKE, SND_SOC_DPCM_TRIGGER_BESPOKE},
+
+		//.dsp_link = &fe_media_capture,
+		//.supported_be = mm1_be,
+		//.num_be = ARRAY_SIZE(mm1_be),
+	},
+
+	{
+		.name = "Legacy McBSP",
+		.stream_name = "Multimedia",
+
+		/* ABE components - MCBSP3 - MM-EXT */
+		.cpu_dai_name = "omap-mcbsp.1",
+		.platform_name = "omap-pcm-audio",
+
+		/* FM */
+
+		.codec_dai_name = "tlv320aic3110-MM_EXT",
+		.codec_name = "tlv320aic31xx-codec",
+
+		.ops = &omap_abe_mcbsp_ops,
+		.ignore_suspend = 1,
+	},
+
+/*
+ * Backend DAIs - i.e. dynamically matched interfaces, invisible to userspace.
+ * Matched to above interfaces at runtime, based upon use case.
+ */
+
+	{
+		.name = OMAP_ABE_BE_MM_EXT0_DL,
+		.stream_name = "FM Playback",
+
+		/* ABE components - MCBSP3 - MM-EXT */
+		.cpu_dai_name = "omap-mcbsp.1",
+		.platform_name = "aess",
+
+		/* FM */
+		.codec_dai_name = "tlv320aic3110-MM_EXT",
+		.codec_name = "tlv320aic31xx-codec",
+
+		/* don't create ALSA pcm for this */
+		.no_pcm = 1,
+		.be_hw_params_fixup = mcbsp_be_hw_params_fixup,
+		.ops = &omap_abe_mcbsp_ops,
+		//.be_id = OMAP_ABE_DAI_MM_FM,
+		//.private_data = &mm_ext0_config,
+		.init = omap4_aic31xx_init,
+		.ignore_suspend = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_BESPOKE, SND_SOC_DPCM_TRIGGER_BESPOKE},
+	},
+	{
+		.name = OMAP_ABE_BE_MM_EXT0_UL,
+		.stream_name = "FM Capture",
+
+		/* ABE components - MCBSP3 - MM-EXT */
+		.cpu_dai_name = "omap-mcbsp.1",
+		.platform_name = "aess",
+
+		/* FM */
+		.codec_dai_name = "tlv320aic3110-MM_EXT",
+		.codec_name = "tlv320aic31xx-codec",
+
+		.no_pcm = 1, /* don't create ALSA pcm for this */
+		.be_hw_params_fixup = mcbsp_be_hw_params_fixup,
+		.ops = &omap_abe_mcbsp_ops,
+		//.be_id = OMAP_ABE_DAI_MM_FM,
+		//.private_data = &mm_ext0_config,
+		.ignore_suspend = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_BESPOKE, SND_SOC_DPCM_TRIGGER_BESPOKE},
+	},
+};
+#endif
 /* The below mentioend DAI LINK Structure is to be used in McBSP3 Legacy Mode
  * only when the AIC3110 Audio Codec Chipset is interfaced via McBSP3 Port
  */
@@ -523,8 +645,8 @@ static struct snd_soc_dai_link omap4_dai_abe[] = {
 
 static struct snd_soc_card omap_abe_card = {
 	.owner = THIS_MODULE,
-	.name = "AIC31XX_OTTER",
-	.long_name = "TI OMAP4 Kindle Fire",
+	.name = "AIC31XX_ACCLAIM",
+	.long_name = "TI OMAP4 NOOK TABLET",
 	.dai_link = omap4_dai_abe,
 	.num_links = ARRAY_SIZE(omap4_dai_abe),
 };
