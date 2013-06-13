@@ -346,8 +346,8 @@ static const struct snd_soc_dapm_route audio_map[] = {
 
 	/* Connections between aic31xx and ABE */
 	/* FM <--> ABE */
-	{"omap-mcbsp.2 Playback", NULL, "MM_EXT_DL"},
-	{"MM_EXT_UL", NULL, "omap-mcbsp.2 Capture"},
+	{"omap-mcbsp.1 Playback", NULL, "MM_EXT_DL"},
+	{"MM_EXT_UL", NULL, "omap-mcbsp.1 Capture"},
 };
 
 /*
