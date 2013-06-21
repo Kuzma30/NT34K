@@ -518,45 +518,6 @@ quit_search:
 	return ret;
 }
 
-void omap_wakeupgen_init_finish(void)
-{
-	int i;
-	unsigned int max_spi_reg;
-
-	/*
-	 * Find out how many interrupts are supported.
-	 * OMAP4 supports max of 128 SPIs where as GIC can support
-	 * up to 1020 interrupt sources. On OMAP4, maximum SPIs are
-	 * fused in DIST_CTR bit-fields as 128. Hence the code is safe
-	 * from reserved register writes since its well within 1020.
-	 */
-	max_spi_reg = gic_readl(GIC_DIST_CTR, 0) & 0x1f;
-
-	/* Moved this code into it's own block called in omap-mpuss-lowpower to let sar init be setup first */
-	if (cpu_is_omap44xx() && (omap_type() == OMAP2_DEVICE_TYPE_GP)) {
-		sar_base = omap4_get_sar_ram_base();
-
-		if (IS_PM44XX_ERRATUM(PM_OMAP4_ROM_CPU1_BACKUP_ERRATUM_xxx))
-			for (i = SAR_BACKUP_STATUS_OFFSET;
-			     i < WAKEUPGENENB_OFFSET_CPU0; i += 4)
-				sar_writel(0, i, 0);
-
-		sar_writel(GIC_ISR_NON_SECURE, SAR_ICDISR_CPU0_OFFSET, 0);
-		sar_writel(GIC_ISR_NON_SECURE, SAR_ICDISR_CPU1_OFFSET, 0);
-		for (i = 0; i < max_spi_reg; i++)
-			sar_writel(GIC_ISR_NON_SECURE, SAR_ICDISR_SPI_OFFSET,
-				   i);
-
-		if (IS_PM44XX_ERRATUM(PM_OMAP4_ROM_CPU1_BACKUP_ERRATUM_xxx))
-			__raw_writel(SAR_BACKUP_STATUS_GIC_CPU0,
-				     sar_base + SAR_BACKUP_STATUS_OFFSET);
-
-	} else {
-		l3_main_3_oh = omap_hwmod_lookup("l3_main_3");
-		if (!l3_main_3_oh)
-			pr_err("%s: failed to get l3_main_3_oh\n", __func__);
-	}
-}
 
 /*
  * Continue initialise the wakeupgen initialization after sar
