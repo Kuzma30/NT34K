@@ -24,8 +24,9 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
  *
  */
-#define PRINTK_COLORS
+//#define PRINTK_COLORS
 #define CONFIG_TOUCHSCREEN_FT5x06_TEST
+//#define FTX_SUPPORT_ST
 
 #include <linux/kobject.h>
 #include <linux/delay.h>
