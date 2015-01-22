@@ -32,6 +32,10 @@
 #include <linux/delay.h>
 #include <linux/mfd/omap_control.h>
 #include <linux/usb/omap4_usb_phy.h>
+#include <plat/usb.h>
+
+#define USB2PHY_ANA_CONFIG1			(0x4C)
+#define DISCON_BYP_LATCH			(1<<31)
 
 /**
  * omap_usb2_set_comparator - links the comparator present in the sytem with
@@ -113,6 +117,7 @@ static int omap_usb_set_peripheral(struct usb_otg *otg,
 static int omap_usb2_suspend(struct usb_phy *x, int suspend)
 {
 	u32		ret;
+	u32		val;
 	struct omap_usb *phy = phy_to_omapusb(x);
 
 	if (suspend && !phy->is_suspended) {
@@ -146,6 +151,24 @@ static int omap_usb2_suspend(struct usb_phy *x, int suspend)
 
 		omap4_usb_phy_power(phy->control_dev, 1);
 
+	        /*
+	         *
+                 * Reduce the sensitivity of internal PHY by enabling the
+                 * DISCON_BYP_LATCH of the USB2PHY_ANA_CONFIG1 register. This
+                 * resolves issues with certain devices which can otherwise be
+                 * prone to false disconnects.
+	         *
+                 * This should be qualified with a runtime check for ensuring
+                 * the issue is applicable, but at this time all devices
+                 * including the USB2PHY IP are impacted by this issue. Once
+                 * there is a HW fix for this issue, the runtime check should
+                 * be added.
+	         *
+	         */
+		val = omap_usb_readl(phy->ocp2scp_base, USB2PHY_ANA_CONFIG1);
+		val |= DISCON_BYP_LATCH;
+		omap_usb_writel(phy->ocp2scp_base, USB2PHY_ANA_CONFIG1, val);
+
 		phy->is_suspended = 0;
 	}
 
@@ -159,9 +182,11 @@ err3:
 	return ret;
 }
 
+
 static int __devinit omap_usb2_probe(struct platform_device *pdev)
 {
 	struct omap_usb			*phy;
+	struct resource			*res;
 	struct usb_otg			*otg;
 	struct clk			*optclk;
 
@@ -174,6 +199,13 @@ static int __devinit omap_usb2_probe(struct platform_device *pdev)
 	otg = devm_kzalloc(&pdev->dev, sizeof(*otg), GFP_KERNEL);
 	if (!otg) {
 		dev_err(&pdev->dev, "unable to allocate memory for USB OTG\n");
+		return -ENOMEM;
+	}
+
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	phy->ocp2scp_base = devm_request_and_ioremap(&pdev->dev, res);
+	if (!phy->ocp2scp_base) {
+		dev_err(&pdev->dev, "ioremap of ocp2scp_base failed\n");
 		return -ENOMEM;
 	}
 
