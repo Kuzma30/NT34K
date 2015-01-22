@@ -46,9 +46,10 @@ static cfw_project *aic3xxx_cfw_unpickle(void *pcfw, int n);
  * in sync at the time of host testing.
  */
 #undef CFW_FW_IF_ID
+// FIXME-HASH: the FIRMWARE ID in the default firmware from TI is different that what's here.
+//#define CFW_FW_IF_ID 0x3FA6D547
 #define CFW_FW_IF_ID 0x5DDB8192
-// 0x3FA6D547
-static int aic3xxx_cfw_dlimage(cfw_state *ps, cfw_image *pim);
+//static int aic3xxx_cfw_dlimage(cfw_state *ps, cfw_image *pim);
 static int aic3xxx_cfw_dlcfg(cfw_state *ps, cfw_image *pim);
 static int aic3xxx_cfw_dlctl(cfw_state *ps, cfw_block *pb,
 			     u32 mute_flags);
@@ -56,34 +57,13 @@ static int aic3xxx_cfw_dlctl(cfw_state *ps, cfw_block *pb,
 static
 #endif
 void aic3xxx_cfw_dlcmds(cfw_state *ps, cfw_block *pb);
-#ifndef AIC3XXX_CFW_HOST_BLD
-static
-#endif
-int aic3xxx_cfw_set_mode_id(cfw_state *ps);
-#ifndef AIC3XXX_CFW_HOST_BLD
-static
-#endif
-int aic3xxx_cfw_mute(cfw_state *ps, int mute, u32 flags);
-#ifndef AIC3XXX_CFW_HOST_BLD
-static
-#endif
-int aic3xxx_cfw_setmode_cfg_u(cfw_state *ps, int mode, int cfg);
-#ifndef AIC3XXX_CFW_HOST_BLD
-static
-#endif
-int aic3xxx_cfw_setcfg_u(cfw_state *ps, int cfg);
-#ifndef AIC3XXX_CFW_HOST_BLD
-static
-#endif
-int aic3xxx_cfw_transition_u(cfw_state *ps, char *ttype);
-#ifndef AIC3XXX_CFW_HOST_BLD
-static
-#endif 
-int aic3xxx_cfw_set_pll_u(cfw_state *ps, int asi);
-#ifndef AIC3XXX_CFW_HOST_BLD
-static
-#endif
-int aic3xxx_cfw_control_u(cfw_state *ps, char *cname, int param);
+static int aic3xxx_cfw_set_mode_id(cfw_state *ps);
+static int aic3xxx_cfw_mute(cfw_state *ps, int mute, u32 flags);
+static int aic3xxx_cfw_setmode_cfg_u(cfw_state *ps, int mode, int cfg);
+static int aic3xxx_cfw_setcfg_u(cfw_state *ps, int cfg);
+static int aic3xxx_cfw_transition_u(cfw_state *ps, char *ttype);
+static int aic3xxx_cfw_set_pll_u(cfw_state *ps, int asi);
+static int aic3xxx_cfw_control_u(cfw_state *ps, char *cname, int param);
 
 static void aic3xxx_wait(cfw_state *ps, unsigned int reg, u8 mask,
 			 u8 data);
@@ -220,7 +200,7 @@ static int aic3xxx_cfw_setmode_cfg_u(cfw_state *ps, int mode, int cfg)
 {
 	cfw_project *pjt = ps->pjt;
 	cfw_mode *pmode;
-	int which = 0, ocndx;
+//	int which = 0, ocndx;
 
 	if (pjt == NULL)
 		return -1;
@@ -237,7 +217,7 @@ static int aic3xxx_cfw_setmode_cfg_u(cfw_state *ps, int mode, int cfg)
 	pmode = pjt->mode[mode];
 	if (pjt->mode[mode]->pfw < pjt->npfw) {
 		/* New mode uses miniDSP */
-		cfw_image *im;
+//		cfw_image *im;
 		cfw_pfw *pfw = pjt->pfw[pmode->pfw];
 
 		/* Make sure cfg is valid and supported in this mode */
@@ -694,6 +674,7 @@ static int aic3xxx_cfw_dlcfg(cfw_state *ps, cfw_image *pim)
 	return 0;
 }
 
+#if 0
 static int aic3xxx_cfw_dlimage(cfw_state *ps, cfw_image *pim)
 {
 	int i;
@@ -705,6 +686,7 @@ static int aic3xxx_cfw_dlimage(cfw_state *ps, cfw_image *pim)
 		aic3xxx_cfw_dlcmds(ps, pim->block[i]);
 	return 0;
 }
+#endif
 
 static int aic3xxx_cfw_mute(cfw_state *ps, int mute, u32 flags)
 {
@@ -822,13 +804,12 @@ cfw_project *aic3xxx_cfw_unpickle(void *p, int n)
 
 	if (pjt->magic != CFW_FW_MAGIC || pjt->size != n ||
 	pjt->if_id != CFW_FW_IF_ID || !crc_chk(p, n)) {
-		error("magic:0x%08X!=0x%08X || size:%d!=%d || "
-		"version:0x%08X!=0x%08X || cksum_fail",
+		error("magic:0x%08X!=0x%08X || size:%d!=%d || version:0x%08X!=0x%08X || cksum_fail",
 			pjt->magic, CFW_FW_MAGIC, pjt->size, n,
 			pjt->if_id, CFW_FW_IF_ID);
 		return NULL;
 	}
-	DBG("Loaded firmware inside unpickle\n");
+	DBG("Loaded firmware inside unpickle");
 
 	FW_UP_DESC(pjt->desc, p);
 	FW_NDX2PTR(pjt->transition, p);
@@ -848,7 +829,7 @@ cfw_project *aic3xxx_cfw_unpickle(void *p, int n)
 
 	FW_NDX2PTR(pjt->pfw, p);
 	for (i = 0; i < pjt->npfw; i++) {
-		DBG("loading pfw %d\n", i);
+		DBG("loading pfw %d", i);
 		FW_NDX2PTR(pjt->pfw[i], p);
 		FW_UP_DESC(pjt->pfw[i]->desc, p);
 		if (pjt->pfw[i]->base) {
@@ -868,7 +849,7 @@ cfw_project *aic3xxx_cfw_unpickle(void *p, int n)
 		}
 	}
 
-	DBG("loaded pfw's\n");
+	DBG("loaded pfw's");
 	FW_NDX2PTR(pjt->mode, p);
 	for (i = 0; i < pjt->nmode; i++) {
 		FW_NDX2PTR(pjt->mode[i], p);
@@ -1131,7 +1112,8 @@ static long aic3xxx_cfw_ioctl(struct file *filp,
 {
 	return 0;
 }
-static ssize_t aic3xxx_cfw_rw(struct file *filp, char __user *buf,
+
+static ssize_t aic3xxx_cfw_read(struct file *filp, char __user *buf,
 			size_t count, loff_t *offset)
 {
 	cfw_state *ps = filp->private_data;
@@ -1149,7 +1131,37 @@ static ssize_t aic3xxx_cfw_rw(struct file *filp, char __user *buf,
 		goto err;
 	}
 	aic3xxx_cfw_dlcmds(ps, kbuf);
-	if (copy_to_user(buf, kbuf, count)) {
+	if (copy_to_user((void *)buf, kbuf, count)) {
+		warn("dev_read/write: copy failure");
+		goto err;
+	}
+	kfree(kbuf);
+	return count;
+err:
+	if (kbuf)
+		kfree(kbuf);
+	return -1;
+}
+
+static ssize_t aic3xxx_cfw_write(struct file *filp, const char __user *buf,
+			size_t count, loff_t *offset)
+{
+	cfw_state *ps = filp->private_data;
+	void *kbuf = kmalloc(count, GFP_KERNEL);
+	if (!kbuf || copy_from_user(kbuf, buf, count)) {
+		warn("dev_read/write: Allocation or copy failure");
+		goto err;
+	}
+	if (count != ((cfw_block *)kbuf)->ncmds*sizeof(cfw_cmd) +
+						sizeof(cfw_block)) {
+		int n = ((cfw_block *)kbuf)->ncmds*sizeof(cfw_cmd) +
+						sizeof(cfw_block);
+		warn("dev_read/write: Bad packet received count=%d ncmds=%d sz=%d",
+			count, n, ((cfw_block *)kbuf)->ncmds);
+		goto err;
+	}
+	aic3xxx_cfw_dlcmds(ps, kbuf);
+	if (copy_to_user((void *)buf, kbuf, count)) {
 		warn("dev_read/write: copy failure");
 		goto err;
 	}
@@ -1165,10 +1177,11 @@ static const struct file_operations aic3xxx_cfw_fops = {
 	.owner = THIS_MODULE,
 	.open = aic3xxx_cfw_open,
 	.release = aic3xxx_cfw_release,
-	.read = aic3xxx_cfw_rw,
-	.write = aic3xxx_cfw_rw,
+	.read = aic3xxx_cfw_read,
+	.write = aic3xxx_cfw_write,
 	.unlocked_ioctl = aic3xxx_cfw_ioctl,
 };
+
 static int aic3xxx_driver_init(cfw_state *ps)
 {
 	int err;

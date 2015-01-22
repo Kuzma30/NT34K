@@ -24,6 +24,8 @@
 
 #include <linux/ioctl.h>
 #include <linux/types.h>
+#include "ti_hdmi_4xxx_ip.h"
+#include "../dss/dss.h"
 
 /********************************/
 /* Structures related to ioctl  */
@@ -60,10 +62,22 @@ struct hdcp_wait_control {
 
 #define HDCP_IOCTL_MAGIC 'h'
 
+#ifdef CONFIG_OMAP4_HDCP_SUPPORT
+#define HDCP_ENABLE       _IOW(HDCP_IOCTL_MAGIC, 0, \
+                                struct hdcp_enable_control)
+#define HDCP_DISABLE      _IO(HDCP_IOCTL_MAGIC, 1)
+#define HDCP_ENCRYPT_KEY  _IOWR(HDCP_IOCTL_MAGIC, 2, \
+                                struct hdcp_encrypt_control)
+#define HDCP_QUERY_STATUS _IOWR(HDCP_IOCTL_MAGIC, 3, uint32_t)
+#define HDCP_WAIT_EVENT _IOWR(HDCP_IOCTL_MAGIC, 4, \
+                                struct hdcp_wait_control)
+#define HDCP_DONE       _IOW(HDCP_IOCTL_MAGIC, 5, uint32_t)
+#else
 #define HDCP_WAIT_EVENT _IOWR(HDCP_IOCTL_MAGIC, 0, \
 				struct hdcp_wait_control)
 #define HDCP_DONE	_IOW(HDCP_IOCTL_MAGIC, 1, uint32_t)
 #define HDCP_QUERY_STATUS _IOWR(HDCP_IOCTL_MAGIC, 2, uint32_t)
+#endif
 
 #define HDMI_HDCP_ENABLED	0x1
 #define HDMI_HDCP_FAILED	0x0
@@ -107,7 +121,7 @@ struct hdcp_wait_control {
 /*----------------------*/
 #define DSS_SS_FROM_L3__DESHDCP 0x58007000
 
-#define HDMI_CORE 0x58060000
+#define HDMI_CORE 0x58006000
 
 /* DESHDCP registers */
 #define DESHDCP__DHDCP_CTRL   0x020
@@ -191,7 +205,8 @@ enum hdcp_states {
 
 enum hdmi_states {
         HDMI_STOPPED,
-        HDMI_STARTED
+        HDMI_STARTED,
+	HDMI_POWERED_OFF
 };
 
 struct hdcp_data {
@@ -228,6 +243,10 @@ struct hdcp_data {
 extern struct hdcp_data hdcp;
 extern struct hdcp_sha_in sha_input;
 
+#define _9032_AUTO_RI_  /* Auto Ri mode */
+#define _9032_BCAP_     /* BCAP polling */
+#undef _9032_AN_STOP_FIX_
+
 /* HDCP state */
 #define HDCP_STATE_DISABLED             0
 #define HDCP_STATE_INIT                 1
@@ -254,6 +273,7 @@ extern struct hdcp_sha_in sha_input;
 #define HDCP_R0_DELAY           110
 #define HDCP_KSV_TIMEOUT_DELAY  5000
 #define HDCP_REAUTH_DELAY       100
+#define HDCP_POWEROFF_DELAY	10000
 
 /* Event source */
 #define HDCP_SRC_SHIFT          8

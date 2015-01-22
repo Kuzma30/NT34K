@@ -31,11 +31,13 @@
 #include <mach/omap-wakeupgen.h>
 #include <mach/omap-secure.h>
 #include <plat/omap_hwmod.h>
+#include <plat/irqs.h>
 
 #include "omap4-sar-layout.h"
 #include "common.h"
 #include "pm.h"
 #include "clockdomain.h"
+#include "prcm-debug.h"
 
 #define MAX_NR_REG_BANKS	5
 #define MAX_IRQS		160
@@ -488,18 +490,22 @@ bool omap_wakeupgen_check_interrupts(char *report_string)
 				/* Since we skip GIC PPI and SGI, base 32 */
 				irq = 32 + i * 32 + k;
 				desc = irq_to_desc(irq);
-
 				if (desc && desc->action &&
-				    desc->action->name)
+				    desc->action->name) {
 					name = desc->action->name;
-				else
-					name = "unknown?";
+				} else if (irq == OMAP44XX_IRQ_PRCM) {
+					name = NULL;
+					print_prcm_wakeirq(irq, report_string);
+				} else {
+					name = "unknown";
+				}
 
-				pr_info("%s: IRQ %d(%s)(OMAP-IRQ=%d) Pending! "
-					"Wakeup Enable: CPU0=%s, CPU1=%s\n",
-					report_string, irq, name,
-					(irq - 32), wc0, wc1);
-
+				if (name)
+					pr_info("%s: IRQ %d(%s)(OMAP-IRQ=%d) "\
+						"Pending! Wakeup Enable: "\
+						"CPU0=%s,CPU1=%s\n",
+						report_string, irq, name,
+						(irq - 32), wc0, wc1);
 			}
 			k++;
 			gica >>= 1;
@@ -512,11 +518,15 @@ quit_search:
 	return ret;
 }
 
-void omap_wakeupgen_init_finish(void)
+
+/*
+ * Continue initialise the wakeupgen initialization after sar
+ * is initialized
+ */
+void __init omap_wakeupgen_init_finish(void)
 {
 	int i;
 	unsigned int max_spi_reg;
-
 	/*
 	 * Find out how many interrupts are supported.
 	 * OMAP4 supports max of 128 SPIs where as GIC can support
@@ -526,7 +536,16 @@ void omap_wakeupgen_init_finish(void)
 	 */
 	max_spi_reg = gic_readl(GIC_DIST_CTR, 0) & 0x1f;
 
-	/* Moved this code into it's own block called in omap-mpuss-lowpower to let sar init be setup first */
+	/*
+	 * Set CPU0 GIC backup flag permanently for omap4460 GP,
+	 * this is needed because of the ROM code bug that breaks
+	 * GIC during wakeup from device off. This errata fix also
+	 * clears the GIC save area during init to prevent restoring
+	 * garbage to the GIC.
+	 */
+	if (cpu_is_omap446x() && omap_type() == OMAP2_DEVICE_TYPE_GP)
+		pm44xx_errata |= PM_OMAP4_ROM_CPU1_BACKUP_ERRATUM_xxx;
+
 	if (cpu_is_omap44xx() && (omap_type() == OMAP2_DEVICE_TYPE_GP)) {
 		sar_base = omap4_get_sar_ram_base();
 

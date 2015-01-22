@@ -43,8 +43,11 @@
  *
  * Revision 0.8		  Ported to Linux 3.0 Kernel
  *
+ * Revision 0.9		  Ported to Linux 3.4 Kernel
+ *
  */
 
+#include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
@@ -55,22 +58,25 @@
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
 #include <sound/jack.h>
-#include <linux/module.h>
+#include <sound/pcm_params.h>
+
 #include <asm/mach-types.h>
 #include <plat/hardware.h>
 #include <plat/mux.h>
-#include "mcbsp.h"
+#include <plat/mcbsp.h>
 
-#include "mcpdm.h"
+#include "omap-mcpdm.h"
 #include "omap-pcm.h"
 #include "omap-mcbsp.h"
+#include "mcbsp.h"
+#include "omap-abe-priv.h"
 #include "../codecs/tlv320aic31xx.h"
 
 #include <linux/mfd/tlv320aic31xx-registers.h>
 #include <linux/mfd/tlv320aic3xxx-registers.h>
 #include <linux/mfd/tlv320aic3xxx-core.h>
 
-static struct snd_soc_codec *aic31xx_codec;
+// static struct snd_soc_codec *aic31xx_codec;
 
 /* Forward Declaration */
 static int Qoo_headset_jack_status_check(void);
@@ -79,7 +85,7 @@ static int Qoo_headset_jack_status_check(void);
 static struct snd_soc_jack hs_jack;
 
 
-static int omap4_hw_params(struct snd_pcm_substream *substream,
+static int omap_abe_mcbsp_hw_params(struct snd_pcm_substream *substream,
 					   struct snd_pcm_hw_params *params)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
@@ -87,6 +93,10 @@ static int omap4_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
 	int ret = 0, err = 0;
 	unsigned int channels;
+//#ifdef CONFIG_MACH_OMAP_4430_KC1
+	void __iomem *phymux_base = NULL;
+	u32 phy_val;
+//#endif
 
 
 #ifdef AIC31XX_MCBSP_SLAVE
@@ -112,6 +122,27 @@ static int omap4_hw_params(struct snd_pcm_substream *substream,
 			return ret;
 		}
 		
+		/* Enabling the 19.2 Mhz Master Clock Output
+                from OMAP4 for Acclaim Board */
+		phymux_base = ioremap(0x4A30A000, 0x1000);
+		phy_val = __raw_readl(phymux_base + 0x0314);
+		phy_val = (phy_val & 0xFFF0FEFF) | (0x00010100);
+		__raw_writel(phy_val, phymux_base + 0x0314);
+		iounmap(phymux_base);
+#ifdef CONFIG_MACH_OMAP_4430_KC1
+		/* Enabling the 19.2 Mhz Master Clock Output from OMAP4 for KC1 Board */
+		phymux_base = ioremap(0x4a30a000, 0x1000);
+		__raw_writel(0x00010100, phymux_base + 0x318);
+
+		/* Added the test code to configure the McBSP4 CONTROL_MCBSP_LP
+		 * register. This register ensures that the FSX and FSR on McBSP4 are
+		 * internally short and both of them see the same signal from the
+		 * External Audio Codec.
+		 */
+		phymux_base = ioremap(0x4a100000, 0x1000);
+		__raw_writel(0xC0000000, phymux_base + 0x61c);
+#endif
+
         	/* Set the codec system clock for DAC and ADC */
 
 		ret = snd_soc_dai_set_pll(codec_dai, 0, AIC31XX_PLL_CLKIN_MCLK , 19200000, params_rate(params));
@@ -119,7 +150,6 @@ static int omap4_hw_params(struct snd_pcm_substream *substream,
                 	pr_debug(KERN_ERR "Can't set codec pll clock\n");
                 	return ret;
         }
-
 #else
 		pr_debug("\naic31xx: AIC31xx SLAVE & MASTER\n");
 		/* Set codec DAI configuration */
@@ -171,7 +201,8 @@ static int omap4_hw_params(struct snd_pcm_substream *substream,
 			omap_mcbsp_set_tx_threshold(mcbsp, channels);
 		else
 			omap_mcbsp_set_rx_threshold(mcbsp, channels);
-	}
+	} else
+		pr_debug(" params in else statement is %p\n", params);
 
 	if (ret < 0)
 		pr_debug(KERN_ERR "can't set cpu system clock\n");
@@ -180,14 +211,44 @@ static int omap4_hw_params(struct snd_pcm_substream *substream,
 }
 
 /*
- * @struct omap4_ops
+ * @struct omap_abe_mcbsp_ops
  *
  * Structure for the Machine Driver Operations
  */
-static struct snd_soc_ops omap4_ops = {
-	.hw_params = omap4_hw_params,
+static struct snd_soc_ops omap_abe_mcbsp_ops = {
+	.hw_params = omap_abe_mcbsp_hw_params,
 
 };
+
+static int mcbsp_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
+			struct snd_pcm_hw_params *params)
+{
+	struct snd_interval *channels = hw_param_interval(params,
+						SNDRV_PCM_HW_PARAM_CHANNELS);
+	struct snd_interval *rate = hw_param_interval(params,
+						SNDRV_PCM_HW_PARAM_RATE);
+	unsigned int be_id = rtd->dai_link->be_id;
+
+	switch (be_id) {
+	case OMAP_ABE_DAI_BT_VX:
+		channels->min = 2;
+		rate->min = rate->max = 8000;
+		break;
+	case OMAP_ABE_DAI_MM_FM:
+		channels->min = 2;
+		rate->min = rate->max = 48000;
+		break;
+	case OMAP_ABE_DAI_MODEM:
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	snd_mask_set(&params->masks[SNDRV_PCM_HW_PARAM_FORMAT -
+				SNDRV_PCM_HW_PARAM_FIRST_MASK],
+				SNDRV_PCM_FORMAT_S16_LE);
+	return 0;
+}
 
 /* @struct hs_jack_pins
  *
@@ -223,8 +284,8 @@ static struct snd_soc_jack_gpio hs_jack_gpios[] = {
 	{
 		.gpio = Qoo_HEADSET_DETECT_GPIO_PIN,
 		.name = "hsdet-gpio",
-		.report = SND_JACK_HEADSET ,
-		.debounce_time = 240,
+		.report = SND_JACK_HEADSET,
+		.debounce_time = 200,
 		.jack_status_check = Qoo_headset_jack_status_check,
 	},
 };
@@ -258,15 +319,20 @@ static const struct snd_soc_dapm_widget omap4_aic31xx_dapm_widgets[] = {
 	SND_SOC_DAPM_MIC("Onboard Mic", mic_power_up_event),
 };
 
+#if 0
 static const struct snd_kcontrol_new omap4_aic31xx_controls[] = {
 	SOC_DAPM_PIN_SWITCH("HSMIC"),
 	SOC_DAPM_PIN_SWITCH("Speaker Jack"),
 	SOC_DAPM_PIN_SWITCH("Headphone Jack"),
 };
+#endif
+
 static const struct snd_soc_dapm_route audio_map[] = {
 	/* External Speakers: HFL, HFR */
 	{"Speaker Jack", NULL, "SPL"},
+#ifndef AIC3100_CODEC_SUPPORT
 	{"Speaker Jack", NULL, "SPR"},
+#endif
 
 	/* Headset Mic: HSMIC with bias */
 	{"MIC1LP", NULL, "HSMIC"},
@@ -277,6 +343,11 @@ static const struct snd_soc_dapm_route audio_map[] = {
 	/* Headset Stereophone(Headphone): HSOL, HSOR */
 	{"Headphone Jack", NULL, "HPL"},
 	{"Headphone Jack", NULL, "HPR"},
+
+	/* Connections between aic31xx and ABE */
+	/* FM <--> ABE */
+	{"omap-mcbsp.1 Playback", NULL, "MM_EXT_DL"},
+	{"MM_EXT_UL", NULL, "omap-mcbsp.1 Capture"},
 };
 
 /*
@@ -287,54 +358,34 @@ static const struct snd_soc_dapm_route audio_map[] = {
 static int omap4_aic31xx_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_codec *codec = rtd->codec;
-	struct snd_soc_dapm_context *dapm = &codec->dapm;
+//	struct snd_soc_dapm_context *dapm = &codec->dapm;
 	int ret;
 
 	/* Adding aic31xx specific widgets */
 
-	ret = snd_soc_dapm_new_controls(dapm, omap4_aic31xx_dapm_widgets,
-			ARRAY_SIZE(omap4_aic31xx_dapm_widgets));
-
-	printk("OMAP4 AIC31XX INIT\n");
+// FIXME-HASH: We handle this in the jack-detect
+#if 0
+	ret = snd_soc_add_codec_controls(codec, omap4_aic31xx_controls, ARRAY_SIZE(omap4_aic31xx_controls));
 	if (ret)
 		return ret;
-
-
-	ret = snd_soc_add_codec_controls(codec, omap4_aic31xx_controls,
-			ARRAY_SIZE(omap4_aic31xx_controls));
-
-	if (ret)
-		return ret;
-
-
-	/* Setup aic31xx specific audio path audio map */
-	ret = snd_soc_dapm_add_routes(dapm, audio_map, ARRAY_SIZE(audio_map));
-
-	snd_soc_dapm_disable_pin(dapm, "Headphone Jack");
-	snd_soc_dapm_disable_pin(dapm, "Speaker Jack");
-	snd_soc_dapm_disable_pin(dapm, "HSMIC");
-	snd_soc_dapm_disable_pin(dapm, "Onboard Mic");
 
 	ret = snd_soc_dapm_sync(dapm);
 	if (ret)
 		return ret;
+#endif
+
 	/* Headset jack detection */
-
-	ret = snd_soc_jack_new(codec, "Headset Jack",
-			SND_JACK_HEADSET, &hs_jack);
-
+	ret = snd_soc_jack_new(codec, "Headset Jack", SND_JACK_HEADSET, &hs_jack);
 	if (ret)
 		return ret;
 
-	ret = snd_soc_jack_add_pins(&hs_jack,
-			ARRAY_SIZE(hs_jack_pins), hs_jack_pins);
+	ret = snd_soc_jack_add_pins(&hs_jack, ARRAY_SIZE(hs_jack_pins), hs_jack_pins);
 
-	ret = snd_soc_jack_add_gpios(&hs_jack,
-			ARRAY_SIZE(hs_jack_gpios), hs_jack_gpios);
-
+	ret = snd_soc_jack_add_gpios(&hs_jack, ARRAY_SIZE(hs_jack_gpios), hs_jack_gpios);
 	if (ret)
 		return ret;
 
+	Qoo_headset_jack_status_check();
 	return ret;
 }
 
@@ -351,9 +402,12 @@ static int Qoo_headset_jack_status_check(void)
 	gpio_status = gpio_get_value(Qoo_HEADSET_DETECT_GPIO_PIN);
 	dev_info(codec->dev, "#Entered %s\n", __func__);
 	if (hs_jack.codec != NULL) {
+
 		dev_dbg(codec->dev, "codec is  not null\n");
 		if (!gpio_status) {
 			dev_info(codec->dev, "headset connected\n");
+			snd_soc_dapm_disable_pin(dapm, "Speaker Jack");
+			snd_soc_dapm_enable_pin(dapm, "Headphone Jack");
 			if (aic31xx_mic_check(codec)) {
 				if (hs_status) {
 					dev_info(codec->dev, "Headset without"
@@ -365,99 +419,299 @@ static int Qoo_headset_jack_status_check(void)
 					dev_info(codec->dev, "Headset with MIC"
 						"Inserted Recording possible\n");
 					hs_status = (1<<1);
+				}
 			}
+		} else {
+			dev_info(codec->dev, "headset not connected\n");
+			snd_soc_dapm_enable_pin(dapm,  "Speaker Jack");
+			snd_soc_dapm_disable_pin(dapm, "HSMIC");
+			snd_soc_dapm_disable_pin(dapm, "Headphone Jack");
+			hs_status = 0;
 		}
+		priv->headset_connected = !gpio_status;
+		dev_info(codec->dev, "##%s : switch state = %d\n",
+				__func__, !gpio_status);
 
-	} else {
-		dev_info(codec->dev, "headset not connected\n");
-		hs_status = 0;
+		dev_dbg(codec->dev, "%s: Exiting\n", __func__);
 	}
-	priv->headset_connected = !gpio_status;
-	dev_info(codec->dev, "##%s : switch state = %d\n",
-			__func__, !gpio_status);
-
-	dev_dbg(codec->dev, "%s: Exiting\n", __func__);
 	return ret;
-
-	}
 }
-
 static struct snd_soc_dai_link omap4_dai_abe[] = {
+	{
+		.name = "tlv320aic31xx Media1 LP",
+		.stream_name = "Multimedia",
+		/* ABE components - MM-DL (mmap) */
+		.cpu_dai_name = "MultiMedia1 LP",
+		.platform_name = "aess",
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.codec_name = "snd-soc-dummy",
+		.dynamic = 1, /* BE is dynamic */
+		.trigger = {SND_SOC_DPCM_TRIGGER_BESPOKE, SND_SOC_DPCM_TRIGGER_BESPOKE},
+	},
+	{
+		.name = "tlv320aic31xx Media",
+		.stream_name = "Multimedia",
+		/* ABE components - MM-UL & MM_DL */
+		.cpu_dai_name = "MultiMedia1",
+		.platform_name = "omap-pcm-audio",
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.codec_name = "snd-soc-dummy",
+		.dynamic = 1, /* BE is dynamic */
+		.trigger = {SND_SOC_DPCM_TRIGGER_BESPOKE, SND_SOC_DPCM_TRIGGER_BESPOKE},
+	},
+	{
+		.name = "tlv320aic31xx Media Capture",
+		.stream_name = "Multimedia Capture",
+		/* ABE components - MM-UL2 */
+		.cpu_dai_name = "MultiMedia2",
+		.platform_name = "omap-pcm-audio",
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.codec_name = "snd-soc-dummy",
+		.dynamic = 1, /* BE is dynamic */
+		.trigger = {SND_SOC_DPCM_TRIGGER_BESPOKE, SND_SOC_DPCM_TRIGGER_BESPOKE},
+	},
 	{
 
 		.name = "Legacy McBSP2",
 		.stream_name = "MultiMedia",
-		.cpu_dai_name = "omap-mcbsp.2",
+		/* ABE components - MCBSP2 - MM-EXT */
+		.cpu_dai_name = "omap-mcbsp.1",
 		.codec_dai_name = "tlv320aic31xx-MM_EXT",
 		.platform_name = "omap-pcm-audio",
 		.codec_name = "tlv320aic31xx-codec",
+		.ops = &omap_abe_mcbsp_ops,
+		.ignore_suspend = 1,
+	},
+
+/*
+ * Backend DAIs - i.e. dynamically matched interfaces, invisible to userspace.
+ * Matched to above interfaces at runtime, based upon use case.
+ */
+	{
+		.name = OMAP_ABE_BE_MM_EXT0_DL,
+		.stream_name = "FM Playback",
+
+		/* ABE components - MCBSP2 - MM-EXT */
+		.cpu_dai_name = "omap-mcbsp.1",
+		.platform_name = "aess",
+
+		/* FM */
+		.codec_dai_name = "tlv320aic31xx-MM_EXT",
+		.codec_name = "tlv320aic31xx-codec",
+
+		.no_pcm = 1, /* don't create ALSA pcm for this */
+		.be_hw_params_fixup = mcbsp_be_hw_params_fixup,
+		.ops = &omap_abe_mcbsp_ops,
 		.init = omap4_aic31xx_init,
-		.ops = &omap4_ops,
+		.be_id = OMAP_ABE_DAI_MM_FM,
+		.ignore_suspend = 1,
+	},
+	{
+		.name = OMAP_ABE_BE_MM_EXT0_UL,
+		.stream_name = "FM Capture",
+
+		/* ABE components - MCBSP2 - MM-EXT */
+		.cpu_dai_name = "omap-mcbsp.1",
+		.platform_name = "aess",
+
+		/* FM */
+		.codec_dai_name = "tlv320aic31xx-MM_EXT",
+		.codec_name = "tlv320aic31xx-codec",
+
+		.no_pcm = 1, /* don't create ALSA pcm for this */
+		.be_hw_params_fixup = mcbsp_be_hw_params_fixup,
+		.ops = &omap_abe_mcbsp_ops,
+		.be_id = OMAP_ABE_DAI_MM_FM,
+		.ignore_suspend = 1,
 	},
 };
+#if 0
+static struct snd_soc_dai_link omap4_dai_abe[] = {
+  	{
+		.name = "tlv320aic3110 Media1 LP",
+		.stream_name = "Multimedia",
 
+		/* ABE components - MM-DL (mmap) */
+		.cpu_dai_name = "MultiMedia1 LP",
+		.platform_name = "aess",
+
+		/* BE is dynamic */
+		.dynamic = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_BESPOKE, SND_SOC_DPCM_TRIGGER_BESPOKE},
+
+		//.dsp_link = &fe_lp_media,
+		//.supported_be = mm_lp_be,
+		//.num_be = ARRAY_SIZE(mm_lp_be),
+	},
+	{
+		.name = "tlv320aic3110 Media",
+		.stream_name = "Multimedia",
+
+		/* ABE components - MM-UL & MM_DL */
+		.cpu_dai_name = "MultiMedia1",
+		.platform_name = "omap-pcm-audio",
+
+		/* BE is dynamic */
+		.dynamic = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_BESPOKE, SND_SOC_DPCM_TRIGGER_BESPOKE},
+
+		//.dsp_link = &fe_media,
+		//.supported_be = mm1_be,
+		//.num_be = ARRAY_SIZE(mm1_be),
+	},
+	{
+		.name = "tlv320aic3110 Media Capture",
+		.stream_name = "Multimedia Capture",
+
+		/* ABE components - MM-UL2 */
+		.cpu_dai_name = "MultiMedia2",
+		.platform_name = "omap-pcm-audio",
+
+		.dynamic = 1, /* BE is dynamic */
+		.trigger = {SND_SOC_DPCM_TRIGGER_BESPOKE, SND_SOC_DPCM_TRIGGER_BESPOKE},
+
+		//.dsp_link = &fe_media_capture,
+		//.supported_be = mm1_be,
+		//.num_be = ARRAY_SIZE(mm1_be),
+	},
+
+	{
+		.name = "Legacy McBSP",
+		.stream_name = "Multimedia",
+
+		/* ABE components - MCBSP3 - MM-EXT */
+		.cpu_dai_name = "omap-mcbsp.1",
+		.platform_name = "omap-pcm-audio",
+
+		/* FM */
+
+		.codec_dai_name = "tlv320aic3110-MM_EXT",
+		.codec_name = "tlv320aic31xx-codec",
+
+		.ops = &omap_abe_mcbsp_ops,
+		.ignore_suspend = 1,
+	},
+
+/*
+ * Backend DAIs - i.e. dynamically matched interfaces, invisible to userspace.
+ * Matched to above interfaces at runtime, based upon use case.
+ */
+
+	{
+		.name = OMAP_ABE_BE_MM_EXT0_DL,
+		.stream_name = "FM Playback",
+
+		/* ABE components - MCBSP3 - MM-EXT */
+		.cpu_dai_name = "omap-mcbsp.1",
+		.platform_name = "aess",
+
+		/* FM */
+		.codec_dai_name = "tlv320aic3110-MM_EXT",
+		.codec_name = "tlv320aic31xx-codec",
+
+		/* don't create ALSA pcm for this */
+		.no_pcm = 1,
+		.be_hw_params_fixup = mcbsp_be_hw_params_fixup,
+		.ops = &omap_abe_mcbsp_ops,
+		//.be_id = OMAP_ABE_DAI_MM_FM,
+		//.private_data = &mm_ext0_config,
+		.init = omap4_aic31xx_init,
+		.ignore_suspend = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_BESPOKE, SND_SOC_DPCM_TRIGGER_BESPOKE},
+	},
+	{
+		.name = OMAP_ABE_BE_MM_EXT0_UL,
+		.stream_name = "FM Capture",
+
+		/* ABE components - MCBSP3 - MM-EXT */
+		.cpu_dai_name = "omap-mcbsp.1",
+		.platform_name = "aess",
+
+		/* FM */
+		.codec_dai_name = "tlv320aic3110-MM_EXT",
+		.codec_name = "tlv320aic31xx-codec",
+
+		.no_pcm = 1, /* don't create ALSA pcm for this */
+		.be_hw_params_fixup = mcbsp_be_hw_params_fixup,
+		.ops = &omap_abe_mcbsp_ops,
+		//.be_id = OMAP_ABE_DAI_MM_FM,
+		//.private_data = &mm_ext0_config,
+		.ignore_suspend = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_BESPOKE, SND_SOC_DPCM_TRIGGER_BESPOKE},
+	},
+};
+#endif
 /* The below mentioend DAI LINK Structure is to be used in McBSP3 Legacy Mode
  * only when the AIC3110 Audio Codec Chipset is interfaced via McBSP3 Port
  */
 /* Audio machine driver with ABE Support */
 
 static struct snd_soc_card omap_abe_card = {
-	.name = "OMAP4_ACCLAIM",
-	.long_name = "TI OMAP4 Board",
+	.owner = THIS_MODULE,
+	.name = "AIC31XX_ACCLAIM",
+	.long_name = "TI OMAP4 NOOK TABLET",
 	.dai_link = omap4_dai_abe,
 	.num_links = ARRAY_SIZE(omap4_dai_abe),
+	.dapm_widgets = omap4_aic31xx_dapm_widgets,
+	.num_dapm_widgets = ARRAY_SIZE(omap4_aic31xx_dapm_widgets),
+	.dapm_routes = audio_map,
+	.num_dapm_routes = ARRAY_SIZE(audio_map),
 };
 
 static struct platform_device *omap4_snd_device;
 
-
-static int __init sdp44xx_aic31xx_soc_init(void)
+static __devinit int sdp44xx_aic31xx_probe(struct platform_device *pdev)
 {
-	int ret, err_reg;
+	struct snd_soc_card *card = &omap_abe_card;
+	int ret;
 
-#if 0
-	if (!machine_is_omap_4430sdp() && !machine_is_omap4_panda()) {
-		printk("Not SDP4430 or PandaBoard!\n");
-		return -ENODEV;
-	}
-#endif
-	printk(KERN_INFO "AIC31xx SoC init\n");
-	if (machine_is_omap_4430sdp()) {
-		omap_abe_card.name = "AIC31XX_OTTER";
-		pr_debug(KERN_INFO "SoC init\n");
-	}
+	card->dev = &pdev->dev;
 
-	omap4_snd_device = platform_device_alloc("soc-audio", -1);
-	if (!omap4_snd_device) {
-		pr_debug(KERN_ERR "Platform device allocation failed\n");
-		return -ENOMEM;
-	}
+	pr_info(KERN_INFO "AIC31xx SoC init\n");
 
-	platform_set_drvdata(omap4_snd_device, &omap_abe_card);
-
-	ret = platform_device_add(omap4_snd_device);
-
-	if (ret)
+	ret = snd_soc_register_card(card);
+	if (ret) {
+		printk(KERN_ERR "snd_soc_register_card() failed: %d\n", ret);
 		goto err_dev;
-	
+	}
+
 	return 0;
 
 err_dev:
-	printk(KERN_ERR "Unable to add platform device\n");
 	platform_device_put(omap4_snd_device);
-
 	return ret;
 }
-module_init(sdp44xx_aic31xx_soc_init);
 
-static void __exit sdp44xx_aic31xx_soc_exit(void)
+static int __devexit sdp44xx_aic31xx_remove(struct platform_device *pdev)
 {
-	snd_soc_jack_free_gpios(&hs_jack, ARRAY_SIZE(hs_jack_gpios),
-				hs_jack_gpios);
+	struct snd_soc_card *card = platform_get_drvdata(pdev);
+
+	snd_soc_jack_free_gpios(&hs_jack, ARRAY_SIZE(hs_jack_gpios), hs_jack_gpios);
 	platform_device_unregister(omap4_snd_device);
+	snd_soc_unregister_card(card);
+
+	return 0;
 }
-module_exit(sdp44xx_aic31xx_soc_exit);
+
+static void sdp44xx_aic31xx_shutdown(struct platform_device *pdev)
+{
+	snd_soc_poweroff(&pdev->dev);
+}
+
+static struct platform_driver sdp44xx_aic31xx_driver = {
+	.driver = {
+		.name = "omap4-panda-aic31xx",
+		.owner = THIS_MODULE,
+		.pm = &snd_soc_pm_ops,
+	},
+	.probe = sdp44xx_aic31xx_probe,
+	.remove = __devexit_p(sdp44xx_aic31xx_remove),
+	.shutdown = sdp44xx_aic31xx_shutdown,
+};
+
+module_platform_driver(sdp44xx_aic31xx_driver);
 
 MODULE_AUTHOR("Santosh Sivaraj <santosh.s@mistralsolutions.com>");
 MODULE_DESCRIPTION("ALSA SoC OMAP4 Panda");
 MODULE_LICENSE("GPL");
+MODULE_ALIAS("platform:omap4-panda-aic31xx");

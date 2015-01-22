@@ -37,9 +37,6 @@
 #include <linux/omapfb.h>
 #include <video/omapdss.h>
 
-#include <plat/clock.h>
-#include <linux/gpio.h>
-
 #include "ti_hdmi_4xxx_ip.h"
 #include "ti_hdmi.h"
 #include "dss.h"
@@ -78,7 +75,6 @@ static struct {
 
 	struct clk *sys_clk;
 	struct clk *dss_clk;
-	struct clk *dss_fck;
 
 	struct regulator *vdds_hdmi;
 	bool enabled;
@@ -284,7 +280,11 @@ u8 *hdmi_read_valid_edid(void)
 
 	memset(hdmi.edid, 0, HDMI_EDID_MAX_LENGTH);
 
-	hdmi_runtime_get();
+	ret = hdmi_runtime_get();
+	if(ret < 0) {
+		DSSWARN("hdmi_runtime_get failed.\n");
+		return NULL;
+	}
 
 	ret = hdmi.ip_data.ops->read_edid(&hdmi.ip_data, hdmi.edid,
 						  HDMI_EDID_MAX_LENGTH);
@@ -1031,17 +1031,6 @@ int omapdss_hdmi_display_enable(struct omap_dss_device *dssdev)
 
 	mutex_lock(&hdmi.lock);
 
-	/* Enable DSS interface clock */
-	if (hdmi.dss_fck) {
-		u32 regval32, v;
-		v = (1 << hdmi.dss_fck->enable_bit);
-		regval32 = __raw_readl(hdmi.dss_fck->enable_reg);
-		if ((regval32 & (1 << hdmi.dss_fck->enable_bit)) != v) {
-			DSSDBG("enabling %s clocks\n", hdmi.dss_fck->name);
-			clk_enable(hdmi.dss_fck);
-		}
-	}
-
 	if (dssdev->manager == NULL) {
 		DSSERR("failed to enable display: no manager\n");
 		r = -ENODEV;
@@ -1131,10 +1120,12 @@ static irqreturn_t hdmi_irq_handler(int irq, void *arg)
 	if (hdmi.hdmi_cec_irq_cb && (r & HDMI_CEC_INT))
 		hdmi.hdmi_cec_irq_cb();
 
-	if (hdmi.hdmi_hdcp_irq_cb && (r & HDMI_HDCP_INT))
-		hdmi.hdmi_hdcp_irq_cb(HDMI_HPD_HIGH);
+	if (hdmi.hdmi_hdcp_irq_cb)
+		hdmi.hdmi_hdcp_irq_cb(r);
 
-	r = hdmi.ip_data.ops->irq_process(&hdmi.ip_data);
+	if (hdmi.ip_data.ops->irq_process)
+		r = hdmi.ip_data.ops->irq_process(&hdmi.ip_data);
+
 	return IRQ_HANDLED;
 }
 
@@ -1151,21 +1142,10 @@ static int hdmi_get_clocks(struct platform_device *pdev)
 
 	hdmi.sys_clk = clk;
 
-	if (cpu_is_omap44xx()) {
+	if (cpu_is_omap44xx())
 		clk_name = "dss_48mhz_clk";
-
-		clk = clk_get(&pdev->dev, "ick");
-		if (IS_ERR(clk))
-			DSSERR("can't get %s clocks\n", clk->name);
-		else
-			hdmi.dss_fck = clk;
-	}
 	else if (cpu_is_omap54xx())
 		clk_name = "dss_32khz_clk";
-	else {
-		DSSERR("unknown cpu type\n");
-		return PTR_ERR(clk);
-	}
 
 	clk = clk_get(&pdev->dev, clk_name);
 
@@ -1184,8 +1164,6 @@ static void hdmi_put_clocks(void)
 		clk_put(hdmi.sys_clk);
 	if (hdmi.dss_clk)
 		clk_put(hdmi.dss_clk);
-	if (hdmi.dss_fck)
-		clk_put(hdmi.dss_fck);
 }
 
 #if defined(CONFIG_OMAP4_DSS_HDMI_AUDIO)
@@ -1354,9 +1332,6 @@ static int omapdss_hdmihw_probe(struct platform_device *pdev)
 	hdmi.pdev = pdev;
 
 	mutex_init(&hdmi.lock);
-	hdmi.sys_clk = NULL;
-	hdmi.dss_clk = NULL;
-	hdmi.dss_fck = NULL;
 
 	hdmi_mem = platform_get_resource(hdmi.pdev, IORESOURCE_MEM, 0);
 	if (!hdmi_mem) {

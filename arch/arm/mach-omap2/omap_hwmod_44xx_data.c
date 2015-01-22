@@ -1943,7 +1943,7 @@ static struct omap_hwmod_ocp_if *omap44xx_dss_rfbi_slaves[] = {
 };
 
 static struct omap_hwmod_opt_clk dss_rfbi_opt_clks[] = {
-	{ .role = "ick", .clk = "dss_fck" },
+	{ .role = "ick", .clk = "l3_div_ck" },
 };
 
 static struct omap_hwmod omap44xx_dss_rfbi_hwmod = {
@@ -2974,6 +2974,7 @@ static struct omap_hwmod omap44xx_ipu_hwmod = {
 	.name		= "ipu",
 	.class		= &omap44xx_mmu_hwmod_class,
 	.clkdm_name	= "ducati_clkdm",
+	.flags		= HWMOD_INIT_NO_RESET,
 	.mpu_irqs	= omap44xx_ipu_irqs,
 	.rst_lines	= omap44xx_ipu_resets,
 	.rst_lines_cnt	= ARRAY_SIZE(omap44xx_ipu_resets),

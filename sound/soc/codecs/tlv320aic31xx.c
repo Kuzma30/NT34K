@@ -122,9 +122,6 @@ static int aic31xx_set_bias_level(struct snd_soc_codec *codec,
 
 static u8 aic31xx_reg_ctl;
 
-/* Codec Private Struct variable */
-struct aic31xx_priv aic31xx_codec_data;
-
 
 /*
  * Global Variables introduced to reduce Headphone Analog Volume Control
@@ -194,7 +191,8 @@ static int aic31xx_set_mode_put(struct snd_kcontrol *kcontrol,
 		dev_err(codec->dev, "\nFirmware not loaded,"
 					"no mode switch can occur\n");
 	else
-		ret = aic3xxx_cfw_setmode_cfg(priv_ds->cfw_p, next_mode, next_cfg);
+		ret = aic3xxx_cfw_setmode_cfg(priv_ds->cfw_p,
+			next_mode, next_cfg);
 
 	return ret;
 }
@@ -263,12 +261,11 @@ static const struct snd_kcontrol_new aic31xx_snd_controls[] = {
 	SOC_DOUBLE_R("SP driver mute", AIC31XX_SPL_DRIVER_REG,
 			AIC31XX_SPR_DRIVER_REG, 2, 2, 0),
 #endif
- 
-#ifdef AIC3100_CODEC_SUPPORT
-       SOC_SINGLE("SP driver mute", AIC31XX_SPL_DRIVER_REG,
-                       2, 2, 0);
-#endif
 
+#ifdef AIC3100_CODEC_SUPPORT
+	SOC_SINGLE("SP driver mute", AIC31XX_SPL_DRIVER_REG,
+			2, 2, 0),
+#endif	
 	/* ADC FINE GAIN */
 	SOC_SINGLE_TLV("ADC FINE GAIN", AIC31XX_ADC_VOL_FGC, 4, 4, 1,
 			adc_fgain_tlv),
@@ -494,13 +491,13 @@ void debug_print_registers(struct snd_soc_codec *codec)
 
 	for (i = 0 ; i < 118 ; i++) {
 		data = snd_soc_read(codec, i);
-		dev_dbg(codec->dev,"reg = %d val = %x\n", i, data);
+		dev_dbg(codec->dev, "reg = %d val = %x\n", i, data);
 	}
 	/* for ADC registers */
 	dev_dbg(codec->dev, "*** Page 1:\n");
 	for (i = AIC31XX_HPHONE_DRIVERS ; i <= AIC31XX_MICPGA_CM_REG ; i++) {
 		data = snd_soc_read(codec, i);
-		dev_dbg(codec->dev,"reg = %d val = %x\n", i, data);
+		dev_dbg(codec->dev, "reg = %d val = %x\n", i, data);
 	}
 }
 
@@ -676,12 +673,11 @@ static int aic31xx_hp_power_up_event(struct snd_soc_dapm_widget *w,
 			}
 		}
 
-#if 0
+
 		if (aic31xx->from_resume) {
-			aic31xx_mute(codec, 0);
+			aic31xx_mute_codec(codec, 0);
 			aic31xx->from_resume = 0;
 		}
-#endif
 	}
 
 	if (event & SND_SOC_DAPM_PRE_PMD) {
@@ -715,10 +711,11 @@ static int aic31xx_hp_power_up_event(struct snd_soc_dapm_widget *w,
 static int aic31xx_sp_event(struct snd_soc_dapm_widget *w,
 			struct snd_kcontrol *kcontrol, int event)
 {
-	u8 counter;
-	int value, lv, rv, val;
+//	u8 counter;
+//	int value;
+	int lv, rv, val;
 	struct snd_soc_codec *codec = w->codec;
-	struct aic31xx_priv *aic31xx = snd_soc_codec_get_drvdata(codec);
+//	struct aic31xx_priv *aic31xx = snd_soc_codec_get_drvdata(codec);
 	int ret_wbits = 0;
 	unsigned int reg_mask = 0;
 	if (event & SND_SOC_DAPM_POST_PMU) {
@@ -937,25 +934,6 @@ static const struct snd_soc_dapm_widget aic31xx_dapm_widgets[] = {
 
 };
 
-#if 0
-/**
- * aic31xx_audio_handler: audio interrupt handler called
- *              when interupt is generated
- * @irq: provides interupt number which is assigned by aic31xx_request_irq,
- * @data having information of data passed by aic31xx_request_irq last arg,
- *
- * Return IRQ_HANDLED(means interupt handeled successfully)
-*/
-static irqreturn_t aic31xx_audio_handler(int irq, void *data)
-{
-        struct snd_soc_codec *codec = data;
-        struct aic31xx_priv *aic31xx = snd_soc_codec_get_drvdata(codec);
-
-        queue_delayed_work(aic31xx->workqueue, &aic31xx->delayed_work,
-                           msecs_to_jiffies(200));
-        return IRQ_HANDLED;
-}
-#endif
 
 /* aic31xx_firmware_load
    This function is called by the request_firmware_nowait function as soon
@@ -990,10 +968,8 @@ void aic31xx_firmware_load(const struct firmware *fw, void *context)
 	if (fw == NULL) {
 		/* either request_firmware or reload failed */
 		dev_dbg(codec->dev, "Default firmware load\n");
-		printk("Size of AUDIO default firmware = %d", sizeof(default_firmware));
 		ret = aic3xxx_cfw_reload(private_ds->cfw_p, default_firmware,
 			sizeof(default_firmware));
-
 		if (ret < 0)
 			dev_err(codec->dev, "Default firmware load failed\n");
 		else
@@ -1012,8 +988,7 @@ void aic31xx_firmware_load(const struct firmware *fw, void *context)
 }
 
 
-static const struct snd_soc_dapm_route
-aic31xx_audio_map[] = {
+static const struct snd_soc_dapm_route aic31xx_audio_map[] = {
 
 	{"CODEC_CLK_IN", NULL, "PLLCLK"},
 	{"NDAC_DIV", NULL, "CODEC_CLK_IN"},
@@ -1076,11 +1051,6 @@ aic31xx_audio_map[] = {
 };
 
 
-#define AIC31XX_DAPM_ROUTE_NUM (sizeof(aic31xx_dapm_routes)/		\
-				sizeof(struct snd_soc_dapm_route))
-
-
-
 /*
  * __new_control_info - This function is to initialize data for new control
  * required to program the aic31xx registers.
@@ -1133,67 +1103,6 @@ static int __new_control_put(struct snd_kcontrol *kcontrol,
 	u32 reg = data_from_user >> 8;/* MAKE_REG(book, page, offset) */
 	snd_soc_write(codec, reg, val);
 	aic31xx_reg_ctl = reg;
-
-	return 0;
-}
-
-/*
- * aic31xx_add_controls - add non dapm kcontrols.
- *
- * The different controls are in "aic31xx_snd_controls" table. The following
- * different controls are supported
- *
- *	# DAC Playback volume control
- *	# PCM Playback Volume
- *	# HP Driver Gain
- *	# HP DAC Playback Switch
- *	# PGA Capture Volume
- *	# Program Registers
- */
-static int aic31xx_add_controls(struct snd_soc_codec *codec)
-{
-	int err;
-
-	dev_dbg(codec->dev, "%s\n", __func__);
-
-	err = snd_soc_add_codec_controls(codec, aic31xx_snd_controls,
-				ARRAY_SIZE(aic31xx_snd_controls));
-	if (err < 0) {
-	printk(KERN_INFO "Invalid control\n");
-		return err;
-	}
-
-
-	return 0;
-}
-
-
-/*
- * aic31xx_add_widgets
- *
- * adds all the ASoC Widgets identified by aic31xx_snd_controls array. This
- * routine will be invoked * during the Audio Driver Initialization.
- */
-static int aic31xx_add_widgets(struct snd_soc_codec *codec)
-{
-	struct snd_soc_dapm_context *dapm = &codec->dapm;
-	int ret = 0;
-	dev_dbg(codec->dev, "###aic31xx_add_widgets\n");
-	ret = snd_soc_dapm_new_controls(dapm, aic31xx_dapm_widgets,
-					ARRAY_SIZE(aic31xx_dapm_widgets));
-	if (!ret)
-		dev_dbg(codec->dev, "#Completed adding dapm widgets size = %d\n",
-					ARRAY_SIZE(aic31xx_dapm_widgets));
-
-	ret = snd_soc_dapm_add_routes(dapm, aic31xx_audio_map,
-					ARRAY_SIZE(aic31xx_audio_map));
-	if (!ret)
-		dev_dbg(codec->dev, "#Completed adding DAPM routes = %d\n",
-				ARRAY_SIZE(aic31xx_audio_map));
-
-	ret = snd_soc_dapm_new_widgets(dapm);
-	if (!ret)
-		dev_dbg(codec->dev, "widgets updated\n");
 
 	return 0;
 }
@@ -1321,11 +1230,10 @@ static int aic31xx_dac_mute(struct snd_soc_codec *codec, int mute)
 /*
  * aic31xx_mute- mute or unmute the left and right DAC
  */
-static int aic31xx_mute(struct snd_soc_dai *dai, int mute)
+static int aic31xx_mute_codec(struct snd_soc_codec *codec, int mute)
 {
 	int result = 0;
-	struct aic31xx_priv *aic31xx = snd_soc_codec_get_drvdata(dai->codec);
-	struct snd_soc_codec *codec = dai->codec;
+	struct aic31xx_priv *aic31xx = snd_soc_codec_get_drvdata(codec);
 	dev_dbg(codec->dev, "%s: mute = %d\t priv_mute = %d\n",
 		__func__, mute, aic31xx->mute);
 
@@ -1343,11 +1251,19 @@ static int aic31xx_mute(struct snd_soc_dai *dai, int mute)
 		}
 	}
 	if (aic31xx->playback_stream)
-		result = aic31xx_dac_mute(dai->codec, mute);
+		result = aic31xx_dac_mute(codec, mute);
 
 	dev_dbg(codec->dev, "%s: mute = %d\t priv_mute = %d\n",
 		__func__, mute, aic31xx->mute);
 	return result;
+}
+
+/*
+ * aic31xx_mute- mute or unmute the left and right DAC
+ */
+static int aic31xx_mute(struct snd_soc_dai *dai, int mute)
+{
+	return aic31xx_mute_codec(dai->codec, mute);
 }
 
 /*
@@ -1512,7 +1428,7 @@ static int aic31xx_set_bias_level(struct snd_soc_codec *codec,
 }
 
 
-static int aic31xx_suspend(struct snd_soc_codec *codec)//, pm_message_t state)
+static int aic31xx_suspend(struct snd_soc_codec *codec)
 {
 	int val, lv, rv;
 	struct aic31xx_priv *aic31xx = snd_soc_codec_get_drvdata(codec);
@@ -1533,7 +1449,7 @@ static int aic31xx_suspend(struct snd_soc_codec *codec)//, pm_message_t state)
 			mdelay(1);
 		}
 		aic31xx->from_resume = 0;
-		//aic31xx_mute(codec, 1);
+		aic31xx_mute_codec(codec, 1);
 		aic31xx_set_bias_level(codec, SND_SOC_BIAS_OFF);
 
 		/* Bit 7 of Page 1/ Reg 46 gives the soft powerdown control.
@@ -1591,8 +1507,7 @@ static int aic31xx_resume(struct snd_soc_codec *codec)
  */
 int aic31xx_mic_check(struct snd_soc_codec *codec)
 {
-
-	struct aic31xx_priv *aic31xx = snd_soc_codec_get_drvdata(codec);
+//	struct aic31xx_priv *aic31xx = snd_soc_codec_get_drvdata(codec);
 	int status, value, state = 0, switch_state = 0;
 	status = snd_soc_update_bits(codec, AIC31XX_HS_DETECT_REG, 0x80, 0);
 	mdelay(10);
@@ -1626,7 +1541,6 @@ int aic31xx_mic_check(struct snd_soc_codec *codec)
 	return switch_state;
 }
 
-
 /*
  *----------------------------------------------------------------------------
  * Function : aic31xx_probe
@@ -1637,7 +1551,10 @@ int aic31xx_mic_check(struct snd_soc_codec *codec)
 
 static int aic31xx_codec_probe(struct snd_soc_codec *codec)
 {
-	int ret = 0, value;
+
+
+	int ret = 0;
+//	int value;
 	struct aic3xxx *control;
 	struct aic31xx_priv *aic31xx;
 	struct aic31xx_jack_data *jack;
@@ -1645,11 +1562,12 @@ static int aic31xx_codec_probe(struct snd_soc_codec *codec)
 	if (codec == NULL)
 		dev_err(codec->dev, "codec pointer is NULL.\n");
 
-	printk("AIC31xx_codec_probe start\n");
+
 	codec->control_data = dev_get_drvdata(codec->dev->parent);
 	control = codec->control_data;
 
 	aic31xx = kzalloc(sizeof(struct aic31xx_priv), GFP_KERNEL);
+
 	if (aic31xx == NULL)
 		return -ENOMEM;
 
@@ -1667,7 +1585,8 @@ static int aic31xx_codec_probe(struct snd_soc_codec *codec)
 	aic31xx->cfw_p = &(aic31xx->cfw_ps);
 	aic31xx_codec_write(codec, AIC31XX_RESET_REG , 0x01);
 	mdelay(10);
-	aic3xxx_cfw_init(aic31xx->cfw_p, &aic31xx_cfw_codec_ops, aic31xx->codec);
+
+	aic3xxx_cfw_init(aic31xx->cfw_p, &aic31xx_cfw_codec_ops, aic31xx);
 	aic31xx->workqueue = create_singlethread_workqueue("aic31xx-codec");
 	if (!aic31xx->workqueue) {
 		ret = -ENOMEM;
@@ -1702,55 +1621,33 @@ static int aic31xx_codec_probe(struct snd_soc_codec *codec)
 		dev_err(codec->dev, "register input dev fail\n");
 		goto input_dev_err;
 	}
-	
-#if 0
-	if (control->irq) {
-		ret = aic3xxx_request_irq(codec->control_data,
-					AIC31XX_IRQ_HEADSET_DETECT,
-					aic31xx_audio_handler,
-					IRQF_NO_SUSPEND,
-					"aic31xx_irq_headset", codec);
-	if (ret) {
-		dev_err(codec->dev, "HEADSET detect irq request "
-			"failed: %d\n", ret);
-			goto irq_err;
-			} else {
-			/*  Dynamic Headset Detection Enabled */
-#endif
-			snd_soc_update_bits(codec, AIC31XX_HS_DETECT_REG,
-			AIC31XX_HEADSET_IN_MASK, AIC31XX_HEADSET_IN_MASK);
-#if 0
-		}
-	}
-#endif
+
+	/* Dynamic Headset detection enabled */
+	snd_soc_update_bits(codec, AIC31XX_HS_DETECT_REG,
+		AIC31XX_HEADSET_IN_MASK, AIC31XX_HEADSET_IN_MASK);
+
 	/* off, with power on */
 	aic31xx_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 	aic31xx->mute_asi = 0;
 
-	aic31xx_add_controls(codec);
-	aic31xx_add_widgets(codec);
+#if 0
+	ret = snd_soc_dapm_new_widgets(&codec->dapm);
+	if (!ret)
+		snd_printd(KERN_ERR "widgets updated\n");
+#endif
 	ret = aic31xx_driver_init(codec);
 	if (ret < 0)
-		dev_dbg(codec->dev,
-	"\nAIC31xx CODEC: aic31xx_probe: TiLoad Initialization failed\n");
+		dev_dbg(codec->dev, "\nAIC31xx CODEC: aic31xx_probe: TiLoad Initialization failed\n");
 
 
 	dev_dbg(codec->dev, "%d, %s, Firmware test\n", __LINE__, __func__);
-	ret=request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG,
+	request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG,
 		"tlv320aic31xx_fw_v1.bin", codec->dev, GFP_KERNEL, codec,
 		aic31xx_firmware_load);
-//	if (ret < 0) {
-//		dev_err(codec->dev, "Firmware request failed\n");
-//		goto firm_err;
-//	}
 
 	return 0;
 
-//firm_err:
-//	aic3xxx_free_irq(control,
-//                         AIC31XX_IRQ_HEADSET_DETECT, codec);
-//irq_err:
-//	destroy_workqueue(aic31xx->workqueue);
+
 input_dev_err:
 	input_unregister_device(aic31xx->idev);
 	input_free_device(aic31xx->idev);
@@ -1769,7 +1666,7 @@ static int aic31xx_codec_remove(struct snd_soc_codec *codec)
 	/* power down chip */
 	struct aic31xx_priv *aic31xx = snd_soc_codec_get_drvdata(codec);
 	struct aic3xxx *control = codec->control_data;
-	struct aic31xx_jack_data *jack = &aic31xx->hs_jack;
+//	struct aic31xx_jack_data *jack = &aic31xx->hs_jack;
 
 	aic31xx_set_bias_level(codec, SND_SOC_BIAS_OFF);
 
@@ -1777,14 +1674,12 @@ static int aic31xx_codec_remove(struct snd_soc_codec *codec)
 	switch (control->type) {
 	case TLV320AIC31XX:
 		if (control->irq) {
-//			aic3xxx_free_irq(control, AIC31XX_IRQ_HEADSET_DETECT,
-//				codec);
-//			aic3xxx_free_irq(control, AIC31XX_IRQ_BUTTON_PRESS,
-//				codec);
+			aic3xxx_free_irq(control, AIC31XX_IRQ_HEADSET_DETECT,
+				codec);
+			aic3xxx_free_irq(control, AIC31XX_IRQ_BUTTON_PRESS,
+				codec);
 		}
 		break;
-	default:
-                dev_info(codec->dev,"Coded is not TLV320AIC3100\n");
 	}
 	/* release firmware if any */
 	if (aic31xx->cur_fw != NULL)
@@ -1798,62 +1693,6 @@ static int aic31xx_codec_remove(struct snd_soc_codec *codec)
 
 	return 0;
 }
-
-#if 1
-/**
- * Methods for CFW Operations
- *
- * Due to incompatibilites between structures used by MFD and CFW
- * we need to transform the register format before linking to
- * CFW operations.
- */
-static inline unsigned int aic31xx_ops_cfw2reg(unsigned int reg)
-{
-        union cfw_register *c = (union cfw_register *) &reg;
-        union aic3xxx_reg_union mreg;
-
-        mreg.aic3xxx_register.offset = c->offset;
-        mreg.aic3xxx_register.page = c->page;
-        mreg.aic3xxx_register.book = c->book;
-        mreg.aic3xxx_register.reserved = 0;
-
-        return mreg.aic3xxx_register_int;
-}
-static int aic31xx_ops_reg_read(struct snd_soc_codec *codec, unsigned int reg)
-{
-        return aic3xxx_reg_read(codec->control_data, aic31xx_ops_cfw2reg(reg));
-}
-
-static int aic31xx_ops_reg_write(struct snd_soc_codec *codec, unsigned int reg,
-                          unsigned char val)
-{
-        return aic3xxx_reg_write(codec->control_data,
-                                        aic31xx_ops_cfw2reg(reg), val);
-}
-
-static int aic31xx_ops_set_bits(struct snd_soc_codec *codec, unsigned int reg,
-                                unsigned char mask, unsigned char val)
-{
-        return aic3xxx_set_bits(codec->control_data,
-                                        aic31xx_ops_cfw2reg(reg), mask, val);
-
-}
-
-static int aic31xx_ops_bulk_read(struct snd_soc_codec *codec, unsigned int reg,
-                                 int count, u8 *buf)
-{
-        return aic3xxx_bulk_read(codec->control_data,
-                                        aic31xx_ops_cfw2reg(reg), count, buf);
-}
-
-static int aic31xx_ops_bulk_write(struct snd_soc_codec *codec, unsigned int reg,
-                           int count, const u8 *buf)
-{
-        return aic3xxx_bulk_write(codec->control_data,
-                                        aic31xx_ops_cfw2reg(reg), count, buf);
-}
-#endif
-#if 0
 
 
 int aic31xx_ops_reg_read(void *p, unsigned int reg)
@@ -1872,7 +1711,7 @@ int aic31xx_ops_reg_read(void *p, unsigned int reg)
 
 }
 
-int aic31xx_ops_reg_write(void  *p, unsigned int reg, unsigned int mval)
+int aic31xx_ops_reg_write(void  *p, unsigned int reg, unsigned char mval)
 {
 	struct aic31xx_priv *ps = p;
 	aic31xx_reg_union mreg;
@@ -1883,15 +1722,14 @@ int aic31xx_ops_reg_write(void  *p, unsigned int reg, unsigned int mval)
 		mreg.aic3xxx_register.book = c->book;
 		mreg.aic3xxx_register.reserved = 0;
 		mval = c->data;
-		printk(KERN_INFO"pointer %p page %d book %d offset %d value %d\n", p,
+		printk(KERN_INFO"page %d book %d offset %d\n",
 			mreg.aic3xxx_register.page, mreg.aic3xxx_register.book,
-			mreg.aic3xxx_register.offset, mval);
+			mreg.aic3xxx_register.offset);
 		return aic3xxx_reg_write(ps->codec->control_data,
 			mreg.aic3xxx_register_int, mval);
 }
 
-int aic31xx_ops_set_bits(void *p, unsigned int reg,
-		unsigned char mask, unsigned char val)
+int aic31xx_ops_set_bits(void *p, unsigned int reg, unsigned char mask, unsigned char val)
 {
 	struct aic31xx_priv *ps = p;
 
@@ -1936,7 +1774,7 @@ int aic31xx_ops_bulk_write(void *p, unsigned int reg , int count, const u8 *buf)
 		mreg.aic3xxx_register_int, count, buf);
 	return 0;
 }
-#endif
+
 /*****************************************************************************
   Function Name : aic31xx_ops_lock
 Argument      : pointer argument to the codec
@@ -1978,7 +1816,7 @@ int aic31xx_ops_unlock(void *pv)
 	/*Releasing the lock of mutex */
 	struct aic31xx_priv *aic31xx = (struct aic31xx_priv *) pv;
 
-	printk(KERN_INFO"< UNLOCK >Unlock function\n");
+	printk(KERN_INFO "< UNLOCK >Unlock function\n");
 	mutex_unlock(&aic31xx->codec->mutex);
 	return 0;
 }
@@ -2214,6 +2052,13 @@ static struct snd_soc_codec_driver soc_codec_driver_aic31xx = {
 	.reg_cache_size		= 0,
 	.reg_word_size		= sizeof(u8),
 	.reg_cache_default	= NULL,
+
+	.controls		= aic31xx_snd_controls,
+	.num_controls		= ARRAY_SIZE(aic31xx_snd_controls),
+	.dapm_widgets		= aic31xx_dapm_widgets,
+	.num_dapm_widgets	= ARRAY_SIZE(aic31xx_dapm_widgets),
+	.dapm_routes		= aic31xx_audio_map,
+	.num_dapm_routes	= ARRAY_SIZE(aic31xx_audio_map),
 };
 
 /*
@@ -2263,18 +2108,16 @@ static struct snd_soc_dai_driver aic31xx_dai_driver[] = {
 			.formats	 = AIC31XX_FORMATS,
 		},
 	.ops = &aic31xx_dai_ops,
-}
+},
 };
 
 
 static int aic31xx_probe(struct platform_device *pdev)
 {
 	int ret;
-	
-	printk("AIC31xx probe \n");
 	ret = snd_soc_register_codec(&pdev->dev, &soc_codec_driver_aic31xx,
 			aic31xx_dai_driver, ARRAY_SIZE(aic31xx_dai_driver));
-	printk("AIC31xx probe ret = %d", ret);
+
 	return ret;
 }
 
@@ -2292,26 +2135,8 @@ static struct platform_driver aic31xx_codec_driver = {
 	.probe	 = aic31xx_probe,
 	.remove	 = __devexit_p(aic31xx_remove),
 };
-/*
- *----------------------------------------------------------------------------
- * Function : tlv320aic31xx_modinit
- * Purpose  : Module INIT Routine
- *
- *----------------------------------------------------------------------------
- */
-static int __init tlv320aic31xx_modinit(void)
-{
-	return platform_driver_register(&aic31xx_codec_driver);
-}
-module_init(tlv320aic31xx_modinit);
 
-
-static void __exit tlv320aic31xx_exit(void)
-{
-	platform_driver_unregister(&aic31xx_codec_driver);
-}
-
-module_exit(tlv320aic31xx_exit);
+module_platform_driver(aic31xx_codec_driver);
 
 MODULE_DESCRIPTION("ASoC TLV320AIC3111 codec driver");
 MODULE_AUTHOR("naresh@ti.com");
