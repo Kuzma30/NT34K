@@ -807,7 +807,7 @@ cfw_project *aic3xxx_cfw_unpickle(void *p, int n)
 			pjt->if_id, CFW_FW_IF_ID);
 		return NULL;
 	}
-	DBG("Loaded firmware inside unpickle");
+	DBG("Loaded firmware inside unpickle\n");
 
 	FW_UP_DESC(pjt->desc, p);
 	FW_NDX2PTR(pjt->transition, p);
@@ -827,7 +827,7 @@ cfw_project *aic3xxx_cfw_unpickle(void *p, int n)
 
 	FW_NDX2PTR(pjt->pfw, p);
 	for (i = 0; i < pjt->npfw; i++) {
-		DBG("loading pfw %d", i);
+		DBG("loading pfw %d\n", i);
 		FW_NDX2PTR(pjt->pfw[i], p);
 		FW_UP_DESC(pjt->pfw[i]->desc, p);
 		if (pjt->pfw[i]->base) {
@@ -847,7 +847,7 @@ cfw_project *aic3xxx_cfw_unpickle(void *p, int n)
 		}
 	}
 
-	DBG("loaded pfw's");
+	DBG("loaded pfw's\n");
 	FW_NDX2PTR(pjt->mode, p);
 	for (i = 0; i < pjt->nmode; i++) {
 		FW_NDX2PTR(pjt->mode[i], p);
