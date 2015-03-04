@@ -59,7 +59,7 @@
 #include <asm/mach-types.h>
 #include <plat/hardware.h>
 #include <plat/mux.h>
-#include "mcbsp.h"
+#include <plat/mcbsp.h>
 
 #include "mcpdm.h"
 #include "omap-pcm.h"
