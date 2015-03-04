@@ -393,9 +393,13 @@ static int Qoo_headset_jack_status_check(void)
 static struct snd_soc_dai_link omap4_dai_abe[] = {
 	{
 
-		.name = "Legacy McBSP2",
+		.name = "Legacy McBSP3",
 		.stream_name = "MultiMedia",
+<<<<<<< HEAD
 		.cpu_dai_name = "omap-mcbsp.2",
+=======
+		.cpu_dai_name = "omap-mcbsp-dai.1",
+>>>>>>> parent of d0b7033... Next step in audio driver.
 		.codec_dai_name = "tlv320aic31xx-MM_EXT",
 		.platform_name = "omap-pcm-audio",
 		.codec_name = "tlv320aic31xx-codec",

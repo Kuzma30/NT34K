@@ -36,16 +36,6 @@
 #include <linux/mfd/tlv320aic3xxx-registers.h>
 #include <linux/mfd/tlv320aic31xx-registers.h>
 
-#define HEADSET_DETECT_GPIO_PIN 102
-#define AUDIO_CODEC_HPH_DETECT_GPIO (102)
-#define AUDIO_CODEC_PWR_ON_GPIO (101)
-#define AUDIO_CODEC_INTERRUPT (103)
-#define AUDIO_CODEC_RESET_GPIO (104)
-#define AUDIO_CODEC_PWR_ON_GPIO_NAME "audio_codec_pwron"
-#define AUDIO_CODEC_RESET_GPIO_NAME "audio_codec_reset"
-
-void __iomem *phymuxbase = NULL;
-
 int set_aic3xxx_book(struct aic3xxx *aic3xxx, int book)
 {
 	int ret = 0;
@@ -355,57 +345,6 @@ int aic3xxx_device_init(struct aic3xxx *aic3xxx)
 	if (dev_get_platdata(aic3xxx->dev))
 		memcpy(&aic3xxx->pdata, dev_get_platdata(aic3xxx->dev),
 			sizeof(aic3xxx->pdata));
-
-#if 1
-        int gpio = AUDIO_CODEC_PWR_ON_GPIO;
-        int err, val;
-        int codec_interrupt_gpio = AUDIO_CODEC_INTERRUPT /* AUDIO_GPIO_INTERRUPT_1 */;
-        int codec_interrupt = 0;
-        printk("Came to tlv320aic31xx_codec_probe...\n");
-        /* GPIOs 101-AUD-CODEC-EN signal as per Schematics,
-         * GPIO 102-HS-nDETECT as per Schematics */
-        phymuxbase = ioremap(0x4A100000, 0x1000);
-         val = __raw_readl(phymuxbase + 0x90);
-         val = (val & 0xFFF0FFF0) | 0x00030003;
-         __raw_writel(val, phymuxbase + 0x90);
-         iounmap(phymuxbase);
-         ret = gpio_request(codec_interrupt_gpio, "Codec Interrupt");
-         if (ret < 0) {
-         printk( "%s: error in gpio request. codec interrupt"
-                                 "failed\n", __func__);
-         return ret;
-         }
-         gpio_direction_input(codec_interrupt_gpio);
-         codec_interrupt = OMAP_GPIO_IRQ(codec_interrupt_gpio);
-         printk("Set codec interrupt\n");
-         ret = gpio_request(AUDIO_CODEC_PWR_ON_GPIO, AUDIO_CODEC_PWR_ON_GPIO_NAME);
-         if(ret < 0) {
-                 printk(KERN_ERR "%s: Unable get gpio for CODEC POWER %d\n",
-                                     __func__, AUDIO_CODEC_PWR_ON_GPIO);
-     }
-         gpio_direction_output(AUDIO_CODEC_PWR_ON_GPIO, 1);
-         gpio_set_value(AUDIO_CODEC_PWR_ON_GPIO, 1);
-         mdelay(10);
-         printk("POWER ON codec\n");
-         ret = gpio_request(AUDIO_CODEC_RESET_GPIO, AUDIO_CODEC_RESET_GPIO_NAME);
-         if(ret < 0) {
-             printk(KERN_ERR "%s: Unable get gpio for Reset %d\n",
-             __func__, AUDIO_CODEC_RESET_GPIO);
-     }
-         gpio_direction_output(AUDIO_CODEC_RESET_GPIO, 1);
-         gpio_set_value(AUDIO_CODEC_RESET_GPIO, 1);
-         mdelay(10);
-         printk("Release RESET codec pin\n");
-         phymuxbase = ioremap(0x4A100000, 0x1000);
-         /* GPIOs 101-AUD-CODEC-EN signal as per Schematics,
-          GPIO 102-HS-nDETECT as per Schematics */
-          val = __raw_readl(phymuxbase + 0x90);
-      val = (val & 0xFFF8FFF8) | 0x00030003;
-      __raw_writel(val, phymuxbase + 0x90);
-	 iounmap(phymuxbase);
-#endif
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
-
 
 	/*GPIO reset for TLV320AIC31xx codec */
 	if (aic3xxx->pdata.gpio_reset) {
