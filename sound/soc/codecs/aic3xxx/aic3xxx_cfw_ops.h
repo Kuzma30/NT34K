@@ -88,12 +88,10 @@ int aic3xxx_cfw_add_modes(struct snd_soc_codec *codec, cfw_state *ps);
 
 typedef struct aic3xxx_codec_ops {
 	int (*reg_read) (void *p, unsigned int reg);
-	int (*reg_write) (void *p, unsigned int reg, unsigned char val);
-	int (*set_bits) (void *p, unsigned int reg,
-			 unsigned char mask, unsigned char val);
+	int (*reg_write) (void *p, unsigned int reg, unsigned int val);
+	int (*set_bits) (void *p, unsigned int reg, unsigned char mask, unsigned char val);
 	int (*bulk_read) (void *p, unsigned int reg, int count, u8 *buf);
-	int (*bulk_write) (void *p, unsigned int reg,
-			   int count, const u8 *buf);
+	int (*bulk_write) (void *p, unsigned int reg, int count, const u8 *buf);
 
 	int (*lock) (void *p);
 	int (*unlock) (void *p);
@@ -101,7 +99,5 @@ typedef struct aic3xxx_codec_ops {
 	int (*restore) (void *p, int runstate);
 	int (*bswap) (void *p, int mask);
 } aic3xxx_codec_ops;
-
-MODULE_LICENSE("GPL");
-
+//MODULE_LICENSE("GPL");
 #endif

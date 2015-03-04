@@ -28,21 +28,34 @@
 #include "aic3xxx/aic3xxx_cfw.h"
 #include "aic3xxx/aic3xxx_cfw_ops.h"
 #define AIC31XX_MCBSP_SLAVE /*aic3111 master*/
-#if 0
+#define DEBUG
+#if 1
 #ifdef DEBUG
 	#define dprintk(x...)   printk(x)
-	#define DBG(x...)       printk(x)
+//	#define DBG(x...)       printk(KERN_INFO x)
+//	#define dev_dbg(x...)   printk(x)
 #else
 	#define dprintk(x...)
-	#define DBG(x...)
+//	#define DBG(x...)
+//	#define dev_dbg(x...)
 #endif
 #endif
+
+#define AIC31x_CODEC_DEBUG
+
+#define AIC31XX_DEBUG
+/*
+ * Linux Developer needs to enable a particular flag in
+ * this header file before performing a build of the
+ * Audio Codec Driver.
+*/
+#undef  AIC3110_CODEC_SUPPORT
+#define AIC3100_CODEC_SUPPORT
+
 
 #define AUDIO_NAME "aic31xx"
 /* Macro to enable the inclusion of tiload kernel driver */
 #define AIC31XX_TiLoad
-/* Macro to enable AIC3110 codec support */
-#define AIC3110_CODEC_SUPPORT
 /* Macro enables or disables support for miniDSP in the driver */
 /* Enable the AIC31XX_TiLoad macro first before enabling these macros */
 /* #define CONFIG_MINI_DSP */
@@ -63,10 +76,8 @@
 /* Enable this macro allow for different ASI formats */
 /* #define ASI_MULTI_FMT */
 #undef ASI_MULTI_FMT
-
-// FIXME-HASH: This was enabled in 3.0 driver
 /* Enable register caching on write */
-#define EN_REG_CACHE
+/* #define EN_REG_CACHE */
 
 /* Enable Headset Detection */
 /* #define HEADSET_DETECTION */
@@ -264,6 +275,10 @@
 #define RDAC_ENUM		25
 
 
+/* The headset jack insertion GPIO used on the Qoo Board */
+#define Qoo_HEADSET_DETECT_GPIO_PIN		102
+
+
 #define AIC31XX_COPS_MDSP_A	0x10
 
 
@@ -290,9 +305,10 @@ int aic31xx_pwr_down(void *, int , int , int , int);
 
 int aic31xx_dsp_pwrdwn_status(void *);
 
+#if 0
 int aic31xx_ops_reg_read(void *p, unsigned int reg);
 
-int aic31xx_ops_reg_write(void *p, unsigned int reg, unsigned char mval);
+int aic31xx_ops_reg_write(void *p, unsigned int reg, unsigned int mval);
 
 int aic31xx_ops_set_bits(void *p, unsigned int reg, unsigned char mask,
 				unsigned char val);
@@ -300,7 +316,7 @@ int aic31xx_ops_set_bits(void *p, unsigned int reg, unsigned char mask,
 int aic31xx_ops_bulk_read(void *p, unsigned int reg, int count, u8 *buf);
 
 int aic31xx_ops_bulk_write(void *p, unsigned int reg, int count, const u8 *buf);
-
+#endif
 int aic31xx_ops_lock(void *pv);
 
 int aic31xx_ops_unlock(void *pv);
@@ -452,10 +468,9 @@ void aic31xx_firmware_load(const struct firmware *fw, void *context);
 unsigned int aic3xxx_read(struct snd_soc_codec *codec, unsigned int reg);
 int aic3xxx_write(struct snd_soc_codec *codec, unsigned int reg,
 				unsigned int value);
-static int aic31xx_mute_codec(struct snd_soc_codec *codec, int mute);
-static int aic31xx_mute(struct snd_soc_dai *dai, int mute);
+int aic31xx_mute_codec(struct snd_soc_codec *codec, int mute);
 
-int aic31xx_mic_check(struct snd_soc_codec *codec);
+extern int aic31xx_mic_check(struct snd_soc_codec *codec);
 #ifdef AIC31XX_TiLoad
 	int aic31xx_driver_init(struct snd_soc_codec *codec);
 #endif

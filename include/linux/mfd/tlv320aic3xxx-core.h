@@ -8,9 +8,6 @@ enum aic3xxx_type {
 	TLV320AIC31XX = 0,
 };
 
-/* The headset jack insertion GPIO used on the Qoo Board */
-#define Qoo_HEADSET_DETECT_GPIO_PIN		49
-
 
 #define AIC31XX_IRQ_HEADSET_DETECT	0
 #define AIC31XX_IRQ_BUTTON_PRESS	1
@@ -102,9 +99,6 @@ struct aic3xxx_pdata {
 	struct aic3xxx_gpio_setup *gpio_defaults;/* all gpio configuration */
 	int naudint_irq; /* audio interrupt */
 	unsigned int irq_base;
-	char *regulator_name;
-	int regulator_min_uV;
-	int regulator_max_uV;
 };
 
 /*
@@ -200,8 +194,8 @@ int aic3xxx_i2c_read_device(struct aic3xxx *aic3xxx, u8 offset,
 int aic3xxx_i2c_write_device(struct aic3xxx *aic3xxx, u8 offset,
 				const void *src, int count);
 
-//int aic3xxx_spi_read_device(struct aic3xxx *aic3xxx, u8 offset,
-//				void *dest, int count);
+int aic3xxx_spi_read_device(struct aic3xxx *aic3xxx, u8 offset,
+				void *dest, int count);
 int aic3xxx_spi_write_device(struct aic3xxx *aic3xxx, u8 offset,
 				const void *src, int count);
 

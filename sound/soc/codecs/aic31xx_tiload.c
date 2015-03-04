@@ -48,7 +48,7 @@
 
 /* enable debug prints in the driver */
 /* #define DEBUG */
-#undef DEBUG
+#define DEBUG
 
 #ifdef DEBUG
 #define dprintk(x...)	printk(x)
@@ -209,11 +209,11 @@ static ssize_t tiload_write(struct file *file, const char __user *buf,
 			size_t count, loff_t *offset)
 {
 	static char wr_data[128];
-//	u8 pg_no;
-//	unsigned int reg;
-#ifdef DEBUG
+	u8 pg_no;
+	unsigned int reg;
+	#ifdef DEBUG
 	int i;
-#endif
+	#endif
 	struct aic3xxx *control = aic31xx_codec->control_data;
 
 	dprintk("TiLoad DRIVER : %s\n", __func__);
@@ -253,7 +253,7 @@ static ssize_t tiload_write(struct file *file, const char __user *buf,
 
 }
 
-static long tiload_ioctl(struct file *filp,
+static int tiload_ioctl(struct file *filp,
 			unsigned int cmd, unsigned long arg)
 {
 	int num = 0;
