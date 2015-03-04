@@ -256,11 +256,13 @@ static const struct snd_kcontrol_new aic31xx_snd_controls[] = {
 	SOC_DOUBLE_R("HP driver mute", AIC31XX_HPL_DRIVER_REG,
 			AIC31XX_HPR_DRIVER_REG, 2, 2, 0),
 
-#ifdef AIC3110_CODEC_SUPPORT
 	/* SP driver mute control */
 	SOC_DOUBLE_R("SP driver mute", AIC31XX_SPL_DRIVER_REG,
 			AIC31XX_SPR_DRIVER_REG, 2, 2, 0),
+<<<<<<< HEAD
 #endif
+=======
+>>>>>>> parent of 0ac6149... Apply partial changes from
 
 #ifdef AIC3100_CODEC_SUPPORT
 	SOC_SINGLE("SP driver mute", AIC31XX_SPL_DRIVER_REG,
@@ -555,7 +557,7 @@ static int aic31xx_dac_power_up_event(struct snd_soc_dapm_widget *w,
 		if (sync_needed && non_sync_state && other_dsp) {
 			run_state =
 				get_runstate(
-					aic31xx->codec->control_data);
+					aic31xx->codec);
 			aic31xx_dsp_pwrdwn_status(aic31xx->codec);
 			aic31xx_dsp_pwrup(aic31xx->codec, run_state);
 		}
@@ -617,7 +619,7 @@ static int aic31xx_adc_power_up_event(struct snd_soc_dapm_widget *w,
 		other_dsp = aic31xx->dsp_runstate & AIC31XX_COPS_MDSP_D;
 		if (sync_needed && non_sync_state && other_dsp) {
 			run_state = get_runstate(
-						aic31xx->codec->control_data);
+						aic31xx->codec);
 			aic31xx_dsp_pwrdwn_status(aic31xx->codec);
 			aic31xx_dsp_pwrup(aic31xx->codec, run_state);
 		}
@@ -1338,10 +1340,10 @@ static int aic31xx_set_dai_fmt(struct snd_soc_dai *codec_dai,
 			INTERFACE_REG1_DATA_TYPE_MASK |
 			INTERFACE_REG1_MASTER_MASK,
 			iface_reg1);
-	snd_soc_update_bits(codec, AIC31XX_DATA_SLOT_OFFSET,
+	snd_soc_update_bits(codec, AIC31XX_INTERFACE_SET_REG_2,
 			INTERFACE_REG2_MASK,
 			dsp_a_val);
-	snd_soc_update_bits(codec, AIC31XX_INTERFACE_SET_REG_2,
+	snd_soc_update_bits(codec, AIC31XX_INTERFACE_SET_REG_3,
 			INTERFACE_REG3_MASK,
 			iface_reg3);
 			

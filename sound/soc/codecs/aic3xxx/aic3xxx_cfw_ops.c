@@ -232,7 +232,6 @@ static int aic3xxx_cfw_setmode_cfg_u(cfw_state *ps, int mode, int cfg)
 		 * where the base PFW uses both miniDSPs where a particular
 		 * overlay applies only to one
 		 */
-#if 0
 		im = pfw->base;
 		if (im->block[CFW_BLOCK_A_INST])
 			which |= AIC3XX_COPS_MDSP_A;
@@ -272,7 +271,6 @@ static int aic3xxx_cfw_setmode_cfg_u(cfw_state *ps, int mode, int cfg)
 			ocndx = CFW_OCFG_NDX(pfw, pmode->ovly, cfg);
 			aic3xxx_cfw_dlcfg(ps, pfw->ovly_cfg[ocndx]);
 		}
-#endif
 		ps->cur_ovly = pmode->ovly;
 		ps->cur_cfg = cfg;
 
