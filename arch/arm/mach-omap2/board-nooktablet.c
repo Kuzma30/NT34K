@@ -1601,7 +1601,7 @@ static struct omap_dss_device acclaim_boxer_device = {
 		  .timings = {
 			      .x_res = 1024,
 			      .y_res = 600,
-			      .pixel_clock = 51587,	/* in kHz */
+			      .pixel_clock = 46000,	/* in kHz */
 			      .hfp = 160,	/* HFP fix 160 */
 			      .hsw = 10,	/* HSW = 1~140 */
 			      .hbp = 160,	/* HSW + HBP = 160 */
