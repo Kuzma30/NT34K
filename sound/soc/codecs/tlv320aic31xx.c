@@ -82,9 +82,9 @@
 	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,	\
 }
 
-#define    AUDIO_CODEC_HPH_DETECT_GPIO		(102)
-#define    AUDIO_CODEC_PWR_ON_GPIO		(101)
-#define    AUDIO_CODEC_RESET_GPIO		(104)
+#define    AUDIO_CODEC_HPH_DETECT_GPIO		(157)
+#define    AUDIO_CODEC_PWR_ON_GPIO		(103)
+#define    AUDIO_CODEC_RESET_GPIO		(37)
 #define    AUDIO_CODEC_PWR_ON_GPIO_NAME		"audio_codec_pwron"
 #define    AUDIO_CODEC_RESET_GPIO_NAME		"audio_codec_reset"
 
@@ -266,7 +266,7 @@ static const struct snd_kcontrol_new aic31xx_snd_controls[] = {
 
 #ifdef AIC3100_CODEC_SUPPORT
 	SOC_SINGLE("SP driver mute", AIC31XX_SPL_DRIVER_REG,
-			2, 2, 0),
+			2, 2, 0);
 #endif	
 	/* ADC FINE GAIN */
 	SOC_SINGLE_TLV("ADC FINE GAIN", AIC31XX_ADC_VOL_FGC, 4, 4, 1,
@@ -421,7 +421,7 @@ static const struct snd_kcontrol_new aic31xx_snd_controls[] = {
 
 #ifdef AIC3100_CODEC_SUPPORT
 	/* SP Class-D driver output stage gain Control */
-	SOC_SINGLE("Class - D driver Volume",
+	SOC_SINGLE("Class - D driver Volume(0 = 6 dB, 4 = 24 dB)",
 			AIC31XX_SPL_DRIVER_REG, 3, 0x04, 0),
 #endif
 
