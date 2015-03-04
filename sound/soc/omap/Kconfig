@@ -139,12 +139,12 @@ config SND_OMAP_SOC_OMAP_ABE_TWL6040
 config SND_OMAP_SOC_RY_AIC3110
 	tristate "SoC Audio support for OMAP4 and AIC3110 Audio Codec Chipset"
 	depends on SND_OMAP_SOC
-	select SND_OMAP_SOC_MCBSP
-	select CONFIG_SND_SOC_TLV320AIC31XX
-	select SND_OMAP_SOC_ABE
-	select SND_OMAP_SOC_ABE_DSP
-	select ABE_44100
-	help
+	select SND_OMAP_SOC_MCBSP                                                                                             
+	select SND_SOC_AIC3110                                                                                                
+	select SND_OMAP_SOC_ABE                                                                                               
+	select SND_OMAP_SOC_ABE_DSP                                                                                           
+	select ABE_44100                                                                                                      
+	help                                                                                                                  
 	  Say Y if you want to add support for SoC audio on the OMAP4 Board
 
 config SND_OMAP_SOC_OMAP_HDMI

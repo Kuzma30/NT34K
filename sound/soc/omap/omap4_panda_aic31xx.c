@@ -55,7 +55,7 @@
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
 #include <sound/jack.h>
-#include <linux/module.h>
+
 #include <asm/mach-types.h>
 #include <plat/hardware.h>
 #include <plat/mux.h>
@@ -410,7 +410,7 @@ static struct snd_soc_dai_link omap4_dai_abe[] = {
 /* Audio machine driver with ABE Support */
 
 static struct snd_soc_card omap_abe_card = {
-	.name = "OMAP4_ACCLAIM",
+	.name = "OMAP4",
 	.long_name = "TI OMAP4 Board",
 	.dai_link = omap4_dai_abe,
 	.num_links = ARRAY_SIZE(omap4_dai_abe),
@@ -423,13 +423,11 @@ static int __init sdp44xx_aic31xx_soc_init(void)
 {
 	int ret, err_reg;
 
-#if 0
 	if (!machine_is_omap_4430sdp() && !machine_is_omap4_panda()) {
-		printk("Not SDP4430 or PandaBoard!\n");
+		pr_debug("Not SDP4430 or PandaBoard!\n");
 		return -ENODEV;
 	}
-#endif
-	printk(KERN_INFO "AIC31xx SoC init\n");
+	pr_debug(KERN_INFO "AIC31xx SoC init\n");
 	if (machine_is_omap_4430sdp()) {
 		omap_abe_card.name = "AIC31XX_OTTER";
 		pr_debug(KERN_INFO "SoC init\n");
@@ -466,6 +464,6 @@ static void __exit sdp44xx_aic31xx_soc_exit(void)
 }
 module_exit(sdp44xx_aic31xx_soc_exit);
 
-MODULE_AUTHOR("Santosh Sivaraj <santosh.s@mistralsolutions.com>");
-MODULE_DESCRIPTION("ALSA SoC OMAP4 Panda");
-MODULE_LICENSE("GPL");
+//MODULE_AUTHOR("Santosh Sivaraj <santosh.s@mistralsolutions.com>");
+//MODULE_DESCRIPTION("ALSA SoC OMAP4 Panda");
+//MODULE_LICENSE("GPL");

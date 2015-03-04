@@ -82,9 +82,9 @@
 	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,	\
 }
 
-#define    AUDIO_CODEC_HPH_DETECT_GPIO		(102)
-#define    AUDIO_CODEC_PWR_ON_GPIO		(101)
-#define    AUDIO_CODEC_RESET_GPIO		(104)
+#define    AUDIO_CODEC_HPH_DETECT_GPIO		(157)
+#define    AUDIO_CODEC_PWR_ON_GPIO		(103)
+#define    AUDIO_CODEC_RESET_GPIO		(37)
 #define    AUDIO_CODEC_PWR_ON_GPIO_NAME		"audio_codec_pwron"
 #define    AUDIO_CODEC_RESET_GPIO_NAME		"audio_codec_reset"
 
@@ -494,13 +494,21 @@ void debug_print_registers(struct snd_soc_codec *codec)
 
 	for (i = 0 ; i < 118 ; i++) {
 		data = snd_soc_read(codec, i);
+<<<<<<< HEAD
 		dev_dbg(codec->dev,"reg = %d val = %x\n", i, data);
+=======
+		dev_dbg(codec->dev, "reg = %d val = %x\n", i, data);
+>>>>>>> parent of 59f43f3... Next audio step. No audio card yet.
 	}
 	/* for ADC registers */
 	dev_dbg(codec->dev, "*** Page 1:\n");
 	for (i = AIC31XX_HPHONE_DRIVERS ; i <= AIC31XX_MICPGA_CM_REG ; i++) {
 		data = snd_soc_read(codec, i);
+<<<<<<< HEAD
 		dev_dbg(codec->dev,"reg = %d val = %x\n", i, data);
+=======
+		dev_dbg(codec->dev, "reg = %d val = %x\n", i, data);
+>>>>>>> parent of 59f43f3... Next audio step. No audio card yet.
 	}
 }
 
@@ -891,7 +899,7 @@ static const struct snd_soc_dapm_widget aic31xx_dapm_widgets[] = {
 	/* For AIC3100 as is mono only left
 	 * channel class-D can be powered up/down
 	 */
-	SND_SOC_DAPM_PGA_E("SPL Class - D", AIC31XX_CLASS_D_SPK, 7, 0, NULL, 0, \
+	SND_SOC_DAPM_PGA("SPL Class - D", AIC31XX_CLASS_D_SPK, 7, 0, NULL, 0, \
 			aic31xx_sp_event, SND_SOC_DAPM_POST_PMU | \
 			SND_SOC_DAPM_POST_PMD),
 
@@ -971,27 +979,28 @@ void aic31xx_firmware_load(const struct firmware *fw, void *context)
 	struct snd_soc_codec *codec = context;
 	struct aic31xx_priv *private_ds = snd_soc_codec_get_drvdata(codec);
 	int ret = 0;
-	aic3xxx_cfw_lock(private_ds->cfw_p, 1);
+//	aic3xxx_cfw_lock(private_ds->cfw_p, 1);
 	if (private_ds->cur_fw != NULL)
 		release_firmware(private_ds->cur_fw);
 	private_ds->cur_fw = NULL ;
 
-	if (fw != NULL) {
-		dev_dbg(codec->dev, "Default firmware load\n\n");
-		private_ds->cur_fw = (void *)fw;
-		ret = aic3xxx_cfw_reload(private_ds->cfw_p, (void *)fw->data,
-						fw->size);
-		if (ret < 0) { /* reload failed */
-			dev_err(codec->dev, "Firmware binary load failed\n");
-			release_firmware(private_ds->cur_fw);
-			private_ds->cur_fw = NULL;
-			fw = NULL;
-		} else
-			private_ds->isdefault_fw = 0;
-	}
+//	if (fw != NULL) {
+//		dev_dbg(codec->dev, "Default firmware load\n\n");
+//		private_ds->cur_fw = (void *)fw;
+//		ret = aic3xxx_cfw_reload(private_ds->cfw_p, (void *)fw->data,
+//						fw->size);
+//		if (ret < 0) { /* reload failed */
+//			dev_err(codec->dev, "Firmware binary load failed\n");
+//			release_firmware(private_ds->cur_fw);
+//			private_ds->cur_fw = NULL;
+//			fw = NULL;
+//		} else
+//			private_ds->isdefault_fw = 0;
+//	}
 
-	if (fw == NULL) {
+//	if (fw == NULL) {
 		/* either request_firmware or reload failed */
+<<<<<<< HEAD
 		dev_dbg(codec->dev, "Default firmware load\n");
 		printk("Size of AUDIO default firmware = %d", sizeof(default_firmware));
 		ret = aic3xxx_cfw_reload(private_ds->cfw_p, default_firmware,
@@ -1012,6 +1021,26 @@ void aic31xx_firmware_load(const struct firmware *fw, void *context)
 		}
 		aic3xxx_cfw_setmode_cfg(private_ds->cfw_p, 0, 0);
 	}
+=======
+//		dev_dbg(codec->dev, "Default firmware load\n");
+//		ret = aic3xxx_cfw_reload(private_ds->cfw_p, default_firmware,
+//			sizeof(default_firmware));
+//		if (ret < 0)
+//			dev_err(codec->dev, "Default firmware load failed\n");
+//		else
+//			private_ds->isdefault_fw = 1;
+//	}
+//	aic3xxx_cfw_lock(private_ds->cfw_p, 0); /*  release the lock */
+//	if (ret >= 0) {
+//		/* init function for transition */
+//		aic3xxx_cfw_transition(private_ds->cfw_p, "INIT");
+//		if (!private_ds->isdefault_fw) {
+//			aic3xxx_cfw_add_modes(codec, private_ds->cfw_p);
+//			aic3xxx_cfw_add_controls(codec, private_ds->cfw_p);
+//		}
+//		aic3xxx_cfw_setmode_cfg(private_ds->cfw_p, 0, 0);
+//	}
+>>>>>>> parent of 59f43f3... Next audio step. No audio card yet.
 }
 
 
@@ -1649,7 +1678,7 @@ static int aic31xx_codec_probe(struct snd_soc_codec *codec)
 	if (codec == NULL)
 		dev_err(codec->dev, "codec pointer is NULL.\n");
 
-	printk("AIC31xx_codec_probe start\n");
+
 	codec->control_data = dev_get_drvdata(codec->dev->parent);
 	control = codec->control_data;
 
@@ -1740,6 +1769,7 @@ static int aic31xx_codec_probe(struct snd_soc_codec *codec)
 
 	aic31xx_add_controls(codec);
 	aic31xx_add_widgets(codec);
+<<<<<<< HEAD
 	ret = aic31xx_driver_init(codec);
 	if (ret < 0)
 		dev_dbg(codec->dev,
@@ -1765,6 +1795,19 @@ static int aic31xx_codec_probe(struct snd_soc_codec *codec)
 //	destroy_workqueue(aic31xx->workqueue);
 =======
 	debug_print_registers(codec);
+=======
+//	ret = aic31xx_driver_init(codec);
+//	if (ret < 0)
+//		dev_dbg(codec->dev,
+//	"\nAIC31xx CODEC: aic31xx_probe: TiLoad Initialization failed\n");
+
+
+//	dev_dbg(codec->dev, "%d, %s, Firmware test\n", __LINE__, __func__);
+//	request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG,
+//		"tlv320aic31xx_fw_v1.bin", codec->dev, GFP_KERNEL, codec,
+//		aic31xx_firmware_load);
+
+>>>>>>> parent of 59f43f3... Next audio step. No audio card yet.
 	return 0;
 
 
@@ -2293,8 +2336,6 @@ static struct snd_soc_dai_driver aic31xx_dai_driver[] = {
 static int aic31xx_probe(struct platform_device *pdev)
 {
 	int ret;
-	
-	printk("AIC31xx probe \n");
 	ret = snd_soc_register_codec(&pdev->dev, &soc_codec_driver_aic31xx,
 			aic31xx_dai_driver, ARRAY_SIZE(aic31xx_dai_driver));
 	printk("AIC31xx probe ret = %d", ret);
