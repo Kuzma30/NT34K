@@ -1124,7 +1124,7 @@ static int aic3xxx_cfw_release(struct inode *in, struct file *filp)
 	ps->is_open--;
 	return ps->is_open;
 }
-static long aic3xxx_cfw_ioctl(struct file *filp,
+static int aic3xxx_cfw_ioctl(struct file *filp,
 			unsigned int cmd, unsigned long arg)
 {
 	return 0;

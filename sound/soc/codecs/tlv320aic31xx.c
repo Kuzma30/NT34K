@@ -422,7 +422,7 @@ static const struct snd_kcontrol_new aic31xx_snd_controls[] = {
 
 #ifdef AIC3100_CODEC_SUPPORT
 	/* SP Class-D driver output stage gain Control */
-	SOC_SINGLE("Class - D driver Volume",
+	SOC_SINGLE("Class - D driver Volume(0 = 6 dB, 4 = 24 dB)",
 			AIC31XX_SPL_DRIVER_REG, 3, 0x04, 0),
 #endif
 
@@ -937,6 +937,7 @@ static const struct snd_soc_dapm_widget aic31xx_dapm_widgets[] = {
 
 };
 
+<<<<<<< HEAD
 #if 0
 /**
  * aic31xx_audio_handler: audio interrupt handler called
@@ -956,6 +957,8 @@ static irqreturn_t aic31xx_audio_handler(int irq, void *data)
         return IRQ_HANDLED;
 }
 #endif
+=======
+>>>>>>> parent of 79e8f49... Next audio step.
 
 /* aic31xx_firmware_load
    This function is called by the request_firmware_nowait function as soon
@@ -1159,7 +1162,7 @@ static int aic31xx_add_controls(struct snd_soc_codec *codec)
 	err = snd_soc_add_codec_controls(codec, aic31xx_snd_controls,
 				ARRAY_SIZE(aic31xx_snd_controls));
 	if (err < 0) {
-	printk(KERN_INFO "Invalid control\n");
+	printk(KERN_INFO, "Invalid control\n");
 		return err;
 	}
 
@@ -1626,7 +1629,6 @@ int aic31xx_mic_check(struct snd_soc_codec *codec)
 	return switch_state;
 }
 
-
 /*
  *----------------------------------------------------------------------------
  * Function : aic31xx_probe
@@ -1637,6 +1639,8 @@ int aic31xx_mic_check(struct snd_soc_codec *codec)
 
 static int aic31xx_codec_probe(struct snd_soc_codec *codec)
 {
+
+
 	int ret = 0, value;
 	struct aic3xxx *control;
 	struct aic31xx_priv *aic31xx;
@@ -1702,6 +1706,7 @@ static int aic31xx_codec_probe(struct snd_soc_codec *codec)
 		dev_err(codec->dev, "register input dev fail\n");
 		goto input_dev_err;
 	}
+<<<<<<< HEAD
 	
 #if 0
 	if (control->irq) {
@@ -1723,6 +1728,12 @@ static int aic31xx_codec_probe(struct snd_soc_codec *codec)
 		}
 	}
 #endif
+=======
+		/* Dynamic Headset detection enabled */
+		snd_soc_update_bits(codec, AIC31XX_HS_DETECT_REG,
+			AIC31XX_HEADSET_IN_MASK, AIC31XX_HEADSET_IN_MASK);
+
+>>>>>>> parent of 79e8f49... Next audio step.
 	/* off, with power on */
 	aic31xx_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 	aic31xx->mute_asi = 0;
@@ -1736,9 +1747,10 @@ static int aic31xx_codec_probe(struct snd_soc_codec *codec)
 
 
 	dev_dbg(codec->dev, "%d, %s, Firmware test\n", __LINE__, __func__);
-	ret=request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG,
+	request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG,
 		"tlv320aic31xx_fw_v1.bin", codec->dev, GFP_KERNEL, codec,
 		aic31xx_firmware_load);
+<<<<<<< HEAD
 //	if (ret < 0) {
 //		dev_err(codec->dev, "Firmware request failed\n");
 //		goto firm_err;
@@ -1751,6 +1763,12 @@ static int aic31xx_codec_probe(struct snd_soc_codec *codec)
 //                         AIC31XX_IRQ_HEADSET_DETECT, codec);
 //irq_err:
 //	destroy_workqueue(aic31xx->workqueue);
+=======
+	debug_print_registers(codec);
+	return 0;
+
+
+>>>>>>> parent of 79e8f49... Next audio step.
 input_dev_err:
 	input_unregister_device(aic31xx->idev);
 	input_free_device(aic31xx->idev);
@@ -1777,14 +1795,19 @@ static int aic31xx_codec_remove(struct snd_soc_codec *codec)
 	switch (control->type) {
 	case TLV320AIC31XX:
 		if (control->irq) {
+<<<<<<< HEAD
 //			aic3xxx_free_irq(control, AIC31XX_IRQ_HEADSET_DETECT,
 //				codec);
 //			aic3xxx_free_irq(control, AIC31XX_IRQ_BUTTON_PRESS,
 //				codec);
+=======
+			aic3xxx_free_irq(control, AIC31XX_IRQ_HEADSET_DETECT,
+				codec);
+			aic3xxx_free_irq(control, AIC31XX_IRQ_BUTTON_PRESS,
+				codec);
+>>>>>>> parent of 79e8f49... Next audio step.
 		}
 		break;
-	default:
-                dev_info(codec->dev,"Coded is not TLV320AIC3100\n");
 	}
 	/* release firmware if any */
 	if (aic31xx->cur_fw != NULL)
@@ -1872,7 +1895,7 @@ int aic31xx_ops_reg_read(void *p, unsigned int reg)
 
 }
 
-int aic31xx_ops_reg_write(void  *p, unsigned int reg, unsigned int mval)
+int aic31xx_ops_reg_write(void  *p, unsigned int reg, unsigned char mval)
 {
 	struct aic31xx_priv *ps = p;
 	aic31xx_reg_union mreg;
@@ -1883,9 +1906,9 @@ int aic31xx_ops_reg_write(void  *p, unsigned int reg, unsigned int mval)
 		mreg.aic3xxx_register.book = c->book;
 		mreg.aic3xxx_register.reserved = 0;
 		mval = c->data;
-		printk(KERN_INFO"pointer %p page %d book %d offset %d value %d\n", p,
+		printk(KERN_INFO"page %d book %d offset %d\n",
 			mreg.aic3xxx_register.page, mreg.aic3xxx_register.book,
-			mreg.aic3xxx_register.offset, mval);
+			mreg.aic3xxx_register.offset);
 		return aic3xxx_reg_write(ps->codec->control_data,
 			mreg.aic3xxx_register_int, mval);
 }
@@ -1978,7 +2001,7 @@ int aic31xx_ops_unlock(void *pv)
 	/*Releasing the lock of mutex */
 	struct aic31xx_priv *aic31xx = (struct aic31xx_priv *) pv;
 
-	printk(KERN_INFO"< UNLOCK >Unlock function\n");
+	printk(KERN_INFO, "< UNLOCK >Unlock function\n");
 	mutex_unlock(&aic31xx->codec->mutex);
 	return 0;
 }
