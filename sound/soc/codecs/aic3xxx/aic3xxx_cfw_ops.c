@@ -56,20 +56,13 @@ static int aic3xxx_cfw_dlctl(cfw_state *ps, cfw_block *pb,
 static
 #endif
 void aic3xxx_cfw_dlcmds(cfw_state *ps, cfw_block *pb);
-static int aic3xxx_cfw_set_mode_id(cfw_state *ps)
-{return 0;}
-static int aic3xxx_cfw_mute(cfw_state *ps, int mute, u32 flags)
-{return 0;}
-static int aic3xxx_cfw_setmode_cfg_u(cfw_state *ps, int mode, int cfg)
-{return 0;}
-static int aic3xxx_cfw_setcfg_u(cfw_state *ps, int cfg)
-{return 0;}
-static int aic3xxx_cfw_transition_u(cfw_state *ps, char *ttype)
-{return 0;}
-static int aic3xxx_cfw_set_pll_u(cfw_state *ps, int asi)
-{return 0;}
-static int aic3xxx_cfw_control_u(cfw_state *ps, char *cname, int param)
-{return 0;}
+static int aic3xxx_cfw_set_mode_id(cfw_state *ps);
+static int aic3xxx_cfw_mute(cfw_state *ps, int mute, u32 flags);
+static int aic3xxx_cfw_setmode_cfg_u(cfw_state *ps, int mode, int cfg);
+static int aic3xxx_cfw_setcfg_u(cfw_state *ps, int cfg);
+static int aic3xxx_cfw_transition_u(cfw_state *ps, char *ttype);
+static int aic3xxx_cfw_set_pll_u(cfw_state *ps, int asi);
+static int aic3xxx_cfw_control_u(cfw_state *ps, char *cname, int param);
 
 static void aic3xxx_wait(cfw_state *ps, unsigned int reg, u8 mask,
 			 u8 data);

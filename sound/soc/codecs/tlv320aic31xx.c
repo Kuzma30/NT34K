@@ -194,7 +194,12 @@ static int aic31xx_set_mode_put(struct snd_kcontrol *kcontrol,
 		dev_err(codec->dev, "\nFirmware not loaded,"
 					"no mode switch can occur\n");
 	else
+<<<<<<< HEAD
 		ret = aic3xxx_cfw_setmode_cfg(priv_ds->cfw_p, next_mode, next_cfg);
+=======
+		ret = aic3xxx_cfw_setmode_cfg(priv_ds->cfw_p,
+			next_mode, next_cfg);
+>>>>>>> parent of 38302a8... Next step. Brute force HACK
 
 	return ret;
 }
@@ -979,11 +984,12 @@ void aic31xx_firmware_load(const struct firmware *fw, void *context)
 	struct snd_soc_codec *codec = context;
 	struct aic31xx_priv *private_ds = snd_soc_codec_get_drvdata(codec);
 	int ret = 0;
-//	aic3xxx_cfw_lock(private_ds->cfw_p, 1);
+	aic3xxx_cfw_lock(private_ds->cfw_p, 1);
 	if (private_ds->cur_fw != NULL)
 		release_firmware(private_ds->cur_fw);
 	private_ds->cur_fw = NULL ;
 
+<<<<<<< HEAD
 //	if (fw != NULL) {
 //		dev_dbg(codec->dev, "Default firmware load\n\n");
 //		private_ds->cur_fw = (void *)fw;
@@ -997,6 +1003,21 @@ void aic31xx_firmware_load(const struct firmware *fw, void *context)
 //		} else
 //			private_ds->isdefault_fw = 0;
 //	}
+=======
+	if (fw != NULL) {
+		dev_dbg(codec->dev, "Default firmware load\n\n");
+		private_ds->cur_fw = (void *)fw;
+		ret = aic3xxx_cfw_reload(private_ds->cfw_p, (void *)fw->data,
+						fw->size);
+		if (ret < 0) { /* reload failed */
+			dev_err(codec->dev, "Firmware binary load failed\n");
+			release_firmware(private_ds->cur_fw);
+			private_ds->cur_fw = NULL;
+			fw = NULL;
+		} else
+			private_ds->isdefault_fw = 0;
+	}
+>>>>>>> parent of 38302a8... Next step. Brute force HACK
 
 //	if (fw == NULL) {
 		/* either request_firmware or reload failed */
@@ -1021,6 +1042,7 @@ void aic31xx_firmware_load(const struct firmware *fw, void *context)
 		}
 		aic3xxx_cfw_setmode_cfg(private_ds->cfw_p, 0, 0);
 	}
+<<<<<<< HEAD
 =======
 //		dev_dbg(codec->dev, "Default firmware load\n");
 //		ret = aic3xxx_cfw_reload(private_ds->cfw_p, default_firmware,
@@ -1041,6 +1063,8 @@ void aic31xx_firmware_load(const struct firmware *fw, void *context)
 //		aic3xxx_cfw_setmode_cfg(private_ds->cfw_p, 0, 0);
 //	}
 >>>>>>> parent of 59f43f3... Next audio step. No audio card yet.
+=======
+>>>>>>> parent of 38302a8... Next step. Brute force HACK
 }
 
 
@@ -1700,7 +1724,12 @@ static int aic31xx_codec_probe(struct snd_soc_codec *codec)
 	aic31xx->cfw_p = &(aic31xx->cfw_ps);
 	aic31xx_codec_write(codec, AIC31XX_RESET_REG , 0x01);
 	mdelay(10);
+<<<<<<< HEAD
 	aic3xxx_cfw_init(aic31xx->cfw_p, &aic31xx_cfw_codec_ops, aic31xx->codec);
+=======
+
+	aic3xxx_cfw_init(aic31xx->cfw_p, &aic31xx_cfw_codec_ops, aic31xx);
+>>>>>>> parent of 38302a8... Next step. Brute force HACK
 	aic31xx->workqueue = create_singlethread_workqueue("aic31xx-codec");
 	if (!aic31xx->workqueue) {
 		ret = -ENOMEM;
@@ -1770,10 +1799,14 @@ static int aic31xx_codec_probe(struct snd_soc_codec *codec)
 	aic31xx_add_controls(codec);
 	aic31xx_add_widgets(codec);
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> parent of 38302a8... Next step. Brute force HACK
 	ret = aic31xx_driver_init(codec);
 	if (ret < 0)
 		dev_dbg(codec->dev,
 	"\nAIC31xx CODEC: aic31xx_probe: TiLoad Initialization failed\n");
+<<<<<<< HEAD
 
 
 	dev_dbg(codec->dev, "%d, %s, Firmware test\n", __LINE__, __func__);
@@ -1800,12 +1833,14 @@ static int aic31xx_codec_probe(struct snd_soc_codec *codec)
 //	if (ret < 0)
 //		dev_dbg(codec->dev,
 //	"\nAIC31xx CODEC: aic31xx_probe: TiLoad Initialization failed\n");
+=======
+>>>>>>> parent of 38302a8... Next step. Brute force HACK
 
 
-//	dev_dbg(codec->dev, "%d, %s, Firmware test\n", __LINE__, __func__);
-//	request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG,
-//		"tlv320aic31xx_fw_v1.bin", codec->dev, GFP_KERNEL, codec,
-//		aic31xx_firmware_load);
+	dev_dbg(codec->dev, "%d, %s, Firmware test\n", __LINE__, __func__);
+	request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG,
+		"tlv320aic31xx_fw_v1.bin", codec->dev, GFP_KERNEL, codec,
+		aic31xx_firmware_load);
 
 >>>>>>> parent of 59f43f3... Next audio step. No audio card yet.
 	return 0;
