@@ -9,7 +9,7 @@ enum aic3xxx_type {
 };
 
 /* The headset jack insertion GPIO used on the Qoo Board */
-#define Qoo_HEADSET_DETECT_GPIO_PIN		102
+#define Qoo_HEADSET_DETECT_GPIO_PIN		49
 
 
 #define AIC31XX_IRQ_HEADSET_DETECT	0
